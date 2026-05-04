@@ -1,77 +1,129 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 
 # Configuração da Página
-st.set_page_config(page_title="Ecoclim & Consorbens", layout="wide", page_icon="❄️")
+st.set_page_config(page_title="Consorbens Wealth", layout="wide", page_icon="📈")
 
-# Estilo CSS para melhorar o visual
 st.markdown("""
     <style>
-    .main { background-color: #f0f2f6; }
-    .stButton>button { width: 100%; border-radius: 5px; height: 3em; background-color: #007bff; color: white; }
-    .stMetric { background-color: white; padding: 20px; border-radius: 10px; box-shadow: 2px 2px 5px rgba(0,0,0,0.1); }
+    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .main { background-color: #f8f9fa; }
+    h2 { color: #2c3e50; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- SIDEBAR ---
+# --- MENU LATERAL ---
 with st.sidebar:
-    st.title("🏦 Gestão Consorbens")
-    st.subheader("Menu de Navegação")
-    menu = st.radio(
-        "Selecione uma área:",
-        ["🏠 Dashboard Geral", "❄️ Ecoclim - Gestão", "📄 Gerador de Docs", "🏠 Airbnb", "💰 Lançamentos Faturamento"]
-    )
-    st.markdown("---")
-    st.write("v1.0 - 2026")
+    st.title("📈 Consorbens")
+    menu = st.radio("Navegação", ["🏠 Dashboard Consolidado", "❄️ Ecoclim", "🏠 Airbnb", "📄 Documentos"])
 
-# --- PÁGINAS ---
+meses = ['JANEIRO', 'FEVEREIRO', 'MARÇO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO']
 
-if menu == "🏠 Dashboard Geral":
-    st.title("📊 Visão Geral dos Negócios")
+# --- FUNÇÃO PARA INICIALIZAR DADOS (Sessão do Streamlit) ---
+# Isso cria uma "planilha" em memória para você editar na tela
+if 'df_patrimonio' not in st.session_state:
+    dados_iniciais = {
+        'Capital Giro ML': [0]*12, 'Capital Giro Consorbens': [0]*12,
+        'CONTA INTER PF': [0]*12, 'CONTA XP PF': [0]*12, 'FGTS': [0]*12,
+        'Imóveis': [0]*12, 'VEÍCULOS': [0]*12
+    }
+    st.session_state.df_patrimonio = pd.DataFrame(dados_iniciais, index=meses)
+
+if 'df_entradas' not in st.session_state:
+    entradas_iniciais = {'Ecoclim': [0]*12, 'Airbnb': [0]*12, 'Consorbens': [0]*12, 'Maggi': [0]*12}
+    st.session_state.df_entradas = pd.DataFrame(entradas_iniciais, index=meses)
+
+# ==========================================
+# 🏠 DASHBOARD CONSOLIDADO
+# ==========================================
+if menu == "🏠 Dashboard Consolidado":
+    st.title("📊 Painel de Controle de Patrimônio")
     
-    # KPIs de exemplo (depois puxaremos do Supabase/Planilha)
-    col1, col2, col3, col4 = st.columns(4)
-    with col1: st.metric("Lucro Ecoclim (Mês)", "R$ 12.500")
-    with col2: st.metric("Consorbens", "R$ 8.200")
-    with col3: st.metric("Airbnb", "R$ 2.450")
-    with col4: st.metric("Total Acumulado", "R$ 23.150")
-
-    st.subheader("📈 Evolução Financeira")
-    # Aqui entrará o gráfico consolidado
-    st.info("O gráfico será gerado assim que integrarmos os dados da planilha 1_Financeiro_2026.xlsx.")
-
-elif menu == "❄️ Ecoclim - Gestão":
-    st.title("❄️ Controle de Serviços - Ecoclim")
+    st.subheader("1. Controle de Saldos e Patrimônio")
+    st.caption("Edite os valores abaixo. Os totais serão calculados automaticamente.")
     
-    tab1, tab2 = st.tabs(["Serviços Ativos", "Novo Lançamento"])
+    # Editor Interativo na tela
+    df_editado_patr = st.data_editor(st.session_state.df_patrimonio, use_container_width=True)
+    st.session_state.df_patrimonio = df_editado_patr # Salva as edições
     
-    with tab1:
-        st.write("Lista de serviços em andamento...")
-        # Exemplo de tabela
-        dados_teste = pd.DataFrame({
-            'Cliente': ['Edmilson', 'Erick'],
-            'Valor': [72076.38, 13200.00],
-            'Status': ['Pago Sinal', 'Concluído']
-        })
-        st.table(dados_teste)
+    # --- CÁLCULOS AUTOMÁTICOS DO PATRIMÔNIO ---
+    df_calc = df_editado_patr.copy()
+    
+    # Patrimônio Líquido = Soma de tudo, exceto Imóveis e Veículos
+    df_calc['Patrimônio Líquido'] = df_calc[['Capital Giro ML', 'Capital Giro Consorbens', 'CONTA INTER PF', 'CONTA XP PF', 'FGTS']].sum(axis=1)
+    
+    # Patrimônio Total = Líquido + Imóveis + Veículos
+    df_calc['Patrimônio Total'] = df_calc['Patrimônio Líquido'] + df_calc['Imóveis'] + df_calc['VEÍCULOS']
+    
+    # Variações em relação ao mês anterior (diff e pct_change)
+    df_calc['Var $ Patrimônio'] = df_calc['Patrimônio Total'].diff().fillna(0)
+    df_calc['Var % Patrimônio'] = (df_calc['Patrimônio Total'].pct_change().fillna(0) * 100).round(2)
+    
+    # Exibir a tabela com os resultados calculados
+    st.markdown("### 📈 Resultados do Patrimônio")
+    st.dataframe(df_calc[['Patrimônio Líquido', 'Patrimônio Total', 'Var $ Patrimônio', 'Var % Patrimônio']].style.format({
+        'Patrimônio Líquido': 'R$ {:,.2f}', 'Patrimônio Total': 'R$ {:,.2f}', 
+        'Var $ Patrimônio': 'R$ {:,.2f}', 'Var % Patrimônio': '{:.2f}%'
+    }), use_container_width=True)
 
-    with tab2:
-        with st.form("form_servico"):
-            st.text_input("Nome do Cliente")
-            st.number_input("Valor da Venda", min_value=0.0)
-            st.selectbox("Instalador", ["Valdimar", "Outro"])
-            st.form_submit_button("Salvar Serviço")
+    st.divider()
 
-elif menu == "📄 Gerador de Docs":
-    st.title("📄 Gerador de Orçamentos e Contratos")
-    doc_tipo = st.selectbox("Documento:", ["Orçamento Profissional", "Contrato de Prestação"])
-    if st.button("Gerar PDF"):
-        st.success("Função de PDF sendo configurada...")
+    # ==========================================
+    # 2. ENTRADAS MENSAIS (FLUXO DE CAIXA)
+    # ==========================================
+    st.subheader("2. Entradas Mensais (Renda)")
+    
+    df_editado_entradas = st.data_editor(st.session_state.df_entradas, use_container_width=True)
+    st.session_state.df_entradas = df_editado_entradas
+    
+    df_entradas_calc = df_editado_entradas.copy()
+    df_entradas_calc['Salário Mês Total'] = df_entradas_calc.sum(axis=1)
+    
+    st.markdown("### 💵 Total de Entradas")
+    st.dataframe(df_entradas_calc[['Salário Mês Total']].style.format('R$ {:,.2f}'), use_container_width=True)
 
+    st.divider()
+
+    # ==========================================
+    # 3. INDICADORES ANUAIS E MÉDIAS
+    # ==========================================
+    st.subheader("3. Indicadores de Performance")
+    
+    # Para as médias, vamos considerar apenas os meses onde houve variação de patrimônio maior que zero para não sujar a média anual com meses vazios
+    meses_ativos = df_calc[df_calc['Patrimônio Total'] > 0].shape[0]
+    meses_ativos = meses_ativos if meses_ativos > 0 else 1 # evitar divisão por zero
+
+    media_aplicacao = df_calc['Var $ Patrimônio'].sum() / meses_ativos
+    soma_salarial = df_entradas_calc['Salário Mês Total'].sum()
+    media_salarial = soma_salarial / meses_ativos
+    
+    # Avanço Anual: Último mês ativo menos o primeiro (ou de dezembro do ano passado, como você pediu, que ajustaremos quando conectarmos banco de dados)
+    patrimonio_atual = df_calc['Patrimônio Total'].replace(0, np.nan).dropna().iloc[-1] if not df_calc['Patrimônio Total'].replace(0, np.nan).dropna().empty else 0
+    patrimonio_inicial = df_calc['Patrimônio Total'].iloc[0]
+    avanco_patrimonial = patrimonio_atual - patrimonio_inicial
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Média Aplicação Mês (Var $)", f"R$ {media_aplicacao:,.2f}")
+    col2.metric("Média Salarial Anual Líq.", f"R$ {media_salarial:,.2f}")
+    col3.metric("Soma Salarial Anual", f"R$ {soma_salarial:,.2f}")
+    
+    col4, col5 = st.columns(2)
+    col4.metric("Avanço Anual Patrimonial", f"R$ {avanco_patrimonial:,.2f}")
+    col5.metric("Avanço Anual Aplicação (Liquidez)", "Em construção...")
+
+    st.divider()
+
+    # ==========================================
+    # 4. CONTROLE DE RENDIMENTOS (INTER E XP)
+    # ==========================================
+    st.subheader("4. Rendimento de Investimentos (Inter e XP)")
+    st.write("Em breve: Aqui faremos a lógica de travar o valor do último dia do mês e comparar com o atual, gerando % e R$ de rendimento!")
+
+# Outras páginas apenas marcadas para expansão futura
+elif menu == "❄️ Ecoclim":
+    st.title("Controle Ecoclim")
 elif menu == "🏠 Airbnb":
-    st.title("🏠 Gestão Airbnb")
-    st.write("Controle de datas e taxas de cartão.")
-
-elif menu == "💰 Lançamentos Faturamento":
-    st.title("💰 Outras Fontes de Renda")
-    st.write("Lançamento manual: Consorbens, CLT e Investimentos.")
+    st.title("Controle Airbnb")
+elif menu == "📄 Documentos":
+    st.title("Gerador de Orçamentos e Contratos")
