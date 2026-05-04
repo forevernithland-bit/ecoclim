@@ -5,45 +5,33 @@ import numpy as np
 # Configuração da Página
 st.set_page_config(page_title="Consorbens Wealth", layout="wide", page_icon="📈")
 
-# --- CSS DEFINITIVO PARA CLONE DO EXCEL ---
+# --- CSS PARA SOBREPOSIÇÃO E ALINHAMENTO PERFEITO ---
 st.markdown("""
     <style>
-    /* Empurra para o topo */
-    .block-container { padding-top: 1rem !important; }
-    
-    /* Centraliza e força larguras iguais para as colunas em TODAS as tabelas */
-    .stDataFrame table, .stDataEditor table { 
-        table-layout: fixed !important; 
-        width: 100% !important; 
-    }
-    .stDataFrame td, .stDataFrame th, .stDataEditor td, .stDataEditor th { 
-        text-align: center !important; 
-        overflow: hidden; 
-        text-overflow: ellipsis; 
-        white-space: nowrap;
-    }
-    
-    /* Reduz espaço vertical do Streamlit a ZERO */
-    div[data-testid="stVerticalBlock"] > div {
-        padding-bottom: 0px !important;
-        margin-bottom: 0px !important;
-    }
+    /* Empurra o dashboard para o topo e zera espaços entre componentes */
+    .block-container { padding-top: 1rem !important; padding-bottom: 1rem !important; }
+    div[data-testid="stVerticalBlock"] > div { padding-bottom: 0px !important; margin-bottom: 0px !important; }
     div.st-emotion-cache-1wivap2 { gap: 0rem !important; }
     
-    /* 
-       OCULTAR CABEÇALHOS (MESES):
-       - Esconde da tabela de resultados do patrimônio
-       - Esconde da tabela de edição de entradas
-       - Esconde da tabela de resultados das entradas
-    */
-    div[data-testid="stDataFrame"] table thead,
-    div[data-testid="stDataEditor"]:nth-of-type(2) table thead {
-        display: none !important;
-    }
+    /* Centraliza o texto nas células */
+    .stDataFrame td, .stDataFrame th, .stDataEditor td, .stDataEditor th { text-align: center !important; }
     
-    /* Cola as tabelas puxando as margens para negativo */
-    div[data-testid="stDataEditor"] { margin-bottom: -16px !important; z-index: 2; position: relative; }
-    div[data-testid="stDataFrame"] { margin-top: 0px !important; margin-bottom: -16px !important; z-index: 1; }
+    /* 
+       A MÁGICA: Puxar as tabelas para cima para esconder os cabeçalhos.
+       Cada tabela fica "embaixo" da tabela anterior (Z-index menor), 
+       e o margin-top de -36px esconde o cabeçalho perfeitamente!
+    */
+    /* Tabela 1: Patrimônio (Topo - Fica por cima de todas) */
+    div[data-testid="stDataEditor"]:nth-of-type(1) { z-index: 10; position: relative; }
+    
+    /* Tabela 2: Resultados Patrimônio (Fica embaixo da Tabela 1) */
+    div[data-testid="stDataFrame"]:nth-of-type(1) { z-index: 9; position: relative; margin-top: -36px !important; }
+    
+    /* Tabela 3: Entradas Editáveis (Fica embaixo da Tabela 2) */
+    div[data-testid="stDataEditor"]:nth-of-type(2) { z-index: 8; position: relative; margin-top: -36px !important; }
+    
+    /* Tabela 4: Salário Mês (Fica embaixo da Tabela 3) */
+    div[data-testid="stDataFrame"]:nth-of-type(2) { z-index: 7; position: relative; margin-top: -36px !important; }
     
     .main { background-color: #f8f9fa; }
     </style>
@@ -61,74 +49,91 @@ meses = ['dez/25', 'JANEIRO', 'FEVEREIRO', 'MARÇO', 'ABRIL', 'MAIO', 'JUNHO', '
 linhas_patrimonio = ['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS', 'IMÓVEIS', 'VEÍCULOS']
 linhas_entradas = ['ECOCLIM', 'AIRNB', 'CONS INVESTIMENTOS', 'MAGGI CONSORCIOS']
 
-# Memória
-if 'df_patrimonio' not in st.session_state or list(st.session_state.df_patrimonio.index) != linhas_patrimonio or list(st.session_state.df_patrimonio.columns) != meses:
-    st.session_state.df_patrimonio = pd.DataFrame(0.0, index=linhas_patrimonio, columns=meses)
-if 'df_entradas' not in st.session_state or list(st.session_state.df_entradas.index) != linhas_entradas or list(st.session_state.df_entradas.columns) != meses:
-    st.session_state.df_entradas = pd.DataFrame(0.0, index=linhas_entradas, columns=meses)
+# Inicializando Dados (Agora com a coluna "CONTAS" fixa para garantir alinhamento)
+if 'df_patrimonio' not in st.session_state or 'CONTAS' not in st.session_state.df_patrimonio.columns:
+    df_p = pd.DataFrame(0.0, index=range(len(linhas_patrimonio)), columns=meses)
+    df_p.insert(0, 'CONTAS', linhas_patrimonio)
+    st.session_state.df_patrimonio = df_p
 
+if 'df_entradas' not in st.session_state or 'CONTAS' not in st.session_state.df_entradas.columns:
+    df_e = pd.DataFrame(0.0, index=range(len(linhas_entradas)), columns=meses)
+    df_e.insert(0, 'CONTAS', linhas_entradas)
+    st.session_state.df_entradas = df_e
+
+# CONFIGURAÇÃO DE COLUNA (Isto é o que trava a largura para todas as tabelas ficarem idênticas)
+base_config = {
+    "CONTAS": st.column_config.TextColumn("CONTAS", width=280, disabled=True)
+}
+for mes in meses:
+    base_config[mes] = st.column_config.NumberColumn(mes, format="%.2f")
+
+# ==========================================
+# 🏠 DASHBOARD CONSOLIDADO
+# ==========================================
 if menu == "🏠 Dashboard Consolidado":
     
     # ------------------------------------------------------------------
-    # TABELA 1: PATRIMÔNIO (EDITÁVEL) - A ÚNICA COM MESES NO TOPO
+    # TABELA 1: PATRIMÔNIO EDITÁVEL (A única que mostra o Cabeçalho)
     # ------------------------------------------------------------------
-    df_editado_patr = st.data_editor(st.session_state.df_patrimonio, use_container_width=True, height=280)
+    df_editado_patr = st.data_editor(st.session_state.df_patrimonio, hide_index=True, column_config=base_config, use_container_width=True, height=283)
     st.session_state.df_patrimonio = df_editado_patr
     
     # Cálculos Patrimônio
-    patrimonio_liquido = df_editado_patr.loc[['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS']].sum(axis=0)
-    patrimonio_total = patrimonio_liquido + df_editado_patr.loc['IMÓVEIS'] + df_editado_patr.loc['VEÍCULOS']
+    df_num_patr = df_editado_patr.set_index('CONTAS')
+    patrimonio_liquido = df_num_patr.loc[['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS']].sum(axis=0)
+    patrimonio_total = patrimonio_liquido + df_num_patr.loc['IMÓVEIS'] + df_num_patr.loc['VEÍCULOS']
     var_rs = patrimonio_total.diff().fillna(0)
     var_pct = (patrimonio_total.pct_change().fillna(0) * 100).round(2)
 
-    df_resultados_patr = pd.DataFrame({
-        'PATRIMONIO LÍQUIDO': patrimonio_liquido,
-        'PATRIMONIO TOTAL': patrimonio_total,
-        'Var $ patrimonio': var_rs,
-        '% var patrimônio': var_pct
-    }).T
+    df_resultados_patr = pd.DataFrame({'CONTAS': ['PATRIMONIO LÍQUIDO', 'PATRIMONIO TOTAL', 'Var $ patrimonio', '% var patrimônio']})
+    for mes in meses:
+        df_resultados_patr[mes] = [patrimonio_liquido[mes], patrimonio_total[mes], var_rs[mes], var_pct[mes]]
 
-    # Cores
+    # Cores (O mesmo padrão da sua imagem)
     def style_patrimonio(row):
-        if row.name == 'PATRIMONIO LÍQUIDO':
+        if row['CONTAS'] == 'PATRIMONIO LÍQUIDO':
             return ['background-color: #FFF2CC; font-weight: bold; color: black; border: 1px solid black;'] * len(row)
-        elif row.name == 'PATRIMONIO TOTAL':
+        elif row['CONTAS'] == 'PATRIMONIO TOTAL':
             return ['background-color: #FF9900; font-weight: bold; color: black; border: 1px solid black;'] * len(row)
         else:
             return ['background-color: #FFF2CC; color: black;'] * len(row)
 
     styled_df_patr = df_resultados_patr.style\
         .apply(style_patrimonio, axis=1)\
-        .format(formatter={col: 'R$ {:,.2f}' for col in df_resultados_patr.columns}, subset=pd.IndexSlice[['PATRIMONIO LÍQUIDO', 'PATRIMONIO TOTAL', 'Var $ patrimonio'], :])\
-        .format(formatter={col: '{:.2f}%' for col in df_resultados_patr.columns}, subset=pd.IndexSlice[['% var patrimônio'], :])
+        .format(formatter={col: 'R$ {:,.2f}' for col in meses}, subset=pd.IndexSlice[[0, 1, 2], meses])\
+        .format(formatter={col: '{:.2f}%' for col in meses}, subset=pd.IndexSlice[[3], meses])
 
     # ------------------------------------------------------------------
-    # TABELA 2: RESULTADOS PATRIMÔNIO (COLADA, SEM MESES)
+    # TABELA 2: RESULTADOS PATRIMÔNIO (Cabeçalho escondido pela Tabela 1)
     # ------------------------------------------------------------------
-    st.dataframe(styled_df_patr, use_container_width=True, height=180)
+    st.dataframe(styled_df_patr, hide_index=True, column_config=base_config, use_container_width=True, height=180)
 
     # ------------------------------------------------------------------
-    # TABELA 3: ENTRADAS (EDITÁVEL, COLADA, SEM MESES)
+    # TABELA 3: ENTRADAS EDITÁVEL (Cabeçalho escondido pela Tabela 2)
     # ------------------------------------------------------------------
-    df_editado_entradas = st.data_editor(st.session_state.df_entradas, use_container_width=True, height=180, key="entradas_editor")
+    df_editado_entradas = st.data_editor(st.session_state.df_entradas, hide_index=True, column_config=base_config, use_container_width=True, height=180)
     st.session_state.df_entradas = df_editado_entradas
     
     # Cálculos Entradas
-    salario_mes = df_editado_entradas.sum(axis=0)
-    df_resultado_entradas = pd.DataFrame({'SALÁRIO MÊS:': salario_mes}).T
+    df_num_ent = df_editado_entradas.set_index('CONTAS')
+    salario_mes = df_num_ent.sum(axis=0)
 
-    # Cores Entradas
+    df_resultado_entradas = pd.DataFrame({'CONTAS': ['SALÁRIO MÊS:']})
+    for mes in meses:
+        df_resultado_entradas[mes] = [salario_mes[mes]]
+
+    # Cor Azul da Entradas
     def style_entradas(row):
         return ['background-color: #9BC2E6; font-weight: bold; color: black; border: 1px solid black;'] * len(row)
 
     styled_df_ent = df_resultado_entradas.style\
         .apply(style_entradas, axis=1)\
-        .format('R$ {:,.2f}')
+        .format(formatter={col: 'R$ {:,.2f}' for col in meses})
         
     # ------------------------------------------------------------------
-    # TABELA 4: RESULTADO ENTRADAS (COLADA, SEM MESES)
+    # TABELA 4: RESULTADO ENTRADAS (Cabeçalho escondido pela Tabela 3)
     # ------------------------------------------------------------------
-    st.dataframe(styled_df_ent, use_container_width=True, height=70)
+    st.dataframe(styled_df_ent, hide_index=True, column_config=base_config, use_container_width=True, height=73)
 
 elif menu == "❄️ Ecoclim":
     st.title("Controle Ecoclim")
