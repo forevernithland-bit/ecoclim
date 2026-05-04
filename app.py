@@ -5,9 +5,13 @@ import numpy as np
 # Configuração da Página
 st.set_page_config(page_title="Consorbens Wealth", layout="wide", page_icon="📈")
 
-# --- CSS PARA CENTRALIZAR E ESTILIZAR ---
+# --- CSS PARA CENTRALIZAR, ESTILIZAR E COMPACTAR O LAYOUT ---
 st.markdown("""
     <style>
+    /* Empurra o layout para o topo e reduz os espaços em branco */
+    .block-container { padding-top: 1rem !important; padding-bottom: 1rem !important; }
+    div[data-testid="stVerticalBlock"] > div { padding-bottom: 0rem !important; }
+    
     .stDataFrame td, .stDataFrame th { text-align: center !important; }
     .stMetric { background-color: #ffffff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center; }
     .main { background-color: #f8f9fa; }
@@ -19,18 +23,16 @@ with st.sidebar:
     st.title("📈 Consorbens")
     menu = st.radio("Navegação", ["🏠 Dashboard Consolidado", "❄️ Ecoclim", "🏠 Airbnb", "📄 Documentos"])
     
-    # Botão de emergência para limpar o cache caso dê erro de novo
     if st.button("🔄 Limpar Memória do App"):
         st.session_state.clear()
         st.rerun()
 
 meses = ['JANEIRO', 'FEVEREIRO', 'MARÇO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO']
 
-# Nomes EXATAMENTE iguais à sua planilha da imagem
 linhas_patrimonio = ['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS', 'IMÓVEIS', 'VEÍCULOS']
 linhas_entradas = ['ECOCLIM', 'AIRNB', 'CONS INVESTIMENTOS', 'MAGGI CONSORCIOS']
 
-# Sistema de Segurança: Se os dados antigos estiverem na memória, ele reseta
+# Sistema de Segurança para a memória
 if 'df_patrimonio' not in st.session_state or list(st.session_state.df_patrimonio.index) != linhas_patrimonio:
     st.session_state.df_patrimonio = pd.DataFrame(0.0, index=linhas_patrimonio, columns=meses)
 if 'df_entradas' not in st.session_state or list(st.session_state.df_entradas.index) != linhas_entradas:
@@ -40,15 +42,13 @@ if 'df_entradas' not in st.session_state or list(st.session_state.df_entradas.in
 # 🏠 DASHBOARD CONSOLIDADO
 # ==========================================
 if menu == "🏠 Dashboard Consolidado":
-    st.title("📊 Painel de Controle de Patrimônio")
     
     # ---------------------------------------------------
-    st.subheader("1. Edição de Saldos")
-    
+    # BLOCO 1: PATRIMÔNIO (Edição + Resultados grudados)
+    # ---------------------------------------------------
     df_editado_patr = st.data_editor(st.session_state.df_patrimonio, use_container_width=True)
     st.session_state.df_patrimonio = df_editado_patr
     
-    # Cálculos com os nomes atualizados
     patrimonio_liquido = df_editado_patr.loc[['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS']].sum(axis=0)
     patrimonio_total = patrimonio_liquido + df_editado_patr.loc['IMÓVEIS'] + df_editado_patr.loc['VEÍCULOS']
     var_rs = patrimonio_total.diff().fillna(0)
@@ -61,9 +61,6 @@ if menu == "🏠 Dashboard Consolidado":
         '% var patrimônio': var_pct
     }).T
 
-    # ---------------------------------------------------
-    st.markdown("### 📈 Visualização do Patrimônio")
-    
     def style_patrimonio(row):
         styles = [''] * len(row)
         if row.name == 'PATRIMONIO LIQUIDO':
@@ -78,11 +75,12 @@ if menu == "🏠 Dashboard Consolidado":
         .format(formatter={col: '{:.2f}%' for col in df_resultados_patr.columns}, subset=pd.IndexSlice[['% var patrimônio'], :])
 
     st.dataframe(styled_df_patr, use_container_width=True)
-    st.divider()
+    
+    st.write("") # Apenas um micro-espaço entre as tabelas
 
     # ---------------------------------------------------
-    st.subheader("2. Entradas Mensais (Renda)")
-    
+    # BLOCO 2: ENTRADAS MENSAIS (Renda)
+    # ---------------------------------------------------
     df_editado_entradas = st.data_editor(st.session_state.df_entradas, use_container_width=True)
     st.session_state.df_entradas = df_editado_entradas
     
@@ -97,10 +95,12 @@ if menu == "🏠 Dashboard Consolidado":
         .format('R$ {:,.2f}')
         
     st.dataframe(styled_df_ent, use_container_width=True)
-    st.divider()
+    
+    st.write("") # Apenas um micro-espaço
 
     # ---------------------------------------------------
-    st.subheader("3. Indicadores e Médias")
+    # BLOCO 3: INDICADORES E MÉDIAS (Grudado)
+    # ---------------------------------------------------
     meses_ativos = patrimonio_total[patrimonio_total > 0].shape[0]
     meses_ativos = meses_ativos if meses_ativos > 0 else 1 
 
