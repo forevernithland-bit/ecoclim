@@ -8,19 +8,8 @@ st.set_page_config(page_title="Consorbens Wealth", layout="wide", page_icon="�
 # --- CSS PARA CENTRALIZAR E ESTILIZAR ---
 st.markdown("""
     <style>
-    /* Centralizar o texto nas tabelas do Streamlit */
-    .stDataFrame td, .stDataFrame th {
-        text-align: center !important;
-    }
-    
-    /* Estilo dos cards (Metrics) */
-    .stMetric { 
-        background-color: #ffffff; 
-        padding: 15px; 
-        border-radius: 8px; 
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1); 
-        text-align: center;
-    }
+    .stDataFrame td, .stDataFrame th { text-align: center !important; }
+    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center; }
     .main { background-color: #f8f9fa; }
     </style>
     """, unsafe_allow_html=True)
@@ -29,16 +18,22 @@ st.markdown("""
 with st.sidebar:
     st.title("📈 Consorbens")
     menu = st.radio("Navegação", ["🏠 Dashboard Consolidado", "❄️ Ecoclim", "🏠 Airbnb", "📄 Documentos"])
+    
+    # Botão de emergência para limpar o cache caso dê erro de novo
+    if st.button("🔄 Limpar Memória do App"):
+        st.session_state.clear()
+        st.rerun()
 
 meses = ['JANEIRO', 'FEVEREIRO', 'MARÇO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO']
 
-linhas_patrimonio = ['Capital de Giro Ml', 'Capital Giro Consorbens', 'CONTA INTER PF', 'CONTA XP PF', 'FGTS', 'Imóveis', 'VEÍCULOS']
-linhas_entradas = ['Ecoclim', 'Airnb', 'Cons. Investimentos', 'Maggi']
+# Nomes EXATAMENTE iguais à sua planilha da imagem
+linhas_patrimonio = ['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS', 'IMÓVEIS', 'VEÍCULOS']
+linhas_entradas = ['ECOCLIM', 'AIRNB', 'CONS INVESTIMENTOS', 'MAGGI CONSORCIOS']
 
-# Inicializar os dados (como floats para formatar em R$)
-if 'df_patrimonio' not in st.session_state:
+# Sistema de Segurança: Se os dados antigos estiverem na memória, ele reseta
+if 'df_patrimonio' not in st.session_state or list(st.session_state.df_patrimonio.index) != linhas_patrimonio:
     st.session_state.df_patrimonio = pd.DataFrame(0.0, index=linhas_patrimonio, columns=meses)
-if 'df_entradas' not in st.session_state:
+if 'df_entradas' not in st.session_state or list(st.session_state.df_entradas.index) != linhas_entradas:
     st.session_state.df_entradas = pd.DataFrame(0.0, index=linhas_entradas, columns=meses)
 
 # ==========================================
@@ -48,53 +43,43 @@ if menu == "🏠 Dashboard Consolidado":
     st.title("📊 Painel de Controle de Patrimônio")
     
     # ---------------------------------------------------
-    # 1. ENTRADA DE DADOS E CÁLCULO
-    # ---------------------------------------------------
     st.subheader("1. Edição de Saldos")
     
-    # Pegamos os dados editados
     df_editado_patr = st.data_editor(st.session_state.df_patrimonio, use_container_width=True)
     st.session_state.df_patrimonio = df_editado_patr
     
-    # Cálculos
-    patrimonio_liquido = df_editado_patr.loc[['Capital de Giro Ml', 'Capital Giro Consorbens', 'CONTA INTER PF', 'CONTA XP PF', 'FGTS']].sum(axis=0)
-    patrimonio_total = patrimonio_liquido + df_editado_patr.loc['Imóveis'] + df_editado_patr.loc['VEÍCULOS']
+    # Cálculos com os nomes atualizados
+    patrimonio_liquido = df_editado_patr.loc[['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS']].sum(axis=0)
+    patrimonio_total = patrimonio_liquido + df_editado_patr.loc['IMÓVEIS'] + df_editado_patr.loc['VEÍCULOS']
     var_rs = patrimonio_total.diff().fillna(0)
     var_pct = (patrimonio_total.pct_change().fillna(0) * 100).round(2)
 
     df_resultados_patr = pd.DataFrame({
         'PATRIMONIO LIQUIDO': patrimonio_liquido,
         'PATRIMONIO TOTAL': patrimonio_total,
-        'Var $ patrimônio': var_rs,
+        'Var $ patrimonio': var_rs,
         '% var patrimônio': var_pct
     }).T
 
     # ---------------------------------------------------
-    # 2. TABELA ESTILIZADA (CORES)
-    # ---------------------------------------------------
     st.markdown("### 📈 Visualização do Patrimônio")
     
-    # Função para aplicar cores nas linhas específicas
     def style_patrimonio(row):
         styles = [''] * len(row)
         if row.name == 'PATRIMONIO LIQUIDO':
-            styles = ['background-color: #E6F2FF; font-weight: bold; color: black'] * len(row) # Azul claro
+            styles = ['background-color: #E6F2FF; font-weight: bold; color: black'] * len(row)
         elif row.name == 'PATRIMONIO TOTAL':
-            styles = ['background-color: #FFB347; font-weight: bold; color: black'] * len(row) # Laranja
+            styles = ['background-color: #FFB347; font-weight: bold; color: black'] * len(row)
         return styles
 
-    # Aplicando a formatação (R$ e %) e as cores
     styled_df_patr = df_resultados_patr.style\
         .apply(style_patrimonio, axis=1)\
-        .format(formatter={col: 'R$ {:,.2f}' for col in df_resultados_patr.columns}, subset=pd.IndexSlice[['PATRIMONIO LIQUIDO', 'PATRIMONIO TOTAL', 'Var $ patrimônio'], :])\
+        .format(formatter={col: 'R$ {:,.2f}' for col in df_resultados_patr.columns}, subset=pd.IndexSlice[['PATRIMONIO LIQUIDO', 'PATRIMONIO TOTAL', 'Var $ patrimonio'], :])\
         .format(formatter={col: '{:.2f}%' for col in df_resultados_patr.columns}, subset=pd.IndexSlice[['% var patrimônio'], :])
 
     st.dataframe(styled_df_patr, use_container_width=True)
-
     st.divider()
 
-    # ---------------------------------------------------
-    # 3. ENTRADAS MENSAIS
     # ---------------------------------------------------
     st.subheader("2. Entradas Mensais (Renda)")
     
@@ -112,11 +97,8 @@ if menu == "🏠 Dashboard Consolidado":
         .format('R$ {:,.2f}')
         
     st.dataframe(styled_df_ent, use_container_width=True)
-
     st.divider()
 
-    # ---------------------------------------------------
-    # 4. INDICADORES
     # ---------------------------------------------------
     st.subheader("3. Indicadores e Médias")
     meses_ativos = patrimonio_total[patrimonio_total > 0].shape[0]
