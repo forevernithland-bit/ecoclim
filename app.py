@@ -6,62 +6,58 @@ import streamlit.components.v1 as components
 # Configuração da Página
 st.set_page_config(page_title="Consorbens Wealth", layout="wide", page_icon="📈")
 
-# --- CSS BRUTAL: DELETA CABEÇALHOS E COLA TABELAS ---
+# --- CSS CIRÚRGICO: ALINHAMENTO SEM QUEBRAR DADOS ---
 st.markdown("""
     <style>
-    /* Desce o topo para dar espaço ao título MESES */
+    /* Dá um respiro no topo para os meses aparecerem bem */
     .block-container { padding-top: 3rem !important; }
     
-    /* Remove todo o espaçamento entre os blocos */
-    div.st-emotion-cache-1wivap2 { gap: 0rem !important; }
-    div[data-testid="stVerticalBlock"] { gap: 0px !important; padding: 0px !important; }
+    /* Remove todos os buracos em branco entre os elementos da página principal */
+    section.main div.st-emotion-cache-1wivap2 { gap: 0rem !important; }
+    section.main div[data-testid="stVerticalBlock"] { gap: 0px !important; }
     
-    /* Centraliza os textos em todas as tabelas */
+    /* Centraliza os textos */
     .stDataFrame td, .stDataFrame th, .stDataEditor td, .stDataEditor th { 
         text-align: center !important; 
     }
     
-    /* Garante fundo branco para a sobreposição funcionar e esconder a debaixo */
+    /* Fundos brancos sólidos para a sobreposição funcionar */
     div[data-testid="stDataEditor"], div[data-testid="stDataFrame"] {
         background-color: white !important;
     }
 
     /* 
-       A MÁGICA DA COLAGEM (-65px):
-       Puxa a tabela debaixo com tanta força que o cabeçalho inteiro dela 
-       desaparece atrás da tabela de cima.
+       A MÁGICA SEGURA: 
+       Usa a altura exata do cabeçalho (-39px) para esconder APENAS o cabeçalho, 
+       sem comer a primeira linha de dados!
     */
     
-    /* 1. Patrimônio Editável (Topo) */
-    div[data-testid="stVerticalBlock"] > div:nth-child(1) { 
-        z-index: 10 !important; 
-        position: relative !important; 
+    /* 1. Patrimônio Editável (Fica no topo, MOSTRA os meses) */
+    section.main div[data-testid="stDataEditor"]:nth-of-type(1) { 
+        z-index: 10 !important; position: relative !important; 
     }
     
-    /* 2. Patrimônio Resultado (Cabeçalho deletado pela de cima) */
-    div[data-testid="stVerticalBlock"] > div:nth-child(2) { 
-        z-index: 9 !important; 
-        position: relative !important; 
-        margin-top: -65px !important; /* PUXÃO FORTE PRA ESCONDER O CABEÇALHO */
-        margin-bottom: 20px !important; /* Espaço antes das Entradas */
+    /* 2. Patrimônio Resultado (ESCONDE cabeçalho debaixo da tabela 1) */
+    section.main div[data-testid="stDataFrame"]:nth-of-type(1) { 
+        z-index: 9 !important; position: relative !important; 
+        margin-top: -39px !important; 
     }
     
-    /* 3. Entradas Editável (Com cabeçalho visível) */
-    div[data-testid="stVerticalBlock"] > div:nth-child(3) { 
-        z-index: 8 !important; 
-        position: relative !important; 
+    /* 3. Entradas Editável (ESCONDE cabeçalho debaixo da tabela 2) */
+    section.main div[data-testid="stDataEditor"]:nth-of-type(2) { 
+        z-index: 8 !important; position: relative !important; 
+        margin-top: -39px !important; 
     }
     
-    /* 4. Entradas Resultado (Cabeçalho deletado pela de cima) */
-    div[data-testid="stVerticalBlock"] > div:nth-child(4) { 
-        z-index: 7 !important; 
-        position: relative !important; 
-        margin-top: -65px !important; /* PUXÃO FORTE PRA ESCONDER O CABEÇALHO */
+    /* 4. Entradas Resultado (ESCONDE cabeçalho debaixo da tabela 3) */
+    section.main div[data-testid="stDataFrame"]:nth-of-type(2) { 
+        z-index: 7 !important; position: relative !important; 
+        margin-top: -39px !important; 
     }
 
-    /* Remove os cantos arredondados debaixo para colar 100% reto */
-    div[data-testid="stDataEditor"] > div > div { border-bottom-left-radius: 0px !important; border-bottom-right-radius: 0px !important; }
-    div[data-testid="stDataFrame"] > div > div { border-top-left-radius: 0px !important; border-top-right-radius: 0px !important; border-top: none !important; }
+    /* Tira o arredondamento para parecer uma planilha só */
+    section.main div[data-testid="stDataEditor"] > div > div { border-radius: 0px !important; }
+    section.main div[data-testid="stDataFrame"] > div > div { border-radius: 0px !important; border-top: none !important; }
 
     .main { background-color: #f8f9fa; }
     </style>
@@ -127,9 +123,15 @@ if 'df_entradas' not in st.session_state or 'MESES' not in st.session_state.df_e
     st.session_state.df_entradas = df_e
 
 # TRAVA UNIVERSAL DE COLUNAS
-col_config_master = {"MESES": st.column_config.TextColumn("MESES", width=250, disabled=True)}
+# Configuração para a Tabela 1 (Exibe os nomes)
+col_config_top = {"MESES": st.column_config.TextColumn("MESES", width=250, disabled=True)}
 for mes in meses_view:
-    col_config_master[mes] = st.column_config.NumberColumn(mes, width=100)
+    col_config_top[mes] = st.column_config.NumberColumn(mes, width=100)
+
+# Configuração para Tabelas 2, 3 e 4 (Títulos invisíveis para esconder melhor)
+col_config_bot = {"MESES": st.column_config.TextColumn(" ", width=250, disabled=True)}
+for mes in meses_view:
+    col_config_bot[mes] = st.column_config.NumberColumn(" ", width=100)
 
 # ==========================================
 # 🏠 DASHBOARD CONSOLIDADO
@@ -137,10 +139,10 @@ for mes in meses_view:
 if menu == "🏠 Dashboard Consolidado":
     
     # ------------------------------------------------------------------
-    # TABELA 1: PATRIMÔNIO (Mostra Meses)
+    # TABELA 1: PATRIMÔNIO (Mostra Meses no topo)
     # ------------------------------------------------------------------
     df_view_patr = st.session_state.df_patrimonio[['MESES'] + meses_view]
-    df_editado_view_patr = st.data_editor(df_view_patr, hide_index=True, column_config=col_config_master, use_container_width=True, height=282)
+    df_editado_view_patr = st.data_editor(df_view_patr, hide_index=True, column_config=col_config_top, use_container_width=True, height=285)
     
     for mes in meses_view:
         st.session_state.df_patrimonio[mes] = df_editado_view_patr[mes]
@@ -169,16 +171,15 @@ if menu == "🏠 Dashboard Consolidado":
         .format(formatter={col: '{:.2f}%' for col in meses_view}, subset=pd.IndexSlice[[3], meses_view])
 
     # ------------------------------------------------------------------
-    # TABELA 2: RESULTADOS PATRIMÔNIO (Cabeçalho "deletado" atrás da T1)
-    # Diminuí o height para 160 para ficar bem justinho e sem sobras
+    # TABELA 2: RESULTADOS PATRIMÔNIO (Cabeçalho oculto)
     # ------------------------------------------------------------------
-    st.dataframe(styled_df_patr, hide_index=True, column_config=col_config_master, use_container_width=True, height=160)
+    st.dataframe(styled_df_patr, hide_index=True, column_config=col_config_bot, use_container_width=True, height=180)
 
     # ------------------------------------------------------------------
-    # TABELA 3: ENTRADAS EDITÁVEL 
+    # TABELA 3: ENTRADAS EDITÁVEL (Cabeçalho oculto)
     # ------------------------------------------------------------------
     df_view_ent = st.session_state.df_entradas[['MESES'] + meses_view]
-    df_editado_view_ent = st.data_editor(df_view_ent, hide_index=True, column_config=col_config_master, use_container_width=True, height=177)
+    df_editado_view_ent = st.data_editor(df_view_ent, hide_index=True, column_config=col_config_bot, use_container_width=True, height=180)
     
     for mes in meses_view:
         st.session_state.df_entradas[mes] = df_editado_view_ent[mes]
@@ -198,10 +199,9 @@ if menu == "🏠 Dashboard Consolidado":
         .format(formatter={col: 'R$ {:,.2f}' for col in meses_view})
         
     # ------------------------------------------------------------------
-    # TABELA 4: RESULTADO ENTRADAS (Cabeçalho "deletado" atrás da T3)
-    # Diminuí o height para 60 para ficar bem justinho
+    # TABELA 4: RESULTADO ENTRADAS (Cabeçalho oculto)
     # ------------------------------------------------------------------
-    st.dataframe(styled_df_ent, hide_index=True, column_config=col_config_master, use_container_width=True, height=60)
+    st.dataframe(styled_df_ent, hide_index=True, column_config=col_config_bot, use_container_width=True, height=75)
 
 elif menu == "❄️ Ecoclim":
     st.title("Controle Ecoclim")
