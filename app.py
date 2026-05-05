@@ -25,15 +25,19 @@ except Exception as e:
 # ==========================================
 meses_pt = ['JANEIRO', 'FEVEREIRO', 'MARÇO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO']
 hoje = datetime.datetime.now()
-mes_atual_nome = meses_pt[hoje.month - 1] # Pega o nome do mês atual para pintar
+mes_hoje_idx = hoje.month # AQUI ESTÁ A VARIÁVEL QUE FALTAVA!
+mes_atual_nome = meses_pt[mes_hoje_idx - 1] 
 
 def formata_br(valor):
-    # Formata como R$ 1.000.000 (sem centavos)
-    if pd.isna(valor) or valor == 0: 
+    # Força a conversão para número, formata com milhar e troca a vírgula americana por ponto
+    if pd.isna(valor): 
         return "R$ 0"
     try:
-        valor_inteiro = int(round(float(valor)))
-        return f"R$ {valor_inteiro:,}".replace(",", ".")
+        v = float(valor)
+        if v == 0: 
+            return "R$ 0"
+        # :,.0f coloca virgula no milhar e tira os centavos. O replace inverte para o padrão BR.
+        return f"R$ {v:,.0f}".replace(",", ".")
     except: 
         return valor
 
@@ -50,7 +54,7 @@ st.markdown("""
     .stDataFrame table, .stDataEditor table { table-layout: fixed !important; width: 100% !important; }
     .stDataFrame td, .stDataFrame th, .stDataEditor td, .stDataEditor th { text-align: center !important; font-size: 0.85rem !important; }
     
-    /* Esconde os cabeçalhos das tabelas de baixo */
+    /* Esconde os cabeçalhos das tabelas de baixo para colar tudo */
     section.main div[data-testid="stDataFrame"]:nth-of-type(1) thead { display: none !important; }
     section.main div[data-testid="stDataEditor"]:nth-of-type(2) thead { display: none !important; }
     section.main div[data-testid="stDataFrame"]:nth-of-type(2) thead { display: none !important; }
@@ -58,7 +62,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 4. FUNÇÕES DE DADOS (FORÇANDO NÚMEROS INTEIROS)
+# 4. FUNÇÕES DE DADOS 
 # ==========================================
 def load_year_data(table_name, itens_padrao, ano_escolhido):
     try:
@@ -86,12 +90,11 @@ def load_year_data(table_name, itens_padrao, ano_escolhido):
         df_pivot.set_index('MESES', inplace=True)
         df_pivot = df_pivot.reindex(itens_padrao).reset_index()
         
-        # Converte todas as colunas de meses para INTEIRO (remove centavos no banco de memória)
+        # Tudo vira INTEIRO aqui
         df_pivot[meses_pt] = df_pivot[meses_pt].astype(int)
         
         return df_pivot
     except Exception as e:
-        st.error(f"Erro ao carregar a tabela '{table_name}': {e}")
         df = pd.DataFrame(0, index=range(len(itens_padrao)), columns=meses_pt)
         df.insert(0, 'MESES', itens_padrao)
         return df
@@ -100,14 +103,12 @@ def save_to_supabase(table_name, df, ano_escolhido):
     df_melted = df.melt(id_vars=['MESES'], var_name='mes', value_name='valor')
     df_melted['ano'] = ano_escolhido
     df_melted.rename(columns={'MESES': 'conta'}, inplace=True)
-    
-    # Garante que vai salvar como inteiro no Supabase
     df_melted['valor'] = df_melted['valor'].astype(int)
     data = df_melted.to_dict(orient='records')
     supabase.table(table_name).upsert(data).execute()
 
 # ==========================================
-# 5. MENU LATERAL
+# 5. MENU LATERAL E INICIALIZAÇÃO
 # ==========================================
 with st.sidebar:
     st.title("📈 Consorbens Wealth")
@@ -116,32 +117,29 @@ with st.sidebar:
         st.session_state.clear()
         st.rerun()
 
-# ==========================================
-# 6. INICIALIZAÇÃO E CONFIGURAÇÃO
-# ==========================================
 contas_p = ['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS', 'IMÓVEIS', 'VEÍCULOS']
 contas_e = ['ECOCLIM', 'AIRNB', 'CONS INVESTIMENTOS', 'MAGGI CONSORCIOS']
 
-# Sem acento novamente!
 if 'df_p' not in st.session_state:
     st.session_state.df_p = load_year_data('patrimonio', contas_p, ano_selecionado)
 if 'df_e' not in st.session_state:
     st.session_state.df_e = load_year_data('entradas', contas_e, ano_selecionado)
 
-# Formatação visual na hora de editar (sem as casas decimais)
+# Formatação visual para edição. O st.data_editor só aceita vírgula americana nativamente na hora de digitar.
+# Vamos exibir como R$ 1,000 aqui, mas os resultados sairão como R$ 1.000 perfeitos.
 col_cfg = {"MESES": st.column_config.TextColumn("MESES", width=220, disabled=True)}
 for m in meses_pt: 
-    col_cfg[m] = st.column_config.NumberColumn(m, width=80, format="R$ %d", step=1)
+    col_cfg[m] = st.column_config.NumberColumn(m, width=80, format="R$ %,d", step=1)
 
 st.markdown('<div class="container-tabelas">', unsafe_allow_html=True)
 
 # ==========================================
 # 7. TABELA 1: PATRIMÔNIO (COM COR DA COLUNA)
 # ==========================================
-# Aplica a cor azul na coluna inteira do mês atual
+# Pintar a coluna do mês atual na tabela editável via Pandas Styler
 styled_df_p = st.session_state.df_p.style.set_properties(
     subset=[mes_atual_nome], 
-    **{'background-color': '#E8F0FE', 'font-weight': 'bold', 'color': 'black'}
+    **{'background-color': '#e0f0ff', 'font-weight': 'bold', 'color': '#000'}
 )
 
 df_p_edit = st.data_editor(styled_df_p, hide_index=True, column_config=col_cfg, use_container_width=True, height=295)
@@ -171,13 +169,14 @@ def style_res_p(row):
         if row['MESES'] == 'PATRIMÔNIO LÍQUIDO': bg = '#FFF2CC'
         elif row['MESES'] == 'PATRIMÔNIO TOTAL': bg = '#FF9900'
         
-        # Se for a coluna do mês atual, adiciona uma borda azul grossa nas laterais
+        # Borda azul e fundo claro se for a coluna do mês atual
         if col == mes_atual_nome:
-            styles.append(f'background-color: {bg}; font-weight: bold; color: black; border-left: 3px solid #4A90E2; border-right: 3px solid #4A90E2;')
+            styles.append(f'background-color: {bg}; font-weight: bold; color: black; border-left: 2px solid #4A90E2; border-right: 2px solid #4A90E2;')
         else:
             styles.append(f'background-color: {bg}; font-weight: bold; color: black; border-bottom: 1px solid #ddd;')
     return styles
 
+# Aplica as cores E a formatação brasileira (R$ 1.000)
 styled_res_p = df_res_p.style.apply(style_res_p, axis=1).format(
     lambda x: formata_br(x) if isinstance(x, (int, float, np.integer, np.floating)) else x
 )
@@ -189,7 +188,7 @@ st.dataframe(styled_res_p, hide_index=True, column_config=col_cfg, use_container
 # ==========================================
 styled_df_e = st.session_state.df_e.style.set_properties(
     subset=[mes_atual_nome], 
-    **{'background-color': '#E8F0FE', 'font-weight': 'bold', 'color': 'black'}
+    **{'background-color': '#e0f0ff', 'font-weight': 'bold', 'color': '#000'}
 )
 
 df_e_edit = st.data_editor(styled_df_e, hide_index=True, column_config=col_cfg, use_container_width=True, height=190)
@@ -210,7 +209,7 @@ def style_res_e(row):
     styles = []
     for col in df_res_e.columns:
         if col == mes_atual_nome:
-            styles.append('background-color: #9BC2E6; font-weight: bold; color: black; border-left: 3px solid #4A90E2; border-right: 3px solid #4A90E2;')
+            styles.append('background-color: #9BC2E6; font-weight: bold; color: black; border-left: 2px solid #4A90E2; border-right: 2px solid #4A90E2;')
         else:
             styles.append('background-color: #9BC2E6; font-weight: bold; color: black;')
     return styles
