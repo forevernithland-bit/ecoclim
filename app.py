@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import datetime
+import re
 from supabase import create_client
 
 # ==========================================
@@ -21,24 +22,33 @@ except Exception as e:
     st.error(f"Erro ao conectar com Supabase: {e}")
 
 # ==========================================
-# 2. LÓGICA DE TEMPO E FORMATAÇÃO (SEM CENTAVOS)
+# 2. LÓGICA DE TEMPO E FORMATAÇÃO 100% BRASILEIRA
 # ==========================================
 meses_pt = ['JANEIRO', 'FEVEREIRO', 'MARÇO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO']
 hoje = datetime.datetime.now()
 mes_hoje_idx = hoje.month 
 mes_atual_nome = meses_pt[mes_hoje_idx - 1] 
 
-def formata_br(valor):
-    # Formata com separador de milhar brasileiro (ponto) nas tabelas de resultado
-    if pd.isna(valor): 
-        return "R$ 0"
+# Função que formata PARA A TELA (coloca o R$ e o ponto)
+def to_br_currency(val):
     try:
-        v = float(valor)
+        v = int(float(val))
         if v == 0: 
             return "R$ 0"
-        return f"R$ {v:,.0f}".replace(",", ".")
-    except: 
-        return valor
+        return f"R$ {v:,}".replace(",", ".")
+    except:
+        return "R$ 0"
+
+# Função que lê o que VOCÊ DIGITOU e transforma em número pro Banco
+def parse_br_currency(val):
+    try:
+        if isinstance(val, (int, float)): return int(val)
+        # Tira tudo que não for número (ex: R$, pontos, espaços)
+        clean = re.sub(r'[^\d-]', '', str(val))
+        if clean == "": return 0
+        return int(clean)
+    except:
+        return 0
 
 # ==========================================
 # 3. CSS (LARGURAS E ESTRUTURA)
@@ -53,7 +63,7 @@ st.markdown("""
     .stDataFrame table, .stDataEditor table { table-layout: fixed !important; width: 100% !important; }
     .stDataFrame td, .stDataFrame th, .stDataEditor td, .stDataEditor th { text-align: center !important; font-size: 0.85rem !important; }
     
-    /* Esconde os cabeçalhos das tabelas de baixo para colar tudo */
+    /* Esconde cabeçalhos redundantes */
     section.main div[data-testid="stDataFrame"]:nth-of-type(1) thead { display: none !important; }
     section.main div[data-testid="stDataEditor"]:nth-of-type(2) thead { display: none !important; }
     section.main div[data-testid="stDataFrame"]:nth-of-type(2) thead { display: none !important; }
@@ -61,7 +71,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 4. FUNÇÕES DE DADOS (BLINDADAS CONTRA ERROS)
+# 4. FUNÇÕES DE DADOS (PÚRO INTEIRO)
 # ==========================================
 def load_year_data(table_name, itens_padrao, ano_escolhido):
     try:
@@ -96,66 +106,72 @@ def load_year_data(table_name, itens_padrao, ano_escolhido):
         df.insert(0, 'MESES', itens_padrao)
         return df
 
-def save_to_supabase(table_name, df, ano_escolhido):
+def save_to_supabase(table_name, df_int, ano_escolhido):
     try:
-        df_melted = df.melt(id_vars=['MESES'], var_name='mes', value_name='valor')
+        df_melted = df_int.melt(id_vars=['MESES'], var_name='mes', value_name='valor')
         df_melted['ano'] = ano_escolhido
         df_melted.rename(columns={'MESES': 'conta'}, inplace=True)
-        
-        # Garante que vai salvar como número inteiro perfeitamente formatado
-        df_melted['valor'] = df_melted['valor'].apply(lambda x: int(float(x)))
+        df_melted['valor'] = df_melted['valor'].astype(int)
         data = df_melted.to_dict(orient='records')
         
-        # TÉCNICA DE BLINDAGEM: Apaga os registros do ano selecionado e insere de novo
-        # Isso resolve 100% o APIError de upsert por falta de Primary Key
         supabase.table(table_name).delete().eq('ano', ano_escolhido).execute()
         supabase.table(table_name).insert(data).execute()
     except Exception as e:
-        st.error(f"Erro ao salvar no banco: {e}")
+        st.error(f"Erro ao salvar: {e}")
 
 # ==========================================
-# 5. MENU LATERAL E INICIALIZAÇÃO
+# 5. MENU LATERAL
 # ==========================================
 with st.sidebar:
     st.title("📈 Consorbens Wealth")
     ano_selecionado = st.selectbox("Ano Fiscal", options=[2025, 2026, 2027, 2028], index=1)
-    if st.button("🔄 Recarregar Dados da Nuvem"):
+    if st.button("🔄 Recarregar Dados"):
         st.session_state.clear()
         st.rerun()
 
 contas_p = ['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS', 'IMÓVEIS', 'VEÍCULOS']
 contas_e = ['ECOCLIM', 'AIRNB', 'CONS INVESTIMENTOS', 'MAGGI CONSORCIOS']
 
-if 'df_p' not in st.session_state:
-    st.session_state.df_p = load_year_data('patrimonio', contas_p, ano_selecionado)
-if 'df_e' not in st.session_state:
-    st.session_state.df_e = load_year_data('entradas', contas_e, ano_selecionado)
+# Inicializa os dados (sempre em número inteiro)
+if 'df_p' not in st.session_state: st.session_state.df_p = load_year_data('patrimonio', contas_p, ano_selecionado)
+if 'df_e' not in st.session_state: st.session_state.df_e = load_year_data('entradas', contas_e, ano_selecionado)
 
-# Formatação visual para edição. Usa vírgula por limitação do Streamlit, mas fica mais bonito que o número puro.
+# TRUQUE DE MESTRE: Configura as colunas da tabela editável como TEXTO para enganar o padrão americano
 col_cfg = {"MESES": st.column_config.TextColumn("MESES", width=220, disabled=True)}
 for m in meses_pt: 
-    col_cfg[m] = st.column_config.NumberColumn(m, width=80, format="%,d", step=1)
+    col_cfg[m] = st.column_config.TextColumn(m, width=80) # TextColumn tira as vírgulas forçadas!
 
 st.markdown('<div class="container-tabelas">', unsafe_allow_html=True)
 
 # ==========================================
-# 7. TABELA 1: PATRIMÔNIO (EDITÁVEL)
+# 6. TABELA 1: PATRIMÔNIO (EDITÁVEL)
 # ==========================================
-# APLICA A COR NO MÊS ATUAL NA EDIÇÃO
-styled_df_p = st.session_state.df_p.style.set_properties(
+# Cria uma cópia maquiada (com R$ e Ponto) para exibir na tela
+df_p_display = st.session_state.df_p.copy()
+for m in meses_pt: df_p_display[m] = df_p_display[m].apply(to_br_currency)
+
+# Pinta a coluna de azul via Pandas (agora funciona 100% com o formato texto)
+styled_df_p = df_p_display.style.set_properties(
     subset=[mes_atual_nome], 
     **{'background-color': '#e0f0ff', 'font-weight': 'bold', 'color': '#000'}
 )
 
-df_p_edit = st.data_editor(styled_df_p, hide_index=True, column_config=col_cfg, use_container_width=True, height=295)
+# Renderiza a tabela editável
+df_p_edit_str = st.data_editor(styled_df_p, hide_index=True, column_config=col_cfg, use_container_width=True, height=295)
 
-if not df_p_edit.equals(st.session_state.df_p):
-    save_to_supabase('patrimonio', df_p_edit, ano_selecionado)
-    st.session_state.df_p = df_p_edit
-    st.toast("💾 Patrimônio salvo no Supabase!", icon="✅")
+# Se você alterar algo na tela
+if not df_p_edit_str.equals(df_p_display):
+    # Traduz o texto de volta para número puro
+    novo_df_p_int = df_p_edit_str.copy()
+    for m in meses_pt: novo_df_p_int[m] = novo_df_p_int[m].apply(parse_br_currency)
+    
+    # Salva no banco e atualiza a página
+    save_to_supabase('patrimonio', novo_df_p_int, ano_selecionado)
+    st.session_state.df_p = novo_df_p_int
+    st.toast("💾 Salvo com sucesso!", icon="✅")
     st.rerun()
 
-# --- CÁLCULOS PATRIMÔNIO ---
+# --- CÁLCULOS PATRIMÔNIO (Feitos com o número puro) ---
 df_n = st.session_state.df_p.set_index('MESES')
 pat_liq = df_n.loc[['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS']].sum()
 pat_tot = pat_liq + df_n.loc['IMÓVEIS'] + df_n.loc['VEÍCULOS']
@@ -163,8 +179,7 @@ var_abs = pat_tot.diff().fillna(0)
 var_pct = (pat_tot.pct_change().fillna(0) * 100).round(2)
 
 df_res_p = pd.DataFrame({'MESES': ['PATRIMÔNIO LÍQUIDO', 'PATRIMÔNIO TOTAL', 'VARIAÇÃO MENSAL ($)', 'VARIAÇÃO MENSAL (%)']})
-for m in meses_pt: 
-    df_res_p[m] = [pat_liq[m], pat_tot[m], var_abs[m], f"{var_pct[m]:.2f}%"]
+for m in meses_pt: df_res_p[m] = [pat_liq[m], pat_tot[m], var_abs[m], f"{var_pct[m]:.2f}%"]
 
 # --- TABELA 2: RESULTADOS PATRIMÔNIO ---
 def style_res_p(row):
@@ -174,34 +189,37 @@ def style_res_p(row):
         if row['MESES'] == 'PATRIMÔNIO LÍQUIDO': bg = '#FFF2CC'
         elif row['MESES'] == 'PATRIMÔNIO TOTAL': bg = '#FF9900'
         
-        # Borda azul e fundo se for a coluna do mês atual
-        if col == mes_atual_nome:
+        if col == mes_atual_nome: # Borda azul pesada
             styles.append(f'background-color: {bg}; font-weight: bold; color: black; border-left: 3px solid #4A90E2; border-right: 3px solid #4A90E2;')
         else:
             styles.append(f'background-color: {bg}; font-weight: bold; color: black; border-bottom: 1px solid #ddd;')
     return styles
 
-# APLICA AS CORES E O FORMATO "R$ 1.000" PERFEITAMENTE
 styled_res_p = df_res_p.style.apply(style_res_p, axis=1).format(
-    lambda x: formata_br(x) if isinstance(x, (int, float, np.integer, np.floating)) else x
+    lambda x: to_br_currency(x) if isinstance(x, (int, float, np.integer, np.floating)) else x
 )
-
 st.dataframe(styled_res_p, hide_index=True, column_config=col_cfg, use_container_width=True, height=175)
 
 # ==========================================
-# 8. TABELA 3: ENTRADAS
+# 7. TABELA 3: ENTRADAS
 # ==========================================
-styled_df_e = st.session_state.df_e.style.set_properties(
+df_e_display = st.session_state.df_e.copy()
+for m in meses_pt: df_e_display[m] = df_e_display[m].apply(to_br_currency)
+
+styled_df_e = df_e_display.style.set_properties(
     subset=[mes_atual_nome], 
     **{'background-color': '#e0f0ff', 'font-weight': 'bold', 'color': '#000'}
 )
 
-df_e_edit = st.data_editor(styled_df_e, hide_index=True, column_config=col_cfg, use_container_width=True, height=190)
+df_e_edit_str = st.data_editor(styled_df_e, hide_index=True, column_config=col_cfg, use_container_width=True, height=190)
 
-if not df_e_edit.equals(st.session_state.df_e):
-    save_to_supabase('entradas', df_e_edit, ano_selecionado)
-    st.session_state.df_e = df_e_edit
-    st.toast("💾 Entradas salvas no Supabase!", icon="✅")
+if not df_e_edit_str.equals(df_e_display):
+    novo_df_e_int = df_e_edit_str.copy()
+    for m in meses_pt: novo_df_e_int[m] = novo_df_e_int[m].apply(parse_br_currency)
+    
+    save_to_supabase('entradas', novo_df_e_int, ano_selecionado)
+    st.session_state.df_e = novo_df_e_int
+    st.toast("💾 Salvo com sucesso!", icon="✅")
     st.rerun()
 
 # --- CÁLCULOS ENTRADAS ---
@@ -220,22 +238,21 @@ def style_res_e(row):
     return styles
 
 styled_res_e = df_res_e.style.apply(style_res_e, axis=1).format(
-    lambda x: formata_br(x) if isinstance(x, (int, float, np.integer, np.floating)) else x
+    lambda x: to_br_currency(x) if isinstance(x, (int, float, np.integer, np.floating)) else x
 )
-
 st.dataframe(styled_res_e, hide_index=True, column_config=col_cfg, use_container_width=True, height=75)
 
 st.markdown('</div>', unsafe_allow_html=True)
 
 # ==========================================
-# 9. MÉTRICAS FINAIS
+# 8. MÉTRICAS FINAIS
 # ==========================================
 st.markdown("<br>", unsafe_allow_html=True)
 m1, m2, m3, m4 = st.columns(4)
 idx_ref = mes_hoje_idx - 1 if mes_hoje_idx > 0 else 0
 
-m1.metric("MÉDIA RECEBIMENTOS", formata_br(tot_ent.mean()))
-m2.metric("PATRIMÔNIO ATUAL", formata_br(pat_tot.iloc[idx_ref]))
-m3.metric("VAR. NO ANO ($)", formata_br(pat_tot.iloc[idx_ref] - pat_tot.iloc[0]))
+m1.metric("MÉDIA RECEBIMENTOS", to_br_currency(tot_ent.mean()))
+m2.metric("PATRIMÔNIO ATUAL", to_br_currency(pat_tot.iloc[idx_ref]))
+m3.metric("VAR. NO ANO ($)", to_br_currency(pat_tot.iloc[idx_ref] - pat_tot.iloc[0]))
 crescimento_pct = ((pat_tot.iloc[idx_ref] / pat_tot.iloc[0] - 1) * 100) if pat_tot.iloc[0] != 0 else 0
-m4.metric("CRESCIMENTO NO ANO (%)", f"{crescimento_pct:,.2f}%")
+m4.metric("CRESCIMENTO NO ANO (%)", f"{crescimento_pct:,.2f}%".replace(".", ","))
