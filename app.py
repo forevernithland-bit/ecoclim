@@ -12,7 +12,7 @@ meses_pt = ['JANEIRO', 'FEVEREIRO', 'MARÇO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO',
 mes_atual_idx = datetime.datetime.now().month - 1
 mes_atual_str = meses_pt[mes_atual_idx]
 
-# --- CSS: CABER NA TELA, ALINHAMENTO EXTREMO E FIM DA LINHA CINZA ---
+# --- CSS: CABER NA TELA, ALINHAMENTO EXTREMO E OCULTAÇÃO DE CABEÇALHOS ---
 st.markdown("""
     <style>
     /* Respiro no topo e aproveitamento máximo das laterais da tela */
@@ -20,7 +20,7 @@ st.markdown("""
     
     /* Zera os espaços apenas entre as tabelas */
     div.container-tabelas div.st-emotion-cache-1wivap2 { gap: 0rem !important; }
-    div.container-tabelas div[data-testid="stVerticalBlock"] { gap: 0px !important; }
+    div.container-tabelas div[data-testid="stVerticalBlock"] { gap: 0px !important; padding: 0px !important; }
     
     /* TRAVA DE TITÂNIO: Força todas as tabelas a terem exatamente a mesma estrutura */
     .stDataFrame table, .stDataEditor table {
@@ -32,14 +32,18 @@ st.markdown("""
     div[data-testid="stDataEditor"], div[data-testid="stDataFrame"] { background-color: white !important; }
 
     /* 
-       A MÁGICA DA GAVETA TURBINADA (-44px):
-       Esse valor engole 100% do cabeçalho da tabela debaixo, matando a linha cinza 
-       e colando as linhas de dados perfeitamente.
+       A MÁGICA DA GAVETA (-42px) 
+       Puxa as tabelas debaixo para trás da de cima para matar o cabeçalho.
     */
     section.main div[data-testid="stDataEditor"]:nth-of-type(1) { z-index: 10 !important; position: relative !important; }
-    section.main div[data-testid="stDataFrame"]:nth-of-type(1) { z-index: 9 !important; position: relative !important; margin-top: -44px !important; }
-    section.main div[data-testid="stDataEditor"]:nth-of-type(2) { z-index: 8 !important; position: relative !important; margin-top: -44px !important; }
-    section.main div[data-testid="stDataFrame"]:nth-of-type(2) { z-index: 7 !important; position: relative !important; margin-top: -44px !important; }
+    section.main div[data-testid="stDataFrame"]:nth-of-type(1) { z-index: 9 !important; position: relative !important; margin-top: -42px !important; }
+    section.main div[data-testid="stDataEditor"]:nth-of-type(2) { z-index: 8 !important; position: relative !important; margin-top: -42px !important; }
+    section.main div[data-testid="stDataFrame"]:nth-of-type(2) { z-index: 7 !important; position: relative !important; margin-top: -42px !important; }
+
+    /* Força Ocultação Visual do Cabeçalho das Tabelas de Baixo (Garantia Extra) */
+    section.main div[data-testid="stDataFrame"]:nth-of-type(1) thead { visibility: hidden !important; }
+    section.main div[data-testid="stDataEditor"]:nth-of-type(2) thead { visibility: hidden !important; }
+    section.main div[data-testid="stDataFrame"]:nth-of-type(2) thead { visibility: hidden !important; }
 
     /* Tira o arredondamento para colar as tabelas perfeitamente retas */
     section.main div[data-testid="stDataEditor"] > div > div { border-radius: 0px !important; }
@@ -124,13 +128,17 @@ if menu == "🏠 Dashboard Consolidado":
     
     # --- FUNÇÕES DE ESTILIZAÇÃO DO MÊS ATUAL ---
     
-    # Colore a coluna inteira do mês atual nas tabelas editáveis
-    def highlight_mes_editavel(col):
-        if col.name == mes_atual_str:
-            return ['background-color: #E2E8F0; font-weight: bold; color: black;'] * len(col)
-        return [''] * len(col)
+    # SOLUÇÃO DEFINITIVA PARA A TABELA EDITÁVEL:
+    # Lendo linha por linha (axis=1) para forçar o Streamlit a pintar as células!
+    def style_editavel(row):
+        styles = []
+        for col in row.index:
+            if col == mes_atual_str:
+                styles.append('background-color: #E2E8F0; font-weight: bold; color: black;')
+            else:
+                styles.append('')
+        return styles
 
-    # Colore as tabelas de resultados
     def style_patrimonio_resultado(row):
         styles = []
         nome = row['MESES']
@@ -164,8 +172,8 @@ if menu == "🏠 Dashboard Consolidado":
     # TABELA 1: PATRIMÔNIO EDITÁVEL 
     # ------------------------------------------------------------------
     df_view_patr = st.session_state.df_patrimonio[['MESES'] + meses_view]
-    # Usando axis=0 (coluna) para garantir que pinta a coluna do mês atual de cima a baixo
-    styled_view_patr = df_view_patr.style.apply(highlight_mes_editavel, axis=0)
+    # Aplicando a função matadora axis=1
+    styled_view_patr = df_view_patr.style.apply(style_editavel, axis=1)
     df_editado_view_patr = st.data_editor(styled_view_patr, hide_index=True, column_config=col_config_master, use_container_width=True, height=285)
     
     for mes in meses_view:
@@ -187,7 +195,7 @@ if menu == "🏠 Dashboard Consolidado":
         .format(formatter={col: '{:.2f}%' for col in meses_view}, subset=pd.IndexSlice[[3], meses_view])
 
     # ------------------------------------------------------------------
-    # TABELA 2: RESULTADOS PATRIMÔNIO (Usa col_config_master igual a T1)
+    # TABELA 2: RESULTADOS PATRIMÔNIO
     # ------------------------------------------------------------------
     st.dataframe(styled_df_patr, hide_index=True, column_config=col_config_master, use_container_width=True, height=180)
 
@@ -195,7 +203,8 @@ if menu == "🏠 Dashboard Consolidado":
     # TABELA 3: ENTRADAS EDITÁVEL 
     # ------------------------------------------------------------------
     df_view_ent = st.session_state.df_entradas[['MESES'] + meses_view]
-    styled_view_ent = df_view_ent.style.apply(highlight_mes_editavel, axis=0)
+    # Aplicando a função matadora axis=1
+    styled_view_ent = df_view_ent.style.apply(style_editavel, axis=1)
     df_editado_view_ent = st.data_editor(styled_view_ent, hide_index=True, column_config=col_config_master, use_container_width=True, height=180)
     
     for mes in meses_view:
@@ -213,7 +222,7 @@ if menu == "🏠 Dashboard Consolidado":
         .format(formatter={col: 'R$ {:,.2f}' for col in meses_view})
         
     # ------------------------------------------------------------------
-    # TABELA 4: RESULTADO ENTRADAS (Usa col_config_master)
+    # TABELA 4: RESULTADO ENTRADAS
     # ------------------------------------------------------------------
     st.dataframe(styled_df_ent, hide_index=True, column_config=col_config_master, use_container_width=True, height=75)
 
