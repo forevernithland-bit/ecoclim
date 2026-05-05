@@ -4,7 +4,7 @@ import numpy as np
 import streamlit.components.v1 as components
 import datetime
 
-# Configuração da Página
+# Configuração da Página para Ocupar 100% do espaço
 st.set_page_config(page_title="Consorbens Wealth", layout="wide", page_icon="📈")
 
 # --- MÊS ATUAL AUTOMÁTICO ---
@@ -12,11 +12,11 @@ meses_pt = ['JANEIRO', 'FEVEREIRO', 'MARÇO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO',
 mes_atual_idx = datetime.datetime.now().month - 1
 mes_atual_str = meses_pt[mes_atual_idx]
 
-# --- CSS: ALINHAMENTO, GAVETA E MÉTRICAS ---
+# --- CSS: CABER NA TELA, ALINHAMENTO E GAVETA ---
 st.markdown("""
     <style>
-    /* Respiro no topo */
-    .block-container { padding-top: 3rem !important; }
+    /* Dá um respiro no topo e remove os espaços laterais para caber mais coisa */
+    .block-container { padding-top: 3rem !important; padding-left: 1rem !important; padding-right: 1rem !important; max-width: 100% !important; }
     
     /* Zera os espaços apenas entre as tabelas */
     div.container-tabelas div.st-emotion-cache-1wivap2 { gap: 0rem !important; }
@@ -35,7 +35,7 @@ st.markdown("""
     section.main div[data-testid="stDataEditor"] > div > div { border-radius: 0px !important; }
     section.main div[data-testid="stDataFrame"] > div > div { border-radius: 0px !important; border-top: none !important; }
 
-    /* Estilo dos Indicadores (Menores) */
+    /* Estilo dos Indicadores (Compactos) */
     div[data-testid="stMetricValue"] { font-size: 1.2rem !important; }
     div[data-testid="stMetricLabel"] { font-size: 0.8rem !important; font-weight: bold !important; }
     div[data-testid="stMetric"] {
@@ -46,7 +46,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- JAVASCRIPT: SCROLL SINCRONIZADO SEGURO E FLUIDO ---
+# --- JAVASCRIPT: SCROLL DE SEGURANÇA (Caso abra em tela pequena) ---
 components.html("""
     <script>
     const parentDoc = window.parent.document;
@@ -55,24 +55,21 @@ components.html("""
     function attachSync() {
         const scrollers = parentDoc.querySelectorAll('.dvn-scroller');
         scrollers.forEach(s => {
-            // Verifica se já adicionamos o evento para não duplicar
             if (!s.hasAttribute('data-synced')) {
                 s.setAttribute('data-synced', 'true');
                 s.addEventListener('scroll', (e) => {
                     if (syncLock) return;
-                    syncLock = true; // Trava para não criar loop infinito
+                    syncLock = true;
                     scrollers.forEach(other => {
                         if (other !== e.target) {
                             other.scrollLeft = e.target.scrollLeft;
                         }
                     });
-                    // Libera a trava logo em seguida
                     setTimeout(() => { syncLock = false; }, 20);
                 });
             }
         });
     }
-    // Tenta anexar o script repetidamente caso o Streamlit recarregue a tabela
     setInterval(attachSync, 1000);
     </script>
 """, height=0, width=0)
@@ -103,12 +100,16 @@ if 'df_entradas' not in st.session_state or 'MESES' not in st.session_state.df_e
     df_e.insert(0, 'MESES', linhas_entradas)
     st.session_state.df_entradas = df_e
 
-# TRAVA DE COLUNAS
-col_config_top = {"MESES": st.column_config.TextColumn("MESES", width=250, disabled=True)}
-col_config_bot = {"MESES": st.column_config.TextColumn(" ", width=250, disabled=True)}
+# =====================================================================
+# TRAVA DE COLUNAS: LARGURAS REDUZIDAS PARA CABER TUDO NA MESMA TELA
+# =====================================================================
+# A coluna meses ganha 240px, e os 12 meses ganham 75px. 
+# O Streamlit vai esticar levemente para caber 100% na tela sem scroll!
+col_config_top = {"MESES": st.column_config.TextColumn("MESES", width=240, disabled=True)}
+col_config_bot = {"MESES": st.column_config.TextColumn(" ", width=240, disabled=True)}
 for mes in meses_view:
-    col_config_top[mes] = st.column_config.NumberColumn(mes, width=100)
-    col_config_bot[mes] = st.column_config.NumberColumn(" ", width=100)
+    col_config_top[mes] = st.column_config.NumberColumn(mes, width=75)
+    col_config_bot[mes] = st.column_config.NumberColumn(" ", width=75)
 
 # ==========================================
 # 🏠 DASHBOARD CONSOLIDADO
@@ -116,9 +117,12 @@ for mes in meses_view:
 if menu == "🏠 Dashboard Consolidado":
     
     # --- FUNÇÕES DE ESTILIZAÇÃO DO MÊS ATUAL ---
-    # Aplica em TODAS as células brancas o cinza clarinho
-    def style_editavel(row):
-        return [f'background-color: {"#EAECEF" if col == mes_atual_str else "white"}; color: black;' for col in row.index]
+    
+    # Lógica corrigida para o DataEditor: Aplica a cor na COLUNA inteira!
+    def highlight_mes_editavel(s):
+        if s.name == mes_atual_str:
+            return ['background-color: #E2E8F0; color: black; font-weight: bold;'] * len(s) # Cinza claro
+        return [''] * len(s)
 
     def style_patrimonio_resultado(row):
         styles = []
@@ -130,11 +134,11 @@ if menu == "🏠 Dashboard Consolidado":
             elif nome == 'PATRIMONIO TOTAL': bg = '#FF9900'; fw = 'bold'
             elif nome == 'Var $ patrimonio': bg = '#FFF2CC'
             
-            # Se for o mês atual, altera a cor pra destacar!
+            # Ajuste de tons para o Mês Atual nas linhas coloridas
             if col == mes_atual_str:
-                if bg == 'white': bg = '#EAECEF' # Cinza clarinho
-                elif bg == '#FFF2CC': bg = '#E6D9B1' # Amarelo mais escuro
-                elif bg == '#FF9900': bg = '#E68A00' # Laranja mais escuro
+                if bg == 'white': bg = '#E2E8F0' # Cinza clarinho
+                elif bg == '#FFF2CC': bg = '#E6D9B1' # Amarelo queimado
+                elif bg == '#FF9900': bg = '#E68A00' # Laranja queimado
             
             styles.append(f'background-color: {bg}; font-weight: {fw}; color: black; border-bottom: 1px solid #ccc;')
         return styles
@@ -143,7 +147,7 @@ if menu == "🏠 Dashboard Consolidado":
         styles = []
         for col in row.index:
             bg = '#9BC2E6'
-            if col == mes_atual_str: bg = '#7FAFE0' # Azul destaque no mês atual
+            if col == mes_atual_str: bg = '#7FAFE0' # Azul mais forte pro mês atual
             styles.append(f'background-color: {bg}; font-weight: bold; color: black; border-bottom: 1px solid #ccc;')
         return styles
 
@@ -153,7 +157,8 @@ if menu == "🏠 Dashboard Consolidado":
     # TABELA 1: PATRIMÔNIO EDITÁVEL 
     # ------------------------------------------------------------------
     df_view_patr = st.session_state.df_patrimonio[['MESES'] + meses_view]
-    styled_view_patr = df_view_patr.style.apply(style_editavel, axis=1)
+    # Aqui a mágica da coluna acontece (axis=0)
+    styled_view_patr = df_view_patr.style.apply(highlight_mes_editavel, axis=0)
     df_editado_view_patr = st.data_editor(styled_view_patr, hide_index=True, column_config=col_config_top, use_container_width=True, height=285)
     
     for mes in meses_view:
@@ -183,7 +188,8 @@ if menu == "🏠 Dashboard Consolidado":
     # TABELA 3: ENTRADAS EDITÁVEL 
     # ------------------------------------------------------------------
     df_view_ent = st.session_state.df_entradas[['MESES'] + meses_view]
-    styled_view_ent = df_view_ent.style.apply(style_editavel, axis=1)
+    # Aqui a mágica da coluna acontece (axis=0)
+    styled_view_ent = df_view_ent.style.apply(highlight_mes_editavel, axis=0)
     df_editado_view_ent = st.data_editor(styled_view_ent, hide_index=True, column_config=col_config_bot, use_container_width=True, height=180)
     
     for mes in meses_view:
