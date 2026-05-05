@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import streamlit.components.v1 as components
 import datetime
 
 # Configuração da Página para Ocupar 100% do espaço
@@ -12,81 +11,89 @@ meses_pt = ['JANEIRO', 'FEVEREIRO', 'MARÇO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO',
 mes_atual_idx = datetime.datetime.now().month - 1
 mes_atual_str = meses_pt[mes_atual_idx]
 
-# --- CSS: CABER NA TELA, ALINHAMENTO EXTREMO E OCULTAÇÃO DE CABEÇALHOS ---
-st.markdown("""
+# Calcula qual o número da coluna (no HTML) corresponde ao mês atual.
+# Coluna 1 = MESES. Janeiro = 2, Fevereiro = 3... Maio = 6.
+coluna_css_idx = mes_atual_idx + 2
+
+# --- CSS DEFINITIVO ---
+st.markdown(f"""
     <style>
     /* Respiro no topo e aproveitamento máximo das laterais da tela */
-    .block-container { padding-top: 3rem !important; padding-left: 1rem !important; padding-right: 1rem !important; max-width: 100% !important; }
+    .block-container {{ padding-top: 3rem !important; padding-left: 1rem !important; padding-right: 1rem !important; max-width: 100% !important; }}
     
     /* Zera os espaços apenas entre as tabelas */
-    div.container-tabelas div.st-emotion-cache-1wivap2 { gap: 0rem !important; }
-    div.container-tabelas div[data-testid="stVerticalBlock"] { gap: 0px !important; padding: 0px !important; }
+    div.container-tabelas div.st-emotion-cache-1wivap2 {{ gap: 0rem !important; }}
+    div.container-tabelas div[data-testid="stVerticalBlock"] {{ gap: 0px !important; }}
     
-    /* TRAVA DE TITÂNIO: Força todas as tabelas a terem exatamente a mesma estrutura */
-    .stDataFrame table, .stDataEditor table {
+    /* Centraliza o texto nas células */
+    .stDataFrame td, .stDataFrame th, .stDataEditor td, .stDataEditor th {{ text-align: center !important; }}
+
+    /* TRAVA DE TITÂNIO: Força todas as tabelas a terem a mesma estrutura */
+    .stDataFrame table, .stDataEditor table {{
         table-layout: fixed !important;
         width: 100% !important;
-    }
-    
-    .stDataFrame td, .stDataFrame th, .stDataEditor td, .stDataEditor th { text-align: center !important; }
-    div[data-testid="stDataEditor"], div[data-testid="stDataFrame"] { background-color: white !important; }
+    }}
 
     /* 
-       A MÁGICA DA GAVETA (-42px) 
-       Puxa as tabelas debaixo para trás da de cima para matar o cabeçalho.
+       FIM DA GAVETA: ESCONDER CABEÇALHOS VIA CSS DIRETO
+       Esconde os elementos <thead> das tabelas 2, 3 e 4.
     */
-    section.main div[data-testid="stDataEditor"]:nth-of-type(1) { z-index: 10 !important; position: relative !important; }
-    section.main div[data-testid="stDataFrame"]:nth-of-type(1) { z-index: 9 !important; position: relative !important; margin-top: -42px !important; }
-    section.main div[data-testid="stDataEditor"]:nth-of-type(2) { z-index: 8 !important; position: relative !important; margin-top: -42px !important; }
-    section.main div[data-testid="stDataFrame"]:nth-of-type(2) { z-index: 7 !important; position: relative !important; margin-top: -42px !important; }
-
-    /* Força Ocultação Visual do Cabeçalho das Tabelas de Baixo (Garantia Extra) */
-    section.main div[data-testid="stDataFrame"]:nth-of-type(1) thead { visibility: hidden !important; }
-    section.main div[data-testid="stDataEditor"]:nth-of-type(2) thead { visibility: hidden !important; }
-    section.main div[data-testid="stDataFrame"]:nth-of-type(2) thead { visibility: hidden !important; }
+    section.main div[data-testid="stDataFrame"]:nth-of-type(1) thead {{ display: none !important; }}
+    section.main div[data-testid="stDataEditor"]:nth-of-type(2) thead {{ display: none !important; }}
+    section.main div[data-testid="stDataFrame"]:nth-of-type(2) thead {{ display: none !important; }}
 
     /* Tira o arredondamento para colar as tabelas perfeitamente retas */
-    section.main div[data-testid="stDataEditor"] > div > div { border-radius: 0px !important; }
-    section.main div[data-testid="stDataFrame"] > div > div { border-radius: 0px !important; border-top: none !important; }
+    section.main div[data-testid="stDataEditor"] > div > div {{ border-radius: 0px !important; }}
+    section.main div[data-testid="stDataFrame"] > div > div {{ border-radius: 0px !important; border-top: none !important; border-bottom: none !important; }}
+
+    /* Remove a margem extra que fica ao esconder o thead */
+    section.main div[data-testid="stDataFrame"] table {{ margin-top: 0px !important; }}
+
+    /* 
+       A MÁGICA DA COR VIA CSS: Pinta a coluna do mês atual em TODAS as tabelas! 
+       Usamos nth-child para mirar na coluna certa baseada no mês em que estamos.
+    */
+    
+    /* Pinta a coluna nas tabelas editáveis (1 e 3) e na tabela final (4) de cinza claro */
+    section.main div[data-testid="stDataEditor"] td:nth-child({coluna_css_idx}), 
+    section.main div[data-testid="stDataEditor"] th:nth-child({coluna_css_idx}),
+    section.main div[data-testid="stDataFrame"]:nth-of-type(2) td:nth-child({coluna_css_idx}) {{
+        background-color: #E2E8F0 !important;
+        color: black !important;
+        font-weight: bold !important;
+    }}
+
+    /* Pinta a linha do Patrimônio Líquido (tabela 2, linha 1) na coluna do mês atual */
+    section.main div[data-testid="stDataFrame"]:nth-of-type(1) tbody tr:nth-child(1) td:nth-child({coluna_css_idx}) {{
+        background-color: #E6D9B1 !important; /* Amarelo escuro */
+    }}
+    
+    /* Pinta a linha do Patrimônio Total (tabela 2, linha 2) na coluna do mês atual */
+    section.main div[data-testid="stDataFrame"]:nth-of-type(1) tbody tr:nth-child(2) td:nth-child({coluna_css_idx}) {{
+        background-color: #CC7A00 !important; /* Laranja escuro */
+    }}
+
+    /* Pinta as linhas de Variação (tabela 2, linhas 3 e 4) na coluna do mês atual */
+    section.main div[data-testid="stDataFrame"]:nth-of-type(1) tbody tr:nth-child(3) td:nth-child({coluna_css_idx}),
+    section.main div[data-testid="stDataFrame"]:nth-of-type(1) tbody tr:nth-child(4) td:nth-child({coluna_css_idx}) {{
+        background-color: #E2E8F0 !important; /* Cinza claro */
+    }}
+
+    /* Pinta a linha do Salário (tabela 4, linha 1) na coluna do mês atual */
+    section.main div[data-testid="stDataFrame"]:nth-of-type(2) tbody tr:nth-child(1) td:nth-child({coluna_css_idx}) {{
+        background-color: #7FAFE0 !important; /* Azul escuro */
+    }}
 
     /* Estilo dos Indicadores (Compactos) */
-    div[data-testid="stMetricValue"] { font-size: 1.2rem !important; }
-    div[data-testid="stMetricLabel"] { font-size: 0.8rem !important; font-weight: bold !important; }
-    div[data-testid="stMetric"] {
+    div[data-testid="stMetricValue"] {{ font-size: 1.2rem !important; }}
+    div[data-testid="stMetricLabel"] {{ font-size: 0.8rem !important; font-weight: bold !important; }}
+    div[data-testid="stMetric"] {{
         background-color: #ffffff; padding: 8px 12px !important; border-radius: 6px;
         box-shadow: 0 1px 3px rgba(0,0,0,0.1); text-align: center; border: 1px solid #e0e0e0;
-    }
-    .main { background-color: #f8f9fa; }
+    }}
+    .main {{ background-color: #f8f9fa; }}
     </style>
     """, unsafe_allow_html=True)
-
-# --- JAVASCRIPT: SCROLL DE SEGURANÇA ---
-components.html("""
-    <script>
-    const parentDoc = window.parent.document;
-    let syncLock = false;
-
-    function attachSync() {
-        const scrollers = parentDoc.querySelectorAll('.dvn-scroller');
-        scrollers.forEach(s => {
-            if (!s.hasAttribute('data-synced')) {
-                s.setAttribute('data-synced', 'true');
-                s.addEventListener('scroll', (e) => {
-                    if (syncLock) return;
-                    syncLock = true;
-                    scrollers.forEach(other => {
-                        if (other !== e.target) {
-                            other.scrollLeft = e.target.scrollLeft;
-                        }
-                    });
-                    setTimeout(() => { syncLock = false; }, 20);
-                });
-            }
-        });
-    }
-    setInterval(attachSync, 1000);
-    </script>
-""", height=0, width=0)
 
 # --- MENU LATERAL ---
 with st.sidebar:
@@ -115,7 +122,7 @@ if 'df_entradas' not in st.session_state or 'MESES' not in st.session_state.df_e
     st.session_state.df_entradas = df_e
 
 # =====================================================================
-# TRAVA DE COLUNAS ÚNICA: TODAS AS TABELAS USAM A MESMA RÉGUA
+# TRAVA DE COLUNAS ÚNICA
 # =====================================================================
 col_config_master = {"MESES": st.column_config.TextColumn("MESES", width=210, disabled=True)}
 for mes in meses_view:
@@ -126,55 +133,13 @@ for mes in meses_view:
 # ==========================================
 if menu == "🏠 Dashboard Consolidado":
     
-    # --- FUNÇÕES DE ESTILIZAÇÃO DO MÊS ATUAL ---
-    
-    # SOLUÇÃO DEFINITIVA PARA A TABELA EDITÁVEL:
-    # Lendo linha por linha (axis=1) para forçar o Streamlit a pintar as células!
-    def style_editavel(row):
-        styles = []
-        for col in row.index:
-            if col == mes_atual_str:
-                styles.append('background-color: #E2E8F0; font-weight: bold; color: black;')
-            else:
-                styles.append('')
-        return styles
-
-    def style_patrimonio_resultado(row):
-        styles = []
-        nome = row['MESES']
-        for col in row.index:
-            bg = 'white'
-            fw = 'normal'
-            if nome == 'PATRIMONIO LÍQUIDO': bg = '#FFF2CC'; fw = 'bold'
-            elif nome == 'PATRIMONIO TOTAL': bg = '#FF9900'; fw = 'bold'
-            elif nome == 'Var $ patrimonio': bg = '#FFF2CC'
-            
-            # Se for o mês atual, altera a cor
-            if col == mes_atual_str:
-                if bg == 'white': bg = '#E2E8F0' # Cinza clarinho
-                elif bg == '#FFF2CC': bg = '#E6D9B1' # Amarelo escurecido
-                elif bg == '#FF9900': bg = '#CC7A00' # Laranja mais forte
-            
-            styles.append(f'background-color: {bg}; font-weight: {fw}; color: black; border-bottom: 1px solid #ccc;')
-        return styles
-
-    def style_entradas_resultado(row):
-        styles = []
-        for col in row.index:
-            bg = '#9BC2E6'
-            if col == mes_atual_str: bg = '#7FAFE0' # Azul mais escuro
-            styles.append(f'background-color: {bg}; font-weight: bold; color: black; border-bottom: 1px solid #ccc;')
-        return styles
-
     st.markdown('<div class="container-tabelas">', unsafe_allow_html=True)
 
     # ------------------------------------------------------------------
-    # TABELA 1: PATRIMÔNIO EDITÁVEL 
+    # TABELA 1: PATRIMÔNIO EDITÁVEL (Sem Styler do Pandas!)
     # ------------------------------------------------------------------
     df_view_patr = st.session_state.df_patrimonio[['MESES'] + meses_view]
-    # Aplicando a função matadora axis=1
-    styled_view_patr = df_view_patr.style.apply(style_editavel, axis=1)
-    df_editado_view_patr = st.data_editor(styled_view_patr, hide_index=True, column_config=col_config_master, use_container_width=True, height=285)
+    df_editado_view_patr = st.data_editor(df_view_patr, hide_index=True, column_config=col_config_master, use_container_width=True, height=280)
     
     for mes in meses_view:
         st.session_state.df_patrimonio[mes] = df_editado_view_patr[mes]
@@ -189,23 +154,35 @@ if menu == "🏠 Dashboard Consolidado":
     for mes in meses_view:
         df_resultados_patr[mes] = [patrimonio_liquido[mes], patrimonio_total[mes], var_rs[mes], var_pct[mes]]
 
+    # O Styler agora SÓ pinta as linhas base (Amarelo e Laranja). O CSS cuida do destaque do mês!
+    def style_linhas_base_patrimonio(row):
+        styles = []
+        nome = row['MESES']
+        for col in row.index:
+            bg = 'white'
+            fw = 'normal'
+            if nome == 'PATRIMONIO LÍQUIDO': bg = '#FFF2CC'; fw = 'bold'
+            elif nome == 'PATRIMONIO TOTAL': bg = '#FF9900'; fw = 'bold'
+            elif nome == 'Var $ patrimonio': bg = '#FFF2CC'
+            
+            styles.append(f'background-color: {bg}; font-weight: {fw}; color: black; border-bottom: 1px solid #ccc;')
+        return styles
+
     styled_df_patr = df_resultados_patr.style\
-        .apply(style_patrimonio_resultado, axis=1)\
+        .apply(style_linhas_base_patrimonio, axis=1)\
         .format(formatter={col: 'R$ {:,.2f}' for col in meses_view}, subset=pd.IndexSlice[[0, 1, 2], meses_view])\
         .format(formatter={col: '{:.2f}%' for col in meses_view}, subset=pd.IndexSlice[[3], meses_view])
 
     # ------------------------------------------------------------------
     # TABELA 2: RESULTADOS PATRIMÔNIO
     # ------------------------------------------------------------------
-    st.dataframe(styled_df_patr, hide_index=True, column_config=col_config_master, use_container_width=True, height=180)
+    st.dataframe(styled_df_patr, hide_index=True, column_config=col_config_master, use_container_width=True, height=145)
 
     # ------------------------------------------------------------------
-    # TABELA 3: ENTRADAS EDITÁVEL 
+    # TABELA 3: ENTRADAS EDITÁVEL (Sem Styler do Pandas!)
     # ------------------------------------------------------------------
     df_view_ent = st.session_state.df_entradas[['MESES'] + meses_view]
-    # Aplicando a função matadora axis=1
-    styled_view_ent = df_view_ent.style.apply(style_editavel, axis=1)
-    df_editado_view_ent = st.data_editor(styled_view_ent, hide_index=True, column_config=col_config_master, use_container_width=True, height=180)
+    df_editado_view_ent = st.data_editor(df_view_ent, hide_index=True, column_config=col_config_master, use_container_width=True, height=170)
     
     for mes in meses_view:
         st.session_state.df_entradas[mes] = df_editado_view_ent[mes]
@@ -217,16 +194,20 @@ if menu == "🏠 Dashboard Consolidado":
     for mes in meses_view:
         df_resultado_entradas[mes] = [salario_mes[mes]]
 
+    # O Styler agora SÓ pinta a linha base (Azul). O CSS cuida do destaque do mês!
+    def style_linha_base_entradas(row):
+        return ['background-color: #9BC2E6; font-weight: bold; color: black; border-bottom: 1px solid #ccc;'] * len(row)
+
     styled_df_ent = df_resultado_entradas.style\
-        .apply(style_entradas_resultado, axis=1)\
+        .apply(style_linha_base_entradas, axis=1)\
         .format(formatter={col: 'R$ {:,.2f}' for col in meses_view})
         
     # ------------------------------------------------------------------
     # TABELA 4: RESULTADO ENTRADAS
     # ------------------------------------------------------------------
-    st.dataframe(styled_df_ent, hide_index=True, column_config=col_config_master, use_container_width=True, height=75)
+    st.dataframe(styled_df_ent, hide_index=True, column_config=col_config_master, use_container_width=True, height=45)
 
-    st.markdown('</div>', unsafe_allow_html=True) # Fecha container das tabelas
+    st.markdown('</div>', unsafe_allow_html=True)
 
     # ==========================================
     # BLOCO 3: INDICADORES
