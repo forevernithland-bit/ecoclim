@@ -29,7 +29,6 @@ hoje = datetime.datetime.now()
 mes_hoje_idx = hoje.month 
 mes_atual_nome = meses_pt[mes_hoje_idx - 1] 
 
-# Função que formata PARA A TELA (coloca o R$ e o ponto)
 def to_br_currency(val):
     try:
         v = int(float(val))
@@ -39,11 +38,9 @@ def to_br_currency(val):
     except:
         return "R$ 0"
 
-# Função que lê o que VOCÊ DIGITOU e transforma em número pro Banco
 def parse_br_currency(val):
     try:
         if isinstance(val, (int, float)): return int(val)
-        # Tira tudo que não for número (ex: R$, pontos, espaços)
         clean = re.sub(r'[^\d-]', '', str(val))
         if clean == "": return 0
         return int(clean)
@@ -67,11 +64,12 @@ st.markdown("""
     section.main div[data-testid="stDataFrame"]:nth-of-type(1) thead { display: none !important; }
     section.main div[data-testid="stDataEditor"]:nth-of-type(2) thead { display: none !important; }
     section.main div[data-testid="stDataFrame"]:nth-of-type(2) thead { display: none !important; }
+    section.main div[data-testid="stDataFrame"]:nth-of-type(3) thead { display: none !important; }
     </style>
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 4. FUNÇÕES DE DADOS (PÚRO INTEIRO)
+# 4. FUNÇÕES DE DADOS 
 # ==========================================
 def load_year_data(table_name, itens_padrao, ano_escolhido):
     try:
@@ -132,56 +130,51 @@ with st.sidebar:
 contas_p = ['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS', 'IMÓVEIS', 'VEÍCULOS']
 contas_e = ['ECOCLIM', 'AIRNB', 'CONS INVESTIMENTOS', 'MAGGI CONSORCIOS']
 
-# Inicializa os dados (sempre em número inteiro)
 if 'df_p' not in st.session_state: st.session_state.df_p = load_year_data('patrimonio', contas_p, ano_selecionado)
 if 'df_e' not in st.session_state: st.session_state.df_e = load_year_data('entradas', contas_e, ano_selecionado)
 
-# TRUQUE DE MESTRE: Configura as colunas da tabela editável como TEXTO para enganar o padrão americano
 col_cfg = {"MESES": st.column_config.TextColumn("MESES", width=220, disabled=True)}
-for m in meses_pt: 
-    col_cfg[m] = st.column_config.TextColumn(m, width=80) # TextColumn tira as vírgulas forçadas!
+for m in meses_pt: col_cfg[m] = st.column_config.TextColumn(m, width=80) 
 
 st.markdown('<div class="container-tabelas">', unsafe_allow_html=True)
 
 # ==========================================
-# 6. TABELA 1: PATRIMÔNIO (EDITÁVEL)
+# 6. TABELA 1: PATRIMÔNIO
 # ==========================================
-# Cria uma cópia maquiada (com R$ e Ponto) para exibir na tela
 df_p_display = st.session_state.df_p.copy()
 for m in meses_pt: df_p_display[m] = df_p_display[m].apply(to_br_currency)
 
-# Pinta a coluna de azul via Pandas (agora funciona 100% com o formato texto)
 styled_df_p = df_p_display.style.set_properties(
     subset=[mes_atual_nome], 
     **{'background-color': '#e0f0ff', 'font-weight': 'bold', 'color': '#000'}
 )
 
-# Renderiza a tabela editável
 df_p_edit_str = st.data_editor(styled_df_p, hide_index=True, column_config=col_cfg, use_container_width=True, height=295)
 
-# Se você alterar algo na tela
 if not df_p_edit_str.equals(df_p_display):
-    # Traduz o texto de volta para número puro
     novo_df_p_int = df_p_edit_str.copy()
     for m in meses_pt: novo_df_p_int[m] = novo_df_p_int[m].apply(parse_br_currency)
-    
-    # Salva no banco e atualiza a página
     save_to_supabase('patrimonio', novo_df_p_int, ano_selecionado)
     st.session_state.df_p = novo_df_p_int
     st.toast("💾 Salvo com sucesso!", icon="✅")
     st.rerun()
 
-# --- CÁLCULOS PATRIMÔNIO (Feitos com o número puro) ---
+# --- CÁLCULOS PATRIMÔNIO ---
 df_n = st.session_state.df_p.set_index('MESES')
 pat_liq = df_n.loc[['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS']].sum()
 pat_tot = pat_liq + df_n.loc['IMÓVEIS'] + df_n.loc['VEÍCULOS']
 var_abs = pat_tot.diff().fillna(0)
 var_pct = (pat_tot.pct_change().fillna(0) * 100).round(2)
 
+# TRAVA DO FUTURO: Zera as variações de meses que ainda não chegaram
+for i, m in enumerate(meses_pt):
+    if i > mes_hoje_idx - 1:
+        var_abs[m] = 0
+        var_pct[m] = 0
+
 df_res_p = pd.DataFrame({'MESES': ['PATRIMÔNIO LÍQUIDO', 'PATRIMÔNIO TOTAL', 'VARIAÇÃO MENSAL ($)', 'VARIAÇÃO MENSAL (%)']})
 for m in meses_pt: df_res_p[m] = [pat_liq[m], pat_tot[m], var_abs[m], f"{var_pct[m]:.2f}%"]
 
-# --- TABELA 2: RESULTADOS PATRIMÔNIO ---
 def style_res_p(row):
     styles = []
     for col in df_res_p.columns:
@@ -189,7 +182,7 @@ def style_res_p(row):
         if row['MESES'] == 'PATRIMÔNIO LÍQUIDO': bg = '#FFF2CC'
         elif row['MESES'] == 'PATRIMÔNIO TOTAL': bg = '#FF9900'
         
-        if col == mes_atual_nome: # Borda azul pesada
+        if col == mes_atual_nome: 
             styles.append(f'background-color: {bg}; font-weight: bold; color: black; border-left: 3px solid #4A90E2; border-right: 3px solid #4A90E2;')
         else:
             styles.append(f'background-color: {bg}; font-weight: bold; color: black; border-bottom: 1px solid #ddd;')
@@ -216,18 +209,15 @@ df_e_edit_str = st.data_editor(styled_df_e, hide_index=True, column_config=col_c
 if not df_e_edit_str.equals(df_e_display):
     novo_df_e_int = df_e_edit_str.copy()
     for m in meses_pt: novo_df_e_int[m] = novo_df_e_int[m].apply(parse_br_currency)
-    
     save_to_supabase('entradas', novo_df_e_int, ano_selecionado)
     st.session_state.df_e = novo_df_e_int
     st.toast("💾 Salvo com sucesso!", icon="✅")
     st.rerun()
 
-# --- CÁLCULOS ENTRADAS ---
 tot_ent = st.session_state.df_e.set_index('MESES').sum()
 df_res_e = pd.DataFrame({'MESES': ['TOTAL RECEBIMENTOS:']})
 for m in meses_pt: df_res_e[m] = [tot_ent[m]]
 
-# --- TABELA 4: RESULTADO ENTRADAS ---
 def style_res_e(row):
     styles = []
     for col in df_res_e.columns:
@@ -242,10 +232,63 @@ styled_res_e = df_res_e.style.apply(style_res_e, axis=1).format(
 )
 st.dataframe(styled_res_e, hide_index=True, column_config=col_cfg, use_container_width=True, height=75)
 
+# ==========================================
+# 8. TABELA 5: RENDIMENTO MENSAL (NOVO)
+# ==========================================
+st.markdown("#### 📈 Rendimento Mensal (Investimentos)")
+
+xp_val = df_n.loc['INVESTIMENTO XP']
+inter_val = df_n.loc['CONTA INTER']
+
+# Calcula os rendimentos isolados (variação mensal)
+xp_var = xp_val.diff().fillna(0)
+inter_var = inter_val.diff().fillna(0)
+rend_total = xp_var + inter_var
+
+# Saldo do mês anterior para calcular o Retorno %
+prev_bal = (xp_val + inter_val).shift(1).fillna(0)
+
+df_rend = pd.DataFrame({'MESES': [
+    'VARIAÇÃO INVESTIMENTO XP',
+    'VARIAÇÃO CONTA INTER',
+    'RENDIMENTO TOTAL',
+    '% RETORNO MÊS',
+    'SALÁRIO + RENDIMENTO MÊS'
+]})
+
+# Alimenta a tabela aplicando a trava de meses futuros
+for i, m in enumerate(meses_pt):
+    if i > mes_hoje_idx - 1:
+        df_rend[m] = [0, 0, 0, "0,00%", 0]
+    else:
+        pb = prev_bal[m]
+        rt = rend_total[m]
+        pct = f"{(rt / pb) * 100:.2f}%".replace(".", ",") if pb > 0 else "0,00%"
+        sal_rend = tot_ent[m] + rt
+        df_rend[m] = [xp_var[m], inter_var[m], rt, pct, sal_rend]
+
+def style_rend(row):
+    styles = []
+    for col in df_rend.columns:
+        bg = 'white'
+        if row['MESES'] == 'RENDIMENTO TOTAL': bg = '#FF9900'
+        elif row['MESES'] == '% RETORNO MÊS': bg = '#FFF2CC'
+        elif row['MESES'] == 'SALÁRIO + RENDIMENTO MÊS': bg = '#9BC2E6'
+        
+        if col == mes_atual_nome:
+            styles.append(f'background-color: {bg}; font-weight: bold; color: black; border-left: 3px solid #4A90E2; border-right: 3px solid #4A90E2;')
+        else:
+            styles.append(f'background-color: {bg}; font-weight: bold; color: black; border-bottom: 1px solid #ddd;')
+    return styles
+
+styled_rend = df_rend.style.apply(style_rend, axis=1).format(
+    lambda x: to_br_currency(x) if isinstance(x, (int, float, np.integer, np.floating)) else x
+)
+st.dataframe(styled_rend, hide_index=True, column_config=col_cfg, use_container_width=True, height=215)
 st.markdown('</div>', unsafe_allow_html=True)
 
 # ==========================================
-# 8. MÉTRICAS FINAIS
+# 9. MÉTRICAS FINAIS
 # ==========================================
 st.markdown("<br>", unsafe_allow_html=True)
 m1, m2, m3, m4 = st.columns(4)
