@@ -25,13 +25,11 @@ except Exception as e:
 # ==========================================
 meses_pt = ['JANEIRO', 'FEVEREIRO', 'MARÇO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO']
 hoje = datetime.datetime.now()
-
-# CORREÇÃO DO ERRO AQUI:
 mes_hoje_idx = hoje.month 
 mes_atual_nome = meses_pt[mes_hoje_idx - 1] 
 
 def formata_br(valor):
-    # Transforma o número em R$ 1.000 para as tabelas de resultado
+    # Formata com separador de milhar brasileiro (ponto) nas tabelas de resultado
     if pd.isna(valor): 
         return "R$ 0"
     try:
@@ -63,7 +61,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 4. FUNÇÕES DE DADOS 
+# 4. FUNÇÕES DE DADOS (BLINDADAS CONTRA ERROS)
 # ==========================================
 def load_year_data(table_name, itens_padrao, ano_escolhido):
     try:
@@ -90,7 +88,6 @@ def load_year_data(table_name, itens_padrao, ano_escolhido):
         
         df_pivot.set_index('MESES', inplace=True)
         df_pivot = df_pivot.reindex(itens_padrao).reset_index()
-        
         df_pivot[meses_pt] = df_pivot[meses_pt].astype(int)
         
         return df_pivot
@@ -100,12 +97,21 @@ def load_year_data(table_name, itens_padrao, ano_escolhido):
         return df
 
 def save_to_supabase(table_name, df, ano_escolhido):
-    df_melted = df.melt(id_vars=['MESES'], var_name='mes', value_name='valor')
-    df_melted['ano'] = ano_escolhido
-    df_melted.rename(columns={'MESES': 'conta'}, inplace=True)
-    df_melted['valor'] = df_melted['valor'].astype(int)
-    data = df_melted.to_dict(orient='records')
-    supabase.table(table_name).upsert(data).execute()
+    try:
+        df_melted = df.melt(id_vars=['MESES'], var_name='mes', value_name='valor')
+        df_melted['ano'] = ano_escolhido
+        df_melted.rename(columns={'MESES': 'conta'}, inplace=True)
+        
+        # Garante que vai salvar como número inteiro perfeitamente formatado
+        df_melted['valor'] = df_melted['valor'].apply(lambda x: int(float(x)))
+        data = df_melted.to_dict(orient='records')
+        
+        # TÉCNICA DE BLINDAGEM: Apaga os registros do ano selecionado e insere de novo
+        # Isso resolve 100% o APIError de upsert por falta de Primary Key
+        supabase.table(table_name).delete().eq('ano', ano_escolhido).execute()
+        supabase.table(table_name).insert(data).execute()
+    except Exception as e:
+        st.error(f"Erro ao salvar no banco: {e}")
 
 # ==========================================
 # 5. MENU LATERAL E INICIALIZAÇÃO
@@ -125,17 +131,23 @@ if 'df_p' not in st.session_state:
 if 'df_e' not in st.session_state:
     st.session_state.df_e = load_year_data('entradas', contas_e, ano_selecionado)
 
-# Formatação limpa na hora de digitar (sem vírgula pra não irritar) -> Ex: R$ 12370
+# Formatação visual para edição. Usa vírgula por limitação do Streamlit, mas fica mais bonito que o número puro.
 col_cfg = {"MESES": st.column_config.TextColumn("MESES", width=220, disabled=True)}
 for m in meses_pt: 
-    col_cfg[m] = st.column_config.NumberColumn(m, width=80, format="R$ %d", step=1)
+    col_cfg[m] = st.column_config.NumberColumn(m, width=80, format="%,d", step=1)
 
 st.markdown('<div class="container-tabelas">', unsafe_allow_html=True)
 
 # ==========================================
 # 7. TABELA 1: PATRIMÔNIO (EDITÁVEL)
 # ==========================================
-df_p_edit = st.data_editor(st.session_state.df_p, hide_index=True, column_config=col_cfg, use_container_width=True, height=295)
+# APLICA A COR NO MÊS ATUAL NA EDIÇÃO
+styled_df_p = st.session_state.df_p.style.set_properties(
+    subset=[mes_atual_nome], 
+    **{'background-color': '#e0f0ff', 'font-weight': 'bold', 'color': '#000'}
+)
+
+df_p_edit = st.data_editor(styled_df_p, hide_index=True, column_config=col_cfg, use_container_width=True, height=295)
 
 if not df_p_edit.equals(st.session_state.df_p):
     save_to_supabase('patrimonio', df_p_edit, ano_selecionado)
@@ -162,14 +174,14 @@ def style_res_p(row):
         if row['MESES'] == 'PATRIMÔNIO LÍQUIDO': bg = '#FFF2CC'
         elif row['MESES'] == 'PATRIMÔNIO TOTAL': bg = '#FF9900'
         
-        # Borda azul grossa na coluna do mês atual!
+        # Borda azul e fundo se for a coluna do mês atual
         if col == mes_atual_nome:
             styles.append(f'background-color: {bg}; font-weight: bold; color: black; border-left: 3px solid #4A90E2; border-right: 3px solid #4A90E2;')
         else:
             styles.append(f'background-color: {bg}; font-weight: bold; color: black; border-bottom: 1px solid #ddd;')
     return styles
 
-# APLICA A COR E A FORMATAÇÃO "R$ 1.000" PERFEITA
+# APLICA AS CORES E O FORMATO "R$ 1.000" PERFEITAMENTE
 styled_res_p = df_res_p.style.apply(style_res_p, axis=1).format(
     lambda x: formata_br(x) if isinstance(x, (int, float, np.integer, np.floating)) else x
 )
@@ -179,7 +191,12 @@ st.dataframe(styled_res_p, hide_index=True, column_config=col_cfg, use_container
 # ==========================================
 # 8. TABELA 3: ENTRADAS
 # ==========================================
-df_e_edit = st.data_editor(st.session_state.df_e, hide_index=True, column_config=col_cfg, use_container_width=True, height=190)
+styled_df_e = st.session_state.df_e.style.set_properties(
+    subset=[mes_atual_nome], 
+    **{'background-color': '#e0f0ff', 'font-weight': 'bold', 'color': '#000'}
+)
+
+df_e_edit = st.data_editor(styled_df_e, hide_index=True, column_config=col_cfg, use_container_width=True, height=190)
 
 if not df_e_edit.equals(st.session_state.df_e):
     save_to_supabase('entradas', df_e_edit, ano_selecionado)
