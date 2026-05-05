@@ -21,22 +21,24 @@ except Exception as e:
     st.error(f"Erro ao conectar com Supabase: {e}")
 
 # ==========================================
-# 2. LÓGICA DE TEMPO E FORMATAÇÃO
+# 2. LÓGICA DE TEMPO E FORMATAÇÃO (SEM CENTAVOS)
 # ==========================================
 meses_pt = ['JANEIRO', 'FEVEREIRO', 'MARÇO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO']
 hoje = datetime.datetime.now()
-mes_atual_nome = meses_pt[hoje.month - 1] # Pega o nome do mês atual para pintar a coluna
+mes_atual_nome = meses_pt[hoje.month - 1] # Pega o nome do mês atual para pintar
 
 def formata_br(valor):
+    # Formata como R$ 1.000.000 (sem centavos)
     if pd.isna(valor) or valor == 0: 
-        return "R$ 0,00"
+        return "R$ 0"
     try:
-        return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        valor_inteiro = int(round(float(valor)))
+        return f"R$ {valor_inteiro:,}".replace(",", ".")
     except: 
         return valor
 
 # ==========================================
-# 3. CSS (APENAS ESTRUTURA, CORES VÃO PELO PYTHON AGORA)
+# 3. CSS (LARGURAS E ESTRUTURA)
 # ==========================================
 st.markdown("""
     <style>
@@ -44,8 +46,11 @@ st.markdown("""
     div.container-tabelas div[data-testid="stVerticalBlock"] { gap: 0px !important; padding: 0px !important; }
     [data-testid="stTable"] { overflow: hidden !important; }
     .dvn-scroller { overflow-y: hidden !important; }
+    
     .stDataFrame table, .stDataEditor table { table-layout: fixed !important; width: 100% !important; }
     .stDataFrame td, .stDataFrame th, .stDataEditor td, .stDataEditor th { text-align: center !important; font-size: 0.85rem !important; }
+    
+    /* Esconde os cabeçalhos das tabelas de baixo */
     section.main div[data-testid="stDataFrame"]:nth-of-type(1) thead { display: none !important; }
     section.main div[data-testid="stDataEditor"]:nth-of-type(2) thead { display: none !important; }
     section.main div[data-testid="stDataFrame"]:nth-of-type(2) thead { display: none !important; }
@@ -53,44 +58,53 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 4. FUNÇÕES DE BANCO DE DADOS (SEM ESCONDER ERROS)
+# 4. FUNÇÕES DE DADOS (FORÇANDO NÚMEROS INTEIROS)
 # ==========================================
 def load_year_data(table_name, itens_padrao, ano_escolhido):
-    # Se der erro aqui, a tela vai mostrar o erro vermelho do Supabase
-    res = supabase.table(table_name).select("*").eq("ano", ano_escolhido).execute()
-    df_raw = pd.DataFrame(res.data)
-    
-    if df_raw.empty:
-        df = pd.DataFrame(0.0, index=range(len(itens_padrao)), columns=meses_pt)
+    try:
+        res = supabase.table(table_name).select("*").eq("ano", ano_escolhido).execute()
+        df_raw = pd.DataFrame(res.data)
+        
+        if df_raw.empty:
+            df = pd.DataFrame(0, index=range(len(itens_padrao)), columns=meses_pt)
+            df.insert(0, 'MESES', itens_padrao)
+            return df
+        
+        df_pivot = df_raw.pivot(index='conta', columns='mes', values='valor').fillna(0)
+        for m in meses_pt:
+            if m not in df_pivot.columns: df_pivot[m] = 0
+            
+        df_pivot = df_pivot[meses_pt].reset_index()
+        df_pivot.rename(columns={'conta': 'MESES'}, inplace=True)
+        
+        for item in itens_padrao:
+            if item not in df_pivot['MESES'].values:
+                nova_linha = {m: 0 for m in meses_pt}
+                nova_linha['MESES'] = item
+                df_pivot = pd.concat([df_pivot, pd.DataFrame([nova_linha])], ignore_index=True)
+        
+        df_pivot.set_index('MESES', inplace=True)
+        df_pivot = df_pivot.reindex(itens_padrao).reset_index()
+        
+        # Converte todas as colunas de meses para INTEIRO (remove centavos no banco de memória)
+        df_pivot[meses_pt] = df_pivot[meses_pt].astype(int)
+        
+        return df_pivot
+    except Exception as e:
+        st.error(f"Erro ao carregar a tabela '{table_name}': {e}")
+        df = pd.DataFrame(0, index=range(len(itens_padrao)), columns=meses_pt)
         df.insert(0, 'MESES', itens_padrao)
         return df
-    
-    df_pivot = df_raw.pivot(index='conta', columns='mes', values='valor').fillna(0)
-    for m in meses_pt:
-        if m not in df_pivot.columns: df_pivot[m] = 0.0
-    
-    df_pivot = df_pivot[meses_pt].reset_index()
-    df_pivot.rename(columns={'conta': 'MESES'}, inplace=True)
-    
-    for item in itens_padrao:
-        if item not in df_pivot['MESES'].values:
-            nova_linha = {m: 0.0 for m in meses_pt}
-            nova_linha['MESES'] = item
-            df_pivot = pd.concat([df_pivot, pd.DataFrame([nova_linha])], ignore_index=True)
-    
-    df_pivot.set_index('MESES', inplace=True)
-    df_pivot = df_pivot.reindex(itens_padrao).reset_index()
-    return df_pivot
 
 def save_to_supabase(table_name, df, ano_escolhido):
     df_melted = df.melt(id_vars=['MESES'], var_name='mes', value_name='valor')
     df_melted['ano'] = ano_escolhido
     df_melted.rename(columns={'MESES': 'conta'}, inplace=True)
-    data = df_melted.to_dict(orient='records')
     
-    # Se o RLS bloquear, isso vai gerar um erro visível
-    resposta = supabase.table(table_name).upsert(data).execute()
-    return resposta
+    # Garante que vai salvar como inteiro no Supabase
+    df_melted['valor'] = df_melted['valor'].astype(int)
+    data = df_melted.to_dict(orient='records')
+    supabase.table(table_name).upsert(data).execute()
 
 # ==========================================
 # 5. MENU LATERAL
@@ -108,36 +122,34 @@ with st.sidebar:
 contas_p = ['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS', 'IMÓVEIS', 'VEÍCULOS']
 contas_e = ['ECOCLIM', 'AIRNB', 'CONS INVESTIMENTOS', 'MAGGI CONSORCIOS']
 
+# Sem acento novamente!
 if 'df_p' not in st.session_state:
     st.session_state.df_p = load_year_data('patrimonio', contas_p, ano_selecionado)
 if 'df_e' not in st.session_state:
     st.session_state.df_e = load_year_data('entradas', contas_e, ano_selecionado)
 
-# Força o formato R$ na hora de editar
+# Formatação visual na hora de editar (sem as casas decimais)
 col_cfg = {"MESES": st.column_config.TextColumn("MESES", width=220, disabled=True)}
 for m in meses_pt: 
-    col_cfg[m] = st.column_config.NumberColumn(m, width=80, format="R$ %.2f", step=0.01)
+    col_cfg[m] = st.column_config.NumberColumn(m, width=80, format="R$ %d", step=1)
 
 st.markdown('<div class="container-tabelas">', unsafe_allow_html=True)
 
 # ==========================================
-# 7. TABELA 1: PATRIMÔNIO (COM COR DA COLUNA NATIVA)
+# 7. TABELA 1: PATRIMÔNIO (COM COR DA COLUNA)
 # ==========================================
-# Aplica a cor do mês atual diretamente no DataFrame (100% garantido de funcionar)
+# Aplica a cor azul na coluna inteira do mês atual
 styled_df_p = st.session_state.df_p.style.set_properties(
     subset=[mes_atual_nome], 
-    **{'background-color': '#E8F0FE', 'font-weight': 'bold', 'border': '1px solid #4A90E2'}
+    **{'background-color': '#E8F0FE', 'font-weight': 'bold', 'color': 'black'}
 )
 
 df_p_edit = st.data_editor(styled_df_p, hide_index=True, column_config=col_cfg, use_container_width=True, height=295)
 
 if not df_p_edit.equals(st.session_state.df_p):
-    try:
-        save_to_supabase('patrimonio', df_p_edit, ano_selecionado)
-        st.session_state.df_p = df_p_edit
-        st.toast("💾 Patrimônio salvo no Supabase!", icon="✅")
-    except Exception as e:
-        st.error(f"ERRO AO SALVAR NO SUPABASE (Provável bloqueio RLS): {e}")
+    save_to_supabase('patrimonio', df_p_edit, ano_selecionado)
+    st.session_state.df_p = df_p_edit
+    st.toast("💾 Patrimônio salvo no Supabase!", icon="✅")
     st.rerun()
 
 # --- CÁLCULOS PATRIMÔNIO ---
@@ -148,19 +160,27 @@ var_abs = pat_tot.diff().fillna(0)
 var_pct = (pat_tot.pct_change().fillna(0) * 100).round(2)
 
 df_res_p = pd.DataFrame({'MESES': ['PATRIMÔNIO LÍQUIDO', 'PATRIMÔNIO TOTAL', 'VARIAÇÃO MENSAL ($)', 'VARIAÇÃO MENSAL (%)']})
-for m in meses_pt: df_res_p[m] = [pat_liq[m], pat_tot[m], var_abs[m], f"{var_pct[m]:.2f}%"]
+for m in meses_pt: 
+    df_res_p[m] = [pat_liq[m], pat_tot[m], var_abs[m], f"{var_pct[m]:.2f}%"]
 
 # --- TABELA 2: RESULTADOS PATRIMÔNIO ---
 def style_res_p(row):
-    color = 'white'
-    if row['MESES'] == 'PATRIMÔNIO LÍQUIDO': color = '#FFF2CC'
-    if row['MESES'] == 'PATRIMÔNIO TOTAL': color = '#FF9900'
-    return [f'background-color: {color}; font-weight: bold; color: black; border-bottom: 1px solid #ddd;'] * len(row)
+    styles = []
+    for col in df_res_p.columns:
+        bg = 'white'
+        if row['MESES'] == 'PATRIMÔNIO LÍQUIDO': bg = '#FFF2CC'
+        elif row['MESES'] == 'PATRIMÔNIO TOTAL': bg = '#FF9900'
+        
+        # Se for a coluna do mês atual, adiciona uma borda azul grossa nas laterais
+        if col == mes_atual_nome:
+            styles.append(f'background-color: {bg}; font-weight: bold; color: black; border-left: 3px solid #4A90E2; border-right: 3px solid #4A90E2;')
+        else:
+            styles.append(f'background-color: {bg}; font-weight: bold; color: black; border-bottom: 1px solid #ddd;')
+    return styles
 
-# Aplica a cor das linhas E a cor da coluna do mês atual
-styled_res_p = df_res_p.style.apply(style_res_p, axis=1).set_properties(
-    subset=[mes_atual_nome], **{'background-color': '#E8F0FE', 'border-left': '2px solid #4A90E2', 'border-right': '2px solid #4A90E2'}
-).format(lambda x: formata_br(x) if isinstance(x, (float, int, np.float64)) else x)
+styled_res_p = df_res_p.style.apply(style_res_p, axis=1).format(
+    lambda x: formata_br(x) if isinstance(x, (int, float, np.integer, np.floating)) else x
+)
 
 st.dataframe(styled_res_p, hide_index=True, column_config=col_cfg, use_container_width=True, height=175)
 
@@ -169,18 +189,15 @@ st.dataframe(styled_res_p, hide_index=True, column_config=col_cfg, use_container
 # ==========================================
 styled_df_e = st.session_state.df_e.style.set_properties(
     subset=[mes_atual_nome], 
-    **{'background-color': '#E8F0FE', 'font-weight': 'bold', 'border': '1px solid #4A90E2'}
+    **{'background-color': '#E8F0FE', 'font-weight': 'bold', 'color': 'black'}
 )
 
 df_e_edit = st.data_editor(styled_df_e, hide_index=True, column_config=col_cfg, use_container_width=True, height=190)
 
 if not df_e_edit.equals(st.session_state.df_e):
-    try:
-        save_to_supabase('entradas', df_e_edit, ano_selecionado)
-        st.session_state.df_e = df_e_edit
-        st.toast("💾 Entradas salvas no Supabase!", icon="✅")
-    except Exception as e:
-        st.error(f"ERRO AO SALVAR NO SUPABASE (Provável bloqueio RLS): {e}")
+    save_to_supabase('entradas', df_e_edit, ano_selecionado)
+    st.session_state.df_e = df_e_edit
+    st.toast("💾 Entradas salvas no Supabase!", icon="✅")
     st.rerun()
 
 # --- CÁLCULOS ENTRADAS ---
@@ -189,11 +206,20 @@ df_res_e = pd.DataFrame({'MESES': ['TOTAL RECEBIMENTOS:']})
 for m in meses_pt: df_res_e[m] = [tot_ent[m]]
 
 # --- TABELA 4: RESULTADO ENTRADAS ---
-styled_res_e = df_res_e.style.apply(lambda x: ['background-color: #9BC2E6; font-weight: bold; color: black;'] * len(x), axis=1).set_properties(
-    subset=[mes_atual_nome], **{'border-left': '2px solid #4A90E2', 'border-right': '2px solid #4A90E2'}
-).format(lambda x: formata_br(x) if isinstance(x, (float, int, np.float64)) else x)
+def style_res_e(row):
+    styles = []
+    for col in df_res_e.columns:
+        if col == mes_atual_nome:
+            styles.append('background-color: #9BC2E6; font-weight: bold; color: black; border-left: 3px solid #4A90E2; border-right: 3px solid #4A90E2;')
+        else:
+            styles.append('background-color: #9BC2E6; font-weight: bold; color: black;')
+    return styles
 
-st.dataframe(styled_res_e, hide_index=True, column_config=col_cfg, use_container_width=True, height=60)
+styled_res_e = df_res_e.style.apply(style_res_e, axis=1).format(
+    lambda x: formata_br(x) if isinstance(x, (int, float, np.integer, np.floating)) else x
+)
+
+st.dataframe(styled_res_e, hide_index=True, column_config=col_cfg, use_container_width=True, height=75)
 
 st.markdown('</div>', unsafe_allow_html=True)
 
