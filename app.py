@@ -25,18 +25,19 @@ except Exception as e:
 # ==========================================
 meses_pt = ['JANEIRO', 'FEVEREIRO', 'MARÇO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO']
 hoje = datetime.datetime.now()
-mes_hoje_idx = hoje.month # AQUI ESTÁ A VARIÁVEL QUE FALTAVA!
+
+# CORREÇÃO DO ERRO AQUI:
+mes_hoje_idx = hoje.month 
 mes_atual_nome = meses_pt[mes_hoje_idx - 1] 
 
 def formata_br(valor):
-    # Força a conversão para número, formata com milhar e troca a vírgula americana por ponto
+    # Transforma o número em R$ 1.000 para as tabelas de resultado
     if pd.isna(valor): 
         return "R$ 0"
     try:
         v = float(valor)
         if v == 0: 
             return "R$ 0"
-        # :,.0f coloca virgula no milhar e tira os centavos. O replace inverte para o padrão BR.
         return f"R$ {v:,.0f}".replace(",", ".")
     except: 
         return valor
@@ -90,7 +91,6 @@ def load_year_data(table_name, itens_padrao, ano_escolhido):
         df_pivot.set_index('MESES', inplace=True)
         df_pivot = df_pivot.reindex(itens_padrao).reset_index()
         
-        # Tudo vira INTEIRO aqui
         df_pivot[meses_pt] = df_pivot[meses_pt].astype(int)
         
         return df_pivot
@@ -125,24 +125,17 @@ if 'df_p' not in st.session_state:
 if 'df_e' not in st.session_state:
     st.session_state.df_e = load_year_data('entradas', contas_e, ano_selecionado)
 
-# Formatação visual para edição. O st.data_editor só aceita vírgula americana nativamente na hora de digitar.
-# Vamos exibir como R$ 1,000 aqui, mas os resultados sairão como R$ 1.000 perfeitos.
+# Formatação limpa na hora de digitar (sem vírgula pra não irritar) -> Ex: R$ 12370
 col_cfg = {"MESES": st.column_config.TextColumn("MESES", width=220, disabled=True)}
 for m in meses_pt: 
-    col_cfg[m] = st.column_config.NumberColumn(m, width=80, format="R$ %,d", step=1)
+    col_cfg[m] = st.column_config.NumberColumn(m, width=80, format="R$ %d", step=1)
 
 st.markdown('<div class="container-tabelas">', unsafe_allow_html=True)
 
 # ==========================================
-# 7. TABELA 1: PATRIMÔNIO (COM COR DA COLUNA)
+# 7. TABELA 1: PATRIMÔNIO (EDITÁVEL)
 # ==========================================
-# Pintar a coluna do mês atual na tabela editável via Pandas Styler
-styled_df_p = st.session_state.df_p.style.set_properties(
-    subset=[mes_atual_nome], 
-    **{'background-color': '#e0f0ff', 'font-weight': 'bold', 'color': '#000'}
-)
-
-df_p_edit = st.data_editor(styled_df_p, hide_index=True, column_config=col_cfg, use_container_width=True, height=295)
+df_p_edit = st.data_editor(st.session_state.df_p, hide_index=True, column_config=col_cfg, use_container_width=True, height=295)
 
 if not df_p_edit.equals(st.session_state.df_p):
     save_to_supabase('patrimonio', df_p_edit, ano_selecionado)
@@ -169,14 +162,14 @@ def style_res_p(row):
         if row['MESES'] == 'PATRIMÔNIO LÍQUIDO': bg = '#FFF2CC'
         elif row['MESES'] == 'PATRIMÔNIO TOTAL': bg = '#FF9900'
         
-        # Borda azul e fundo claro se for a coluna do mês atual
+        # Borda azul grossa na coluna do mês atual!
         if col == mes_atual_nome:
-            styles.append(f'background-color: {bg}; font-weight: bold; color: black; border-left: 2px solid #4A90E2; border-right: 2px solid #4A90E2;')
+            styles.append(f'background-color: {bg}; font-weight: bold; color: black; border-left: 3px solid #4A90E2; border-right: 3px solid #4A90E2;')
         else:
             styles.append(f'background-color: {bg}; font-weight: bold; color: black; border-bottom: 1px solid #ddd;')
     return styles
 
-# Aplica as cores E a formatação brasileira (R$ 1.000)
+# APLICA A COR E A FORMATAÇÃO "R$ 1.000" PERFEITA
 styled_res_p = df_res_p.style.apply(style_res_p, axis=1).format(
     lambda x: formata_br(x) if isinstance(x, (int, float, np.integer, np.floating)) else x
 )
@@ -186,12 +179,7 @@ st.dataframe(styled_res_p, hide_index=True, column_config=col_cfg, use_container
 # ==========================================
 # 8. TABELA 3: ENTRADAS
 # ==========================================
-styled_df_e = st.session_state.df_e.style.set_properties(
-    subset=[mes_atual_nome], 
-    **{'background-color': '#e0f0ff', 'font-weight': 'bold', 'color': '#000'}
-)
-
-df_e_edit = st.data_editor(styled_df_e, hide_index=True, column_config=col_cfg, use_container_width=True, height=190)
+df_e_edit = st.data_editor(st.session_state.df_e, hide_index=True, column_config=col_cfg, use_container_width=True, height=190)
 
 if not df_e_edit.equals(st.session_state.df_e):
     save_to_supabase('entradas', df_e_edit, ano_selecionado)
@@ -209,7 +197,7 @@ def style_res_e(row):
     styles = []
     for col in df_res_e.columns:
         if col == mes_atual_nome:
-            styles.append('background-color: #9BC2E6; font-weight: bold; color: black; border-left: 2px solid #4A90E2; border-right: 2px solid #4A90E2;')
+            styles.append('background-color: #9BC2E6; font-weight: bold; color: black; border-left: 3px solid #4A90E2; border-right: 3px solid #4A90E2;')
         else:
             styles.append('background-color: #9BC2E6; font-weight: bold; color: black;')
     return styles
