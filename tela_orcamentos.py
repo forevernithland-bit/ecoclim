@@ -33,9 +33,13 @@ def renderizar():
         st.subheader("⚙️ 1. Equipamentos")
         mostrar_pdf = st.checkbox("Mostrar Preços Unitários no PDF?", value=True)
         
-        # Inicia a tabela com a coluna 'Venda Total'
+        # Inicia a tabela ou atualiza a existente com a nova coluna
         if 'df_orc' not in st.session_state:
             st.session_state.df_orc = pd.DataFrame([{"Produto da Base": "", "Produto Manual": "", "Quantidade": 1, "Venda (R$)": 0.0, "Venda Total": 0.0} for _ in range(5)])
+        else:
+            # Trava de segurança para quem está com o cache antigo
+            if "Venda Total" not in st.session_state.df_orc.columns:
+                st.session_state.df_orc["Venda Total"] = 0.0
         
         cfg = {
             "Produto da Base": st.column_config.SelectboxColumn("Produto", options=[""] + lista_p + ["OUTRO"], width="large"), 
@@ -44,14 +48,19 @@ def renderizar():
             "Venda (R$)": st.column_config.NumberColumn("Preço Un. (R$)", format="R$ %,.2f"),
             "Venda Total": st.column_config.NumberColumn("Venda Total (R$)", format="R$ %,.2f", disabled=True)
         }
+        
         df_ed = st.data_editor(st.session_state.df_orc, column_config=cfg, num_rows="dynamic", use_container_width=True)
         
-        # Reseta o index para evitar erros de KeyError ao adicionar novas linhas
+        # Reseta o index para evitar erros ao adicionar novas linhas
         df_ed = df_ed.reset_index(drop=True)
         
-        # Força as colunas para números, evitando o erro de TypeError
+        # Força as colunas para números para evitar erros
         df_ed['Quantidade'] = pd.to_numeric(df_ed['Quantidade'], errors='coerce').fillna(1).astype(int)
         df_ed['Venda (R$)'] = pd.to_numeric(df_ed['Venda (R$)'], errors='coerce').fillna(0.0).astype(float)
+        
+        # Garante que Venda Total existe no df_ed (caso extremo)
+        if "Venda Total" not in df_ed.columns:
+            df_ed["Venda Total"] = 0.0
 
         precisa_atualizar = False
         
@@ -74,7 +83,7 @@ def renderizar():
             
         st.session_state.df_orc = df_ed
         
-        # Subtotal correto usando a coluna 'Venda Total'
+        # Subtotal correto
         total_equip = df_ed['Venda Total'].sum()
         st.markdown(f"**Subtotal Equipamentos:** :blue[{utils.to_br_currency(total_equip)}]")
 
@@ -115,19 +124,16 @@ def renderizar():
 
     if st.button("🚀 GERAR PDF E SALVAR NO SISTEMA", type="primary"):
         if nome_c:
-            # 1. CRIANDO O SNAPSHOT (Foto do Momento) PARA CONGELAR PREÇOS
             custo_real_equip = 0.0
             resumo_produtos = []
             detalhamento_snapshot = []
             
-            # Varrendo Equipamentos
             for _, row in df_ed.iterrows():
                 nome_p = row['Produto da Base']
                 desc_m = row['Produto Manual']
                 qtd = int(row['Quantidade'])
                 venda_un = float(row['Venda (R$)'])
                 
-                # Ignora linhas em branco com quantidade 0
                 if qtd <= 0 or (nome_p == "" and desc_m.strip() == ""): 
                     continue
                 
@@ -140,7 +146,6 @@ def renderizar():
                     resumo_produtos.append(f"{qtd}x {desc_m}")
                     detalhamento_snapshot.append({"Item": "OUTRO / MANUAL", "Descrição Manual": desc_m, "Qtd": qtd, "Custo Un.": 0.0, "Venda Un.": venda_un})
 
-            # Varrendo Serviço
             if s_sel != "":
                 if s_sel == "Manual":
                     detalhamento_snapshot.append({"Item": "OUTRO / MANUAL", "Descrição Manual": d_s, "Qtd": 1, "Custo Un.": 0.0, "Venda Un.": v_s})
@@ -149,7 +154,6 @@ def renderizar():
                     detalhamento_snapshot.append({"Item": s_sel, "Descrição Manual": "", "Qtd": 1, "Custo Un.": c_s, "Venda Un.": v_s})
                     resumo_produtos.append(f"1x {s_sel}")
                     
-            # Varrendo Outros
             if o_sel != "":
                 if o_sel == "Manual":
                     detalhamento_snapshot.append({"Item": "OUTRO / MANUAL", "Descrição Manual": d_o, "Qtd": 1, "Custo Un.": 0.0, "Venda Un.": v_o})
@@ -158,10 +162,8 @@ def renderizar():
                     detalhamento_snapshot.append({"Item": o_sel, "Descrição Manual": "", "Qtd": 1, "Custo Un.": c_o, "Venda Un.": v_o})
                     resumo_produtos.append(f"1x {o_sel}")
 
-            # 2. GERAÇÃO DE NÚMERO DE ORÇAMENTO
             num_orc = f"ORC-{datetime.datetime.now().strftime('%y%m%d-%H%M')}"
             
-            # 3. GRAVAÇÃO NO BANCO DE DADOS (INCLUINDO O SNAPSHOT JSON)
             try:
                 st.session_state.supabase.table("servicos_andamento").insert({
                     "numero_orcamento": num_orc,
@@ -179,7 +181,6 @@ def renderizar():
             except Exception as e:
                 st.error(f"Erro ao salvar no banco: {e}")
 
-            # 4. GERAÇÃO DO PDF PARA DOWNLOAD
             pdf_bytes = utils.gerar_pdf_orcamento(nome_c, tel_c, capa, df_ed, d_s, v_s, d_o, v_o, total_geral, obs, mostrar_pdf)
             st.download_button(
                 label="📥 BAIXAR PDF DO ORÇAMENTO", 
