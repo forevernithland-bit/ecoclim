@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import datetime
 import utils
 
 def renderizar():
@@ -46,6 +47,7 @@ def renderizar():
         }
         df_ed = st.data_editor(st.session_state.df_orc, column_config=cfg, num_rows="dynamic", use_container_width=True)
         
+        # Auto-preço
         for i in range(len(df_ed)):
             p = df_ed.at[i, 'Produto da Base']
             if p in lista_p and df_ed.at[i, 'Venda (R$)'] == 0:
@@ -85,25 +87,49 @@ def renderizar():
     st.markdown(f"<h3 style='color:#004488;'>💰 INVESTIMENTO TOTAL: {utils.to_br_currency(total_g)}</h3>", unsafe_allow_html=True)
     obs = st.text_area("Notas (Aparece no PDF):", value="Material Hidráulico não incluído na proposta")
 
-    if st.button("🚀 GUARDAR CRM E GERAR PDF", type="primary"):
+    if st.button("🚀 GERAR PDF E GUARDAR NOS SERVIÇOS", type="primary"):
         if nome_c:
+            # 1. Calcular Custo Total dos Equipamentos escondido do cliente
+            custo_equipamentos_total = 0
+            produtos_nomes = []
+            for _, row in df_ed.iterrows():
+                nome_prod = row['Produto da Base']
+                if nome_prod in lista_p:
+                    custo_un = float(cat_p.loc[cat_p['Item'] == nome_prod, 'Custo (R$)'].values[0])
+                    custo_equipamentos_total += (custo_un * row['Quantidade'])
+                    produtos_nomes.append(f"{int(row['Quantidade'])}x {nome_prod}")
+                elif row['Produto Manual'].strip() != "":
+                    produtos_nomes.append(f"{int(row['Quantidade'])}x {row['Produto Manual']}")
+            
+            produtos_str = ", ".join(produtos_nomes)
+            
+            # 2. Gerar Número Único do Orçamento (Ex: ORC-202605-123456)
+            timestamp = datetime.datetime.now().strftime("%y%m%d-%H%M")
+            numero_orc = f"ORC-{timestamp}"
+            
+            # 3. Guardar na NOVA tabela servicos_andamento
             try:
-                st.session_state.supabase.table("clientes_orcamentos").insert({
-                    "nome": nome_c, 
-                    "telefone": tel_c, 
-                    "produto_ref": capa, 
-                    "valor_total": total_g, 
-                    "status": "Em fase de orçamento"
+                st.session_state.supabase.table("servicos_andamento").insert({
+                    "numero_orcamento": numero_orc,
+                    "nome_cliente": nome_c, 
+                    "telefone_cliente": tel_c, 
+                    "produtos_adquiridos": produtos_str,
+                    "servicos_adquiridos": d_s,
+                    "valor_venda_total": total_g,
+                    "valor_custo_equipamentos": custo_equipamentos_total,
+                    "lucro_estimado": total_g - custo_equipamentos_total, # Lucro inicial bruto
+                    "status_projeto": "Orçamento Enviado"
                 }).execute()
-                st.success("Guardado no CRM!")
+                st.success(f"Orçamento {numero_orc} guardado no Módulo de Serviços!")
             except Exception as e: 
                 st.warning(f"Erro ao guardar no Supabase: {e}")
             
+            # 4. Gerar o PDF
             pdf_bytes = utils.gerar_pdf_orcamento(nome_c, tel_c, capa, df_ed, d_s, v_s, d_o, v_o, total_g, obs, mostrar_pdf)
             st.download_button(
                 label="📥 DESCARREGAR ORÇAMENTO (PDF)", 
                 data=pdf_bytes, 
-                file_name=f"Orcamento_{nome_c}.pdf", 
+                file_name=f"{numero_orc}_{nome_c}.pdf", 
                 mime="application/pdf", 
                 use_container_width=True
             )
