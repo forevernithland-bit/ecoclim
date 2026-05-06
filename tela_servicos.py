@@ -97,22 +97,19 @@ def exibir_detalhes_avancados(item, supabase):
         with c3:
             n_v_inst = st.number_input("Pago ao Instalador (R$)", value=float(item['valor_pago_instalador'] or 0.0), format="%.2f", key=f"pago_{item['id']}")
 
-        # --- NOVA SEÇÃO: IMPOSTOS, TAXAS E COMISSÃO ---
         st.markdown("---")
         t1, t2, t3 = st.columns(3)
         
         taxas_df = st.session_state.db_taxas
         opcoes_pagamento_com_taxa = ["Dinheiro / PIX (0.00%)"]
-        mapa_pagamentos = {"Dinheiro / PIX (0.00%)": 0.0} # Correção do KeyError
+        mapa_pagamentos = {"Dinheiro / PIX (0.00%)": 0.0} 
         
-        # Puxa as taxas do banco e formata com o % na tela
         for _, row_taxa in taxas_df.iterrows():
             if "NF" not in str(row_taxa['Item']):
                 desc_taxa = f"{row_taxa['Item']} ({float(row_taxa['Taxa (%)']):.2f}%)"
                 opcoes_pagamento_com_taxa.append(desc_taxa)
                 mapa_pagamentos[desc_taxa] = float(row_taxa['Taxa (%)'])
         
-        # Localiza qual é o método salvo no banco (com trava de segurança)
         metodo_salvo = item.get('metodo_pagamento')
         if not metodo_salvo:
             metodo_salvo = 'Dinheiro / PIX'
@@ -125,7 +122,7 @@ def exibir_detalhes_avancados(item, supabase):
         
         with t1:
             n_pgto_selecionado = st.selectbox("Forma de Pagamento", options=opcoes_pagamento_com_taxa, index=idx_pgto, key=f"pgto_{item['id']}")
-            n_pgto = n_pgto_selecionado.split(" (")[0] # Pega só o nome para salvar no banco limpo
+            n_pgto = n_pgto_selecionado.split(" (")[0] 
             taxa_cartao_pct = mapa_pagamentos[n_pgto_selecionado]
         with t2:
             n_nf = st.radio("Emitir Nota Fiscal?", options=["Não", "Sim"], index=1 if item.get('nf_emitida') else 0, horizontal=True, key=f"nf_{item['id']}")
@@ -160,13 +157,14 @@ def exibir_detalhes_avancados(item, supabase):
         df_edit = st.data_editor(df_atual, column_config=col_itens_cfg, num_rows="dynamic", use_container_width=True, key=f"ed_{item['id']}")
 
         # =========================================================================
-        # CÁLCULOS DE LINHA DA TABELA
+        # CÁLCULOS DE LINHA DA TABELA (COM PREVENÇÃO DE ERRO DE NULOS)
         # =========================================================================
         precisa_atualizar = False
         
-        df_edit['Qtd'] = df_edit['Qtd'].astype(int)
-        df_edit['Custo Un.'] = df_edit['Custo Un.'].astype(float)
-        df_edit['Venda Un.'] = df_edit['Venda Un.'].astype(float)
+        # Preenche valores vazios criados por novas linhas com 0 ou 1 antes de converter
+        df_edit['Qtd'] = pd.to_numeric(df_edit['Qtd'], errors='coerce').fillna(1).astype(int)
+        df_edit['Custo Un.'] = pd.to_numeric(df_edit['Custo Un.'], errors='coerce').fillna(0.0).astype(float)
+        df_edit['Venda Un.'] = pd.to_numeric(df_edit['Venda Un.'], errors='coerce').fillna(0.0).astype(float)
 
         for i in range(len(df_edit)):
             if df_edit.iloc[i]['Item'] != "OUTRO / MANUAL" and df_edit.iloc[i]['Custo Un.'] == 0:
@@ -198,23 +196,18 @@ def exibir_detalhes_avancados(item, supabase):
         faturamento_bruto = df_edit['Venda Total'].sum()
         custo_materiais = (df_edit['Custo Un.'] * df_edit['Qtd']).sum()
         
-        # Imposto da NF
         taxa_nf_pct = 0.0
         if n_nf == "Sim":
             try: taxa_nf_pct = float(taxas_df.loc[taxas_df['Item'].str.contains('NF', case=False), 'Taxa (%)'].values[0])
             except: taxa_nf_pct = 6.0
         valor_nf = faturamento_bruto * (taxa_nf_pct / 100)
         
-        # Taxa do Cartão
         valor_cartao = faturamento_bruto * (taxa_cartao_pct / 100)
-        
-        # Comissão
         valor_comissao = faturamento_bruto * (n_comissao / 100)
 
         total_deducoes = valor_nf + valor_cartao + valor_comissao
         lucro_final_liquido = faturamento_bruto - (custo_materiais + n_v_inst + total_deducoes)
 
-        # Apresentação do Resultado Final detalhado
         st.markdown("#### 📊 Resultado Detalhado do Projeto")
         r1, r2, r3 = st.columns(3)
         r1.metric("Faturamento (Total Venda)", utils.to_br_currency(faturamento_bruto))
