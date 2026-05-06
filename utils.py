@@ -76,9 +76,6 @@ def save_catalog(table_name, df):
     except Exception as e:
         st.error(f"Erro ao salvar catálogo: {e}")
 
-# ==========================================
-# BANCO DE DADOS: TAXAS E IMPOSTOS
-# ==========================================
 def load_taxas():
     supabase = st.session_state.supabase
     try:
@@ -106,9 +103,6 @@ def save_taxas(df):
 # ==========================================
 def load_user_settings():
     return "JANEIRO", mes_atual_nome
-
-def save_user_settings(inicio, fim):
-    pass 
 
 def load_year_data(table, default_accounts, year):
     supabase = st.session_state.supabase
@@ -147,7 +141,7 @@ def save_to_supabase(table, df, year):
         st.error(f"Erro ao salvar: {e}")
 
 # ==========================================
-# UTILITÁRIOS DE FORMATAÇÃO E EXCEL
+# UTILITÁRIOS
 # ==========================================
 def to_br_currency(value, symbol=True):
     if pd.isna(value) or value is None:
@@ -173,33 +167,37 @@ def to_excel(df):
     return output.getvalue()
 
 # ==========================================
-# GERAÇÃO DE PDF (PÁGINA ÚNICA)
+# GERAÇÃO DE PDF (LAYOUT ORIGINAL + CONTATOS + IMAGENS LOCAIS)
 # ==========================================
-IMG_VACUO = "http://googleusercontent.com/image_collection/image_retrieval/4744835434356641686"
-IMG_TRADICIONAL = "http://googleusercontent.com/image_collection/image_retrieval/1248258249000705016"
-IMG_PISCINA = "http://googleusercontent.com/image_collection/image_retrieval/7319541597131710314"
-IMG_AR = "http://googleusercontent.com/image_collection/image_retrieval/13303198893195767277"
-
 def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v_out, total, obs, mostrar_un):
     buffer = BytesIO()
     p = canvas.Canvas(buffer, pagesize=A4)
     largura, altura = A4
 
-    # 1. LOGO E CABEÇALHO
+    # 1. LOGO E CABEÇALHO (COM CONTATOS)
     try:
         p.drawImage("logo.png", 2*cm, altura - 3.5*cm, width=4*cm, preserveAspectRatio=True, mask='auto')
     except Exception:
         p.setFont("Helvetica-Bold", 16)
-        p.drawString(2*cm, altura - 2.5*cm, "Ecoclim")
+        p.drawString(2*cm, altura - 2.5*cm, "ECOCLIM")
         
     p.setFont("Helvetica-Bold", 14)
-    p.drawString(largura - 7*cm, altura - 2*cm, "PROPOSTA COMERCIAL")
-    p.setFont("Helvetica", 10)
-    p.drawString(largura - 7*cm, altura - 2.5*cm, f"Data: {datetime.date.today().strftime('%d/%m/%Y')}")
-    p.drawString(largura - 7*cm, altura - 3*cm, "Validade: 15 dias")
+    p.drawString(largura - 9*cm, altura - 1.5*cm, "PROPOSTA COMERCIAL")
+    
+    # Informações de Contato ECOCLIM
+    p.setFont("Helvetica", 8)
+    p.setFillColor(colors.grey)
+    p.drawString(largura - 9*cm, altura - 2.1*cm, "WWW.ECOCLIM.COM.BR")
+    p.drawString(largura - 9*cm, altura - 2.5*cm, "COMERCIAL@ECOCLIM.COM.BR")
+    p.drawString(largura - 9*cm, altura - 2.9*cm, "(31) 99867-7808")
+    
+    p.setFillColor(colors.black)
+    p.setFont("Helvetica", 9)
+    p.drawString(largura - 9*cm, altura - 3.5*cm, f"Data: {datetime.date.today().strftime('%d/%m/%Y')}")
+    p.drawString(largura - 9*cm, altura - 4.0*cm, "Validade: 15 dias")
 
     # 2. DADOS DO CLIENTE
-    y = altura - 4.5*cm
+    y = altura - 5.5*cm
     p.setFillColor(colors.HexColor("#f0f0f0"))
     p.rect(2*cm, y - 1.5*cm, largura - 4*cm, 2*cm, fill=1, stroke=0)
     p.setFillColor(colors.black)
@@ -209,22 +207,23 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
     p.drawString(2.3*cm, y - 0.5*cm, f"Nome: {nome}")
     p.drawString(2.3*cm, y - 1*cm, f"Telefone: {tel}")
 
-    # 3. IMAGEM DE APRESENTAÇÃO
+    # 3. IMAGEM DE APRESENTAÇÃO (USANDO ARQUIVOS LOCAIS)
     y -= 2.2*cm
     img_map = {
-        "AQUECEDOR SOLAR TRADICIONAL": IMG_TRADICIONAL,
-        "AQUECEDOR SOLAR A VÁCUO ACOPLADO": IMG_VACUO,
-        "AQUECEDOR SOLAR MODULAR": IMG_VACUO,
-        "AQUECEDOR DE PISCINA - TRADICIONAL": IMG_PISCINA,
-        "AQUECEDOR DE PISCINA - TROCADOR DE CALOR": IMG_PISCINA,
-        "SISTEMAS DE PRESSURIZAÇÃO": IMG_AR
+        "AQUECEDOR SOLAR TRADICIONAL": "aquecedor_tradicional.jpg",
+        "AQUECEDOR SOLAR A VÁCUO ACOPLADO": "vacuo_acoplado.jpg",
+        "AQUECEDOR SOLAR MODULAR": "modular.jpg",
+        "AQUECEDOR DE PISCINA - TRADICIONAL": "piscina.jpg", # Placeholder se necessário
+        "AQUECEDOR DE PISCINA - TROCADOR DE CALOR": "piscina.jpg",
+        "SISTEMAS DE PRESSURIZAÇÃO": "pressurizacao.jpg"
     }
     
     try:
         if capa_tipo in img_map:
-            p.drawImage(img_map[capa_tipo], 2*cm, y - 5.5*cm, width=largura - 4*cm, height=5.5*cm, preserveAspectRatio=True, mask='auto')
+            img_path = img_map[capa_tipo]
+            p.drawImage(img_path, 2*cm, y - 5.5*cm, width=largura - 4*cm, height=5.5*cm, preserveAspectRatio=True, mask='auto')
     except Exception:
-        pass
+        pass # Se o arquivo não existir na pasta, ele apenas pula a imagem
     
     y -= 6.5*cm
 
@@ -271,7 +270,6 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
     y -= 0.8*cm
     
     if str(d_serv).strip() != "":
-        # Extrai apenas a primeira linha do serviço para não desconfigurar
         desc_s = str(d_serv).split('\n')[0][:75]
         p.drawString(2.3*cm, y, desc_s)
         p.drawRightString(largura - 2.3*cm, y, to_br_currency(v_serv))
