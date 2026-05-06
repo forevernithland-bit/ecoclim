@@ -104,6 +104,9 @@ def save_taxas(df):
 def load_user_settings():
     return "JANEIRO", mes_atual_nome
 
+def save_user_settings(inicio, fim):
+    pass 
+
 def load_year_data(table, default_accounts, year):
     supabase = st.session_state.supabase
     try:
@@ -141,7 +144,7 @@ def save_to_supabase(table, df, year):
         st.error(f"Erro ao salvar: {e}")
 
 # ==========================================
-# UTILITÁRIOS
+# UTILITÁRIOS DE FORMATAÇÃO E EXCEL
 # ==========================================
 def to_br_currency(value, symbol=True):
     if pd.isna(value) or value is None:
@@ -213,7 +216,7 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
         "AQUECEDOR SOLAR TRADICIONAL": "aquecedor_tradicional.jpg",
         "AQUECEDOR SOLAR A VÁCUO ACOPLADO": "vacuo_acoplado.jpg",
         "AQUECEDOR SOLAR MODULAR": "modular.jpg",
-        "AQUECEDOR DE PISCINA - TRADICIONAL": "piscina.jpg", # Placeholder se necessário
+        "AQUECEDOR DE PISCINA - TRADICIONAL": "piscina.jpg", # Se tiver a imagem depois, crie e salve com esse nome
         "AQUECEDOR DE PISCINA - TROCADOR DE CALOR": "piscina.jpg",
         "SISTEMAS DE PRESSURIZAÇÃO": "pressurizacao.jpg"
     }
@@ -223,7 +226,7 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
             img_path = img_map[capa_tipo]
             p.drawImage(img_path, 2*cm, y - 5.5*cm, width=largura - 4*cm, height=5.5*cm, preserveAspectRatio=True, mask='auto')
     except Exception:
-        pass # Se o arquivo não existir na pasta, ele apenas pula a imagem
+        pass # Se o arquivo não existir na pasta, ele apenas pula a imagem sem dar erro
     
     y -= 6.5*cm
 
@@ -252,37 +255,32 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
             p.drawRightString(largura - 2.3*cm, y, to_br_currency(row.get('Venda Total', 0)))
             y -= 0.5*cm
 
-    # 5. SERVIÇOS E DIVERSOS
-    y -= 0.5*cm
+    # 5. SERVIÇOS E DIVERSOS (FORMATADO E ALINHADO)
+    y -= 0.3*cm
     p.setFillColor(colors.HexColor("#004488"))
     p.rect(2*cm, y, largura - 4*cm, 0.7*cm, fill=1, stroke=0)
     p.setFillColor(colors.white)
     p.setFont("Helvetica-Bold", 11)
-    p.drawString(2.3*cm, y + 0.2*cm, "2. SERVIÇOS E DIVERSOS")
+    p.drawString(2.3*cm, y + 0.2*cm, "2. SERVIÇOS")
     
-    y -= 0.6*cm
-    p.setFillColor(colors.black)
-    p.setFont("Helvetica-Bold", 9)
-    p.drawString(2.3*cm, y - 0.3*cm, "Descrição")
-    p.drawRightString(largura - 2.3*cm, y - 0.3*cm, "Subtotal")
-    
-    p.setFont("Helvetica", 9)
     y -= 0.8*cm
+    p.setFillColor(colors.black)
+    p.setFont("Helvetica", 10)
     
     if str(d_serv).strip() != "":
         desc_s = str(d_serv).split('\n')[0][:75]
         p.drawString(2.3*cm, y, desc_s)
         p.drawRightString(largura - 2.3*cm, y, to_br_currency(v_serv))
-        y -= 0.5*cm
+        y -= 0.6*cm
         
     if str(d_out).strip() != "":
         desc_o = str(d_out).split('\n')[0][:75]
         p.drawString(2.3*cm, y, desc_o)
         p.drawRightString(largura - 2.3*cm, y, to_br_currency(v_out))
-        y -= 0.5*cm
+        y -= 0.6*cm
 
     # 6. INVESTIMENTO TOTAL
-    y -= 1*cm
+    y -= 0.5*cm
     p.setFillColor(colors.HexColor("#f0f0f0"))
     p.rect(2*cm, y, largura - 4*cm, 1*cm, fill=1, stroke=0)
     p.setFillColor(colors.black)
@@ -298,6 +296,11 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
     p.setFont("Helvetica", 9)
     p.setFillColor(colors.black)
     p.drawString(2*cm, y - 0.5*cm, str(obs)[:100])
+    
+    # Marca d'água de versão invisível para teste
+    p.setFont("Helvetica", 6)
+    p.setFillColor(colors.lightgrey)
+    p.drawString(2*cm, 1*cm, "v.2.1")
 
     p.save()
     buffer.seek(0)
