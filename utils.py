@@ -214,3 +214,25 @@ def gerar_pdf_orcamento(cliente, tel, produto, df_equip, desc_s, val_s, desc_o, 
     pdf.ln(10); pdf.set_text_color(200, 0, 0); pdf.set_font("helvetica", "B", 10); pdf.multi_cell(0, 6, f"OBSERVAÇÕES:\n{obs}", border=0)
     
     return bytes(pdf.output())
+# ==========================================
+# BANCO DE DADOS: TAXAS E IMPOSTOS
+# ==========================================
+def load_taxas():
+    supabase = st.session_state.supabase
+    try:
+        res = supabase.table('catalogo_taxas').select("*").order("item").execute()
+        df = pd.DataFrame(res.data)
+        if df.empty:
+            return pd.DataFrame(columns=["Item", "Taxa (%)"])
+        df = df.rename(columns={"item": "Item", "taxa_percentual": "Taxa (%)"})
+        return df[["Item", "Taxa (%)"]]
+    except:
+        return pd.DataFrame(columns=["Item", "Taxa (%)"])
+
+def save_taxas(df):
+    supabase = st.session_state.supabase
+    try:
+        data = [{"item": row['Item'], "taxa_percentual": float(row['Taxa (%)'])} for _, row in df.iterrows() if row['Item'] and str(row['Item']).strip() != ""]
+        supabase.table('catalogo_taxas').delete().neq("item", "___vazio___").execute()
+        if data: supabase.table('catalogo_taxas').insert(data).execute()
+    except Exception as e: st.error(f"Erro ao salvar taxas: {e}")
