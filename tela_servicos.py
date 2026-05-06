@@ -8,13 +8,21 @@ def renderizar():
     
     supabase = st.session_state.supabase
     
-    # 1. Carregar Dados
+    # 1. Carregar Dados de Serviços
     try:
         res = supabase.table('servicos_andamento').select('*').order('id', desc=True).execute()
         df_raw = pd.DataFrame(res.data)
     except Exception as e:
         st.error(f"Erro ao carregar dados: {e}")
         return
+
+    # 2. Carregar Catálogos para busca (Equipamentos, Serviços, Terceirizados)
+    if 'db_p_serv' not in st.session_state:
+        p = utils.load_catalog('catalogo_produtos')
+        s = utils.load_catalog('catalogo_servicos')
+        o = utils.load_catalog('catalogo_outros')
+        # Criamos uma base unificada para consulta de preços e custos
+        st.session_state.base_unificada = pd.concat([p, s, o], ignore_index=True)
 
     if df_raw.empty:
         st.info("Nenhum registro encontrado.")
@@ -41,17 +49,26 @@ def renderizar():
         "instalador_responsavel": st.column_config.TextColumn("Instalador"),
     }
 
-    # --- PARTE SUPERIOR: SERVIÇOS ---
+    # =========================================================================
+    # PARTE SUPERIOR: SERVIÇOS EM ANDAMENTO
+    # =========================================================================
     st.subheader("✅ Serviços em Andamento / Concluídos")
     if not df_ativos.empty:
         sel_ativo = st.dataframe(df_ativos[colunas_rapidas], column_config=col_cfg, use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single-row")
+        
+        # Métrica de Lucro Estimado de Serviços Ativos (Soma apenas dos ativos)
+        lucro_total_ativos = df_ativos['lucro_estimado'].sum()
+        st.markdown(f"**💰 Lucro Estimado Acumulado (Serviços Ativos):** :blue[{utils.to_br_currency(lucro_total_ativos)}]")
+        
         if sel_ativo.selection.rows:
             exibir_detalhes_avancados(df_ativos.iloc[sel_ativo.selection.rows[0]], supabase)
     else: st.write("_Sem serviços ativos._")
 
     st.markdown("<br><hr>", unsafe_allow_html=True)
 
-    # --- PARTE INFERIOR: ORÇAMENTOS ---
+    # =========================================================================
+    # PARTE INFERIOR: ORÇAMENTOS
+    # =========================================================================
     st.subheader("📝 Orçamentos e Negociações")
     if not df_orcamentos.empty:
         sel_orc = st.dataframe(df_orcamentos[colunas_rapidas], column_config=col_cfg, use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single-row")
@@ -63,7 +80,6 @@ def exibir_detalhes_avancados(item, supabase):
     st.markdown(f"### 🔍 Gerenciar Projeto: {item['nome_cliente']}")
     
     with st.container(border=True):
-        # --- CABEÇALHO DE STATUS E INSTALADOR ---
         c1, c2, c3 = st.columns([1,1,1])
         with c1:
             n_status = st.selectbox("Status Atual", 
@@ -76,58 +92,79 @@ def exibir_detalhes_avancados(item, supabase):
             n_v_inst = st.number_input("Valor Pago ao Instalador (R$)", value=float(item['valor_pago_instalador'] if item['valor_pago_instalador'] else 0.0), format="%.2f")
 
         st.markdown("---")
-        st.subheader("📋 Composição de Itens e Aditivos")
-        st.write("_Aqui você pode adicionar novas linhas para materiais extras ou aditivos de serviço._")
+        st.subheader("📋 Composição e Memória de Cálculo")
 
-        # Preparar dados para o editor de itens
-        # Se não houver detalhamento salvo, criamos a primeira linha com o resumo do orçamento
+        # Preparar dados para o editor
         if not item.get('detalhamento_itens') or item['detalhamento_itens'] == []:
             dados_itens = pd.DataFrame([
-                {"Descrição": item['produtos_adquiridos'], "Qtd": 1, "Custo Un.": float(item['valor_custo_equipamentos']), "Venda Un.": float(item['valor_venda_total'])}
+                {"Item": "OUTRO / MANUAL", "Descrição Manual": item['produtos_adquiridos'], "Qtd": 1, "Custo Un.": float(item['valor_custo_equipamentos']), "Venda Un.": float(item['valor_venda_total'])}
             ])
         else:
             dados_itens = pd.DataFrame(item['detalhamento_itens'])
 
-        # Configuração das colunas da memória de cálculo (Imagem 2)
+        # Lista de itens do banco para o selectbox
+        lista_opcoes = ["OUTRO / MANUAL"] + st.session_state.base_unificada['Item'].tolist()
+
         col_itens_cfg = {
-            "Descrição": st.column_config.TextColumn("Item / Descrição / Aditivo", width="large", required=True),
+            "Item": st.column_config.SelectboxColumn("Puxar do Banco", options=lista_opcoes, width="medium"),
+            "Descrição Manual": st.column_config.TextColumn("Descrição/Aditivo (Se 'OUTRO')", width="large"),
             "Qtd": st.column_config.NumberColumn("Qtd", min_value=1, default=1, width="small"),
-            "Custo Un.": st.column_config.NumberColumn("Custo Un. (R$)", format="R$ %,.2f", required=True),
-            "Venda Un.": st.column_config.NumberColumn("Venda Un. (R$)", format="R$ %,.2f", required=True),
+            "Custo Un.": st.column_config.NumberColumn("Custo Un.", format="R$ %,.2f"),
+            "Lucro Un.": st.column_config.NumberColumn("Lucro Un.", format="R$ %,.2f", disabled=True),
+            "Venda Un.": st.column_config.NumberColumn("Venda Un.", format="R$ %,.2f"),
+            "Lucro Total": st.column_config.NumberColumn("Lucro Total", format="R$ %,.2f", disabled=True),
         }
 
-        # O EDITOR DE DADOS (Aqui a mágica acontece)
-        df_itens_edit = st.data_editor(dados_itens, column_config=col_itens_cfg, num_rows="dynamic", use_container_width=True, key=f"editor_itens_{item['id']}")
+        df_itens_edit = st.data_editor(dados_itens, column_config=col_itens_cfg, num_rows="dynamic", use_container_width=True, key=f"ed_v2_{item['id']}")
 
-        # Cálculos de Totais baseados nas linhas
-        total_venda_calculado = (df_itens_edit['Venda Un.'] * df_itens_edit['Qtd']).sum()
-        total_custo_calculado = (df_itens_edit['Custo Un.'] * df_itens_edit['Qtd']).sum()
-        lucro_final = total_venda_calculado - (total_custo_calculado + n_v_inst)
+        # --- LÓGICA DE AUTO-PREENCHIMENTO E CÁLCULO DE LUCRO ---
+        for i in range(len(df_itens_edit)):
+            linha = df_itens_edit.iloc[i]
+            nome_sel = linha['Item']
+            
+            # Se selecionou algo do banco e os valores estão zerados, puxamos os dados
+            if nome_sel != "OUTRO / MANUAL" and linha['Custo Un.'] == 0:
+                match = st.session_state.base_unificada[st.session_state.base_unificada['Item'] == nome_sel]
+                if not match.empty:
+                    df_itens_edit.at[i, 'Custo Un.'] = float(match['Custo (R$)'].values[0])
+                    df_itens_edit.at[i, 'Venda Un.'] = float(match['Venda (R$)'].values[0])
+                    st.rerun()
 
-        # Exibição dos resultados financeiros do serviço
-        st.markdown("#### Resumo Financeiro Atualizado")
+        # Cálculos de Lucro por Linha
+        df_itens_edit['Lucro Un.'] = df_itens_edit['Venda Un.'] - df_itens_edit['Custo Un.']
+        df_itens_edit['Lucro Total'] = df_itens_edit['Lucro Un.'] * df_itens_edit['Qtd']
+
+        # Totais Gerais do Serviço
+        total_venda = (df_itens_edit['Venda Un.'] * df_itens_edit['Qtd']).sum()
+        total_custo_mat = (df_itens_edit['Custo Un.'] * df_itens_edit['Qtd']).sum()
+        lucro_projeto = total_venda - (total_custo_mat + n_v_inst)
+
+        st.markdown("#### Resumo do Serviço")
         res1, res2, res3 = st.columns(3)
-        res1.metric("Faturamento Total", utils.to_br_currency(total_venda_calculado))
-        res2.metric("Custo Total (Mat + Inst)", utils.to_br_currency(total_custo_calculado + n_v_inst))
-        res3.metric("LUCRO LÍQUIDO", utils.to_br_currency(lucro_final), delta=f"{((lucro_final/total_venda_calculado)*100 if total_venda_calculado > 0 else 0):.1f}% Margem")
+        res1.metric("Faturamento", utils.to_br_currency(total_venda))
+        res2.metric("Custo Total", utils.to_br_currency(total_custo_mat + n_v_inst))
+        res3.metric("LUCRO LÍQUIDO", utils.to_br_currency(lucro_projeto))
 
-        if st.button("💾 SALVAR TODAS AS ALTERAÇÕES", type="primary", use_container_width=True):
+        if st.button("💾 SALVAR PROJETO", type="primary", use_container_width=True):
             try:
-                # Gerar o novo resumo de produtos para a tabela principal
-                resumo_texto = ", ".join([f"{int(r['Qtd'])}x {r['Descrição']}" for _, r in df_itens_edit.iterrows()])
+                # Gera resumo para a tabela principal
+                resumo = []
+                for _, r in df_itens_edit.iterrows():
+                    desc = r['Item'] if r['Item'] != "OUTRO / MANUAL" else r['Descrição Manual']
+                    resumo.append(f"{int(r['Qtd'])}x {desc}")
                 
                 supabase.table('servicos_andamento').update({
                     "status_projeto": n_status,
                     "instalador_responsavel": n_inst,
                     "valor_pago_instalador": n_v_inst,
-                    "valor_venda_total": float(total_venda_calculado),
-                    "valor_custo_equipamentos": float(total_custo_calculado),
-                    "lucro_estimado": float(lucro_final),
-                    "produtos_adquiridos": resumo_texto,
-                    "detalhamento_itens": df_itens_edit.to_dict('records') # Salva a tabela inteira!
+                    "valor_venda_total": float(total_venda),
+                    "valor_custo_equipamentos": float(total_custo_mat),
+                    "lucro_estimado": float(lucro_projeto),
+                    "produtos_adquiridos": ", ".join(resumo),
+                    "detalhamento_itens": df_itens_edit.to_dict('records')
                 }).eq('id', item['id']).execute()
                 
-                st.success("Projeto atualizado com sucesso!")
+                st.success("Salvo!")
                 st.rerun()
             except Exception as e:
-                st.error(f"Erro ao salvar: {e}")
+                st.error(f"Erro: {e}")
