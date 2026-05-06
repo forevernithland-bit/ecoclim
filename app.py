@@ -8,9 +8,9 @@ import io
 from supabase import create_client
 from fpdf import FPDF
 
-# ==========================================
-# 1. CONFIGURAÇÃO E CONEXÃO
-# ==========================================
+# =============================================================================
+# MÓDULO 1: CONFIGURAÇÃO E CONEXÃO
+# =============================================================================
 st.set_page_config(page_title="Ecoclim ERP", layout="wide", page_icon="🌤️")
 
 @st.cache_resource
@@ -24,9 +24,9 @@ try:
 except Exception as e:
     st.error(f"Erro na conexão Supabase: {e}")
 
-# ==========================================
-# 2. VARIÁVEIS GLOBAIS E FORMATAÇÃO
-# ==========================================
+# =============================================================================
+# MÓDULO 2: UTILITÁRIOS E FORMATAÇÃO
+# =============================================================================
 meses_pt = ['JANEIRO', 'FEVEREIRO', 'MARÇO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO']
 hoje = datetime.datetime.now()
 ano_atual = hoje.year
@@ -49,9 +49,10 @@ def parse_br_currency(val):
         return float(clean) if clean else 0.0
     except: return 0.0
 
-# ==========================================
-# 3. FUNÇÕES DE BANCO DE DADOS (CATÁLOGOS)
-# ==========================================
+# =============================================================================
+# MÓDULO 3: BANCO DE DADOS (FUNÇÕES GERAIS)
+# =============================================================================
+# --- CATÁLOGOS (CONFIGURAÇÕES) ---
 def load_catalog(table_name):
     try:
         res = supabase.table(table_name).select("*").order("item").execute()
@@ -78,14 +79,10 @@ def save_catalog(table_name, df):
                     "descricao": str(row['Descrição']) if row['Descrição'] else ""
                 })
         supabase.table(table_name).delete().neq("item", "___vazio___").execute()
-        if data:
-            supabase.table(table_name).insert(data).execute()
-    except Exception as e:
-        st.error(f"Erro ao sincronizar catálogo: {e}")
+        if data: supabase.table(table_name).insert(data).execute()
+    except Exception as e: st.error(f"Erro ao sincronizar catálogo: {e}")
 
-# ==========================================
-# 4. FUNÇÕES FINANCEIRAS (PATRIMÔNIO / ENTRADAS)
-# ==========================================
+# --- FINANCEIRO ---
 def load_year_data(table_name, itens_padrao, ano_escolhido):
     try:
         res = supabase.table(table_name).select("*").eq("ano", ano_escolhido).execute()
@@ -121,6 +118,7 @@ def save_to_supabase(table_name, df_int, ano_escolhido):
         supabase.table(table_name).insert(data).execute()
     except Exception as e: st.error(f"Erro ao salvar financeiro: {e}")
 
+# --- PREFERÊNCIAS DO USUÁRIO ---
 def load_user_settings():
     try:
         res = supabase.table('configuracoes').select("*").eq('user_id', 'breno.lima').execute()
@@ -134,9 +132,9 @@ def save_user_settings(inicio, fim):
         supabase.table('configuracoes').upsert(data).execute()
     except: pass
 
-# ==========================================
-# 5. GERADOR DE PDF PROFISSIONAL
-# ==========================================
+# =============================================================================
+# MÓDULO 4: GERADOR DE PDF (ORÇAMENTOS)
+# =============================================================================
 def gerar_pdf_orcamento(cliente, tel, produto, df_equip, desc_s, val_s, desc_o, val_o, total, obs, mostrar_val):
     pdf = FPDF()
     pdf.add_page()
@@ -169,7 +167,6 @@ def gerar_pdf_orcamento(cliente, tel, produto, df_equip, desc_s, val_s, desc_o, 
     except: pdf.cell(0, 20, f"[IMAGEM: {produto}]", border=1, ln=True, align="C")
     pdf.ln(5)
 
-    # Itens
     pdf.set_font("helvetica", "B", 12); pdf.cell(0, 8, " 1. EQUIPAMENTOS", border=1, ln=True, fill=True)
     if mostrar_val:
         pdf.cell(100, 8, " Item", border=1); pdf.cell(30, 8, " Qtd", border=1, align="C"); pdf.cell(60, 8, " Subtotal", border=1, ln=True, align="R")
@@ -186,7 +183,6 @@ def gerar_pdf_orcamento(cliente, tel, produto, df_equip, desc_s, val_s, desc_o, 
             else:
                 pdf.cell(160, 8, f" {nome}", border=1); pdf.cell(30, 8, f" {int(q)}", border=1, ln=True, align="C")
 
-    # Serviços e Outros
     if val_s > 0:
         pdf.ln(5); pdf.set_font("helvetica", "B", 12); pdf.cell(0, 8, " 2. SERVIÇOS", border=1, ln=True, fill=True)
         pdf.set_font("helvetica", "", 10); pdf.multi_cell(0, 6, f" {desc_s}", border=1)
@@ -203,10 +199,26 @@ def gerar_pdf_orcamento(cliente, tel, produto, df_equip, desc_s, val_s, desc_o, 
     
     return bytes(pdf.output())
 
-# ==========================================
-# 6. TELAS DO SISTEMA
-# ==========================================
+# =============================================================================
+# MÓDULO 5: CSS GLOBAL
+# =============================================================================
+st.markdown("""
+    <style>
+    .block-container { padding-top: 1.5rem !important; padding-left: 1rem !important; padding-right: 1rem !important; max-width: 100% !important; }
+    div.container-tabelas div[data-testid="stVerticalBlock"] { gap: 0px !important; padding: 0px !important; }
+    [data-testid="stTable"] { overflow: hidden !important; }
+    .dvn-scroller { overflow-y: hidden !important; }
+    .stDataFrame table, .stDataEditor table { table-layout: fixed !important; width: 100% !important; }
+    .stDataFrame td, .stDataFrame th, .stDataEditor td, .stDataEditor th { text-align: center !important; font-size: 0.85rem !important; }
+    
+    /* ESCONDE CABEÇALHOS DAS TABELAS DE RESULTADO NO FINANCEIRO */
+    .financeiro div[data-testid="stDataFrame"] thead { display: none !important; }
+    </style>
+""", unsafe_allow_html=True)
 
+# =============================================================================
+# MÓDULO 6: TELA PÁGINA INICIAL
+# =============================================================================
 def tela_inicial():
     st.markdown("## 🏠 Página Inicial")
     st.write(f"Bem-vindo, Breno. Hoje é {hoje.strftime('%d/%m/%Y')}")
@@ -217,6 +229,9 @@ def tela_inicial():
     if c3.button("⚙️\n\nConfigurações", use_container_width=True): st.session_state.pagina_atual = "Configurações"; st.rerun()
     if c4.button("🚪\n\nSair do Sistema", use_container_width=True): st.session_state.authenticated = False; st.rerun()
 
+# =============================================================================
+# MÓDULO 7: TELA CONFIGURAÇÕES
+# =============================================================================
 def tela_configuracoes():
     st.markdown("## ⚙️ Configurações e Base de Dados")
     
@@ -246,7 +261,6 @@ def tela_configuracoes():
         }
         df_edit = st.data_editor(df_db, num_rows="dynamic", column_config=col_cfg, use_container_width=True, key=f"editor_{table_name}")
         
-        # Recalcula na hora
         df_edit['Venda (R$)'] = (df_edit['Custo (R$)'] * (1 + df_edit['Margem (%)'] / 100)).fillna(0).round().astype(int)
         df_edit['Lucro (R$)'] = df_edit['Venda (R$)'] - df_edit['Custo (R$)']
         
@@ -257,6 +271,9 @@ def tela_configuracoes():
     with tab2: render_editor('catalogo_servicos')
     with tab3: render_editor('catalogo_outros')
 
+# =============================================================================
+# MÓDULO 8: TELA ORÇAMENTOS
+# =============================================================================
 def tela_orcamentos():
     st.markdown("## 📝 Novo Orçamento")
     cat_p = load_catalog('catalogo_produtos'); lista_p = cat_p['Item'].tolist()
@@ -279,7 +296,6 @@ def tela_orcamentos():
         cfg = {"Produto da Base": st.column_config.SelectboxColumn("Produto", options=[""] + lista_p + ["OUTRO"]), "Venda (R$)": st.column_config.NumberColumn("Preço", format="R$ %d")}
         df_ed = st.data_editor(st.session_state.df_orc, column_config=cfg, num_rows="dynamic", use_container_width=True)
         
-        # Auto-preço
         for i in range(len(df_ed)):
             p = df_ed.at[i, 'Produto da Base']
             if p in lista_p and df_ed.at[i, 'Venda (R$)'] == 0:
@@ -287,7 +303,7 @@ def tela_orcamentos():
                 st.session_state.df_orc = df_ed; st.rerun()
         st.session_state.df_orc = df_ed
         total_e = sum(df_ed['Quantidade'] * df_ed['Venda (R$)'])
-        st.write(f"Subtotal: {to_br_currency(total_e)}")
+        st.write(f"Subtotal: {to_br_currency(total_e, False)}")
 
     with st.container(border=True):
         st.subheader("🛠️ 2. Serviços / Diversos")
@@ -295,18 +311,18 @@ def tela_orcamentos():
         if s_sel == "Manual": d_s = st.text_area("Descreva:"); v_s = st.number_input("Valor:", min_value=0.0)
         elif s_sel != "":
             d_s = f"{s_sel}\n{cat_s.loc[cat_s['Item']==s_sel, 'Descrição'].values[0]}"
-            v_s = float(cat_s.loc[cat_s['Item']==s_sel, 'Venda (R$)'].values[0]); st.write(f"Valor: {to_br_currency(v_s)}")
+            v_s = float(cat_s.loc[cat_s['Item']==s_sel, 'Venda (R$)'].values[0]); st.write(f"Valor: {to_br_currency(v_s, False)}")
         else: d_s, v_s = "", 0.0
         
         o_sel = st.selectbox("Selecionar Diversos:", [""] + lista_o + ["Manual"])
-        if o_sel == "Manual": d_o = st.text_area("Descreva:"); v_o = st.number_input("Valor Adicional:", min_value=0.0)
+        if o_sel == "Manual": d_o = st.text_area("Descreva: "); v_o = st.number_input("Valor Adicional:", min_value=0.0)
         elif o_sel != "":
             d_o = f"{o_sel}\n{cat_o.loc[cat_o['Item']==o_sel, 'Descrição'].values[0]}"
-            v_o = float(cat_o.loc[cat_o['Item']==o_sel, 'Venda (R$)'].values[0]); st.write(f"Valor: {to_br_currency(v_o)}")
+            v_o = float(cat_o.loc[cat_o['Item']==o_sel, 'Venda (R$)'].values[0]); st.write(f"Valor: {to_br_currency(v_o, False)}")
         else: d_o, v_o = "", 0.0
 
     total_g = total_e + v_s + v_o
-    st.subheader(f"INVESTIMENTO TOTAL: {to_br_currency(total_g)}")
+    st.subheader(f"INVESTIMENTO TOTAL: {to_br_currency(total_g, False)}")
     obs = st.text_area("Notas:", value="Material Hidráulico não inclusos na proposta")
 
     if st.button("🚀 SALVAR CRM E GERAR PDF", type="primary"):
@@ -320,50 +336,130 @@ def tela_orcamentos():
             st.download_button("📥 BAIXAR ORÇAMENTO", pdf_bytes, f"Orcamento_{nome_c}.pdf", "application/pdf", use_container_width=True)
         else: st.error("Digite o nome do cliente!")
 
+# =============================================================================
+# MÓDULO 9: TELA CONTROLE FINANCEIRO (COMPLETO RESTAURADO)
+# =============================================================================
 def tela_financeira():
+    st.markdown('<div class="financeiro">', unsafe_allow_html=True)
     st.subheader("📊 Controle Financeiro")
+    
     with st.sidebar:
-        ano_sel = st.selectbox("Ano Fiscal", [2025, 2026, 2027], index=1)
+        ano_selecionado = st.selectbox("Ano Fiscal", options=[2025, 2026, 2027, 2028], index=1)
         st.write("---")
-        p_ini, p_fim = load_user_settings()
-        m_ini, m_fim = st.select_slider("Meses Visíveis", options=meses_pt, value=(p_ini, p_fim))
-        if m_ini != p_ini or m_fim != p_fim: save_user_settings(m_ini, m_fim)
+        st.markdown("### 👁️ Linha do Tempo")
         
-        v_cols = ["MESES"] + meses_pt[meses_pt.index(m_ini):meses_pt.index(m_fim)+1]
-        if st.button("🔄 Recarregar"): st.session_state.pop('df_p', None); st.rerun()
+        pref_inicio, pref_fim = load_user_settings()
+        if pref_inicio not in meses_pt: pref_inicio = "JANEIRO"
+        if pref_fim not in meses_pt: pref_fim = mes_atual_nome
+            
+        mes_inicio, mes_fim = st.select_slider("Período Visível:", options=meses_pt, value=(pref_inicio, pref_fim))
+        if (mes_inicio != pref_inicio) or (mes_fim != pref_fim): save_user_settings(mes_inicio, mes_fim)
+            
+        idx_inicio = meses_pt.index(mes_inicio)
+        idx_fim = meses_pt.index(mes_fim)
+        colunas_visiveis = ["MESES"] + meses_pt[idx_inicio:idx_fim + 1]
 
-    cp = ['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS', 'IMÓVEIS', 'VEÍCULOS']
-    ce = ['ECOCLIM', 'AIRNB', 'CONS INVESTIMENTOS', 'MAGGI CONSORCIOS']
-    
-    if 'df_p' not in st.session_state or st.session_state.get('ano_atual_financeiro') != ano_sel:
-        st.session_state.df_p = load_year_data('patrimonio', cp, ano_sel)
-        st.session_state.df_e = load_year_data('entradas', ce, ano_sel)
-        st.session_state.ano_atual_financeiro = ano_sel
+        if st.button("🔄 Recarregar Dados"): st.session_state.pop('ano_dados_atual', None); st.rerun()
 
-    # Tabela 1: Patrimônio (Trick de Texto para R$)
-    df_p_disp = st.session_state.df_p[v_cols].copy()
-    for m in [c for c in v_cols if c != "MESES"]: df_p_disp[m] = df_p_disp[m].apply(lambda x: to_br_currency(x, False))
+    contas_p = ['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS', 'IMÓVEIS', 'VEÍCULOS']
+    contas_e = ['ECOCLIM', 'AIRNB', 'CONS INVESTIMENTOS', 'MAGGI CONSORCIOS']
     
-    st.write("### Detalhamento Patrimonial")
-    df_p_ed = st.data_editor(df_p_disp.style.set_properties(subset=[mes_atual_nome] if mes_atual_nome in v_cols and ano_sel == ano_atual else [], **{'background-color': '#e0f0ff'}), hide_index=True, use_container_width=True)
-    
-    if not df_p_ed.equals(df_p_disp):
-        for m in [c for c in v_cols if c != "MESES"]: st.session_state.df_p.loc[:, m] = df_p_ed[m].apply(parse_br_currency)
-        save_to_supabase('patrimonio', st.session_state.df_p, ano_sel); st.rerun()
+    if 'ano_dados_atual' not in st.session_state or st.session_state.ano_dados_atual != ano_selecionado:
+        st.session_state.df_p = load_year_data('patrimonio', contas_p, ano_selecionado)
+        st.session_state.df_e = load_year_data('entradas', contas_e, ano_selecionado)
+        st.session_state.ano_dados_atual = ano_selecionado
 
-    # Cálculos e Gráficos
+    col_cfg = {"MESES": st.column_config.TextColumn("MESES", width=220, disabled=True)}
+    for m in meses_pt: col_cfg[m] = st.column_config.TextColumn(m, width=80) 
+
+    st.markdown('<div class="container-tabelas">', unsafe_allow_html=True)
+    
+    # ---------------------------------------------
+    # 9.1 PATRIMÔNIO (EDITÁVEL + RESULTADOS)
+    # ---------------------------------------------
+    df_p_display = st.session_state.df_p[colunas_visiveis].copy()
+    for m in [c for c in colunas_visiveis if c != "MESES"]: df_p_display[m] = df_p_display[m].apply(lambda x: to_br_currency(x, False))
+    styled_df_p = df_p_display.style.set_properties(subset=[mes_atual_nome] if mes_atual_nome in colunas_visiveis and ano_selecionado == ano_atual else [], **{'background-color': '#e0f0ff', 'font-weight': 'bold'})
+    df_p_edit_str = st.data_editor(styled_df_p, hide_index=True, column_config=col_cfg, use_container_width=True, height=295)
+
+    if not df_p_edit_str.equals(df_p_display):
+        for m in [c for c in colunas_visiveis if c != "MESES"]: st.session_state.df_p.loc[:, m] = df_p_edit_str[m].apply(parse_br_currency)
+        save_to_supabase('patrimonio', st.session_state.df_p, ano_selecionado); st.toast("💾 Salvo!", icon="✅"); st.rerun()
+
     df_n = st.session_state.df_p.set_index('MESES')
-    pat_tot = df_n.sum()
+    pat_liq = df_n.loc[['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS']].sum()
+    pat_tot = pat_liq + df_n.loc['IMÓVEIS'] + df_n.loc['VEÍCULOS']
+    var_abs = pat_tot.diff().fillna(0); var_pct = (pat_tot.pct_change().fillna(0) * 100).round(2)
+
+    for i, m in enumerate(meses_pt):
+        if (ano_selecionado > ano_atual) or (ano_selecionado == ano_atual and i > mes_hoje_idx - 1):
+            var_abs[m] = 0; var_pct[m] = 0
+
+    df_res_p = pd.DataFrame({'MESES': ['PATRIMÔNIO LÍQUIDO', 'PATRIMÔNIO TOTAL', 'VARIAÇÃO MENSAL ($)', 'VARIAÇÃO MENSAL (%)']})
+    for m in meses_pt: df_res_p[m] = [pat_liq[m], pat_tot[m], var_abs[m], f"{var_pct[m]:.2f}%"]
+    styled_res_p = df_res_p[colunas_visiveis].style.apply(lambda row: [f'background-color: {"#FF9900" if row["MESES"] == "PATRIMÔNIO TOTAL" else "#FFF2CC" if "LÍQUIDO" in row["MESES"] else "white"}; font-weight: bold; color: black; border-left: {"3px solid #4A90E2" if col == mes_atual_nome and ano_selecionado == ano_atual else "none"}' for col in colunas_visiveis], axis=1)
+    st.dataframe(styled_res_p.format(lambda x: x if isinstance(x, str) and "%" in x else to_br_currency(x, False)), hide_index=True, column_config=col_cfg, use_container_width=True, height=175)
+
+    # ---------------------------------------------
+    # 9.2 ENTRADAS (EDITÁVEL + RESULTADOS)
+    # ---------------------------------------------
+    df_e_display = st.session_state.df_e[colunas_visiveis].copy()
+    for m in [c for c in colunas_visiveis if c != "MESES"]: df_e_display[m] = df_e_display[m].apply(lambda x: to_br_currency(x, False))
+    styled_df_e = df_e_display.style.set_properties(subset=[mes_atual_nome] if mes_atual_nome in colunas_visiveis and ano_selecionado == ano_atual else [], **{'background-color': '#e0f0ff', 'font-weight': 'bold'})
+    df_e_edit_str = st.data_editor(styled_df_e, hide_index=True, column_config=col_cfg, use_container_width=True, height=190)
+
+    if not df_e_edit_str.equals(df_e_display):
+        for m in [c for c in colunas_visiveis if c != "MESES"]: st.session_state.df_e.loc[:, m] = df_e_edit_str[m].apply(parse_br_currency)
+        save_to_supabase('entradas', st.session_state.df_e, ano_selecionado); st.toast("💾 Salvo!", icon="✅"); st.rerun()
+
+    df_e_n = st.session_state.df_e.set_index('MESES'); tot_ent = df_e_n.sum()
+    df_res_e = pd.DataFrame({'MESES': ['TOTAL RECEBIMENTOS:']})
+    for m in meses_pt: df_res_e[m] = [tot_ent[m]]
+    styled_res_e = df_res_e[colunas_visiveis].style.apply(lambda row: [f'background-color: #9BC2E6; font-weight: bold; color: black; border-left: {"3px solid #4A90E2" if col == mes_atual_nome and ano_selecionado == ano_atual else "none"}' for col in colunas_visiveis], axis=1)
+    st.dataframe(styled_res_e.format(lambda x: to_br_currency(x, False)), hide_index=True, column_config=col_cfg, use_container_width=True, height=75)
+
+    # ---------------------------------------------
+    # 9.3 RENDIMENTOS MENSAIS
+    # ---------------------------------------------
+    st.markdown("#### 📈 Rendimento Mensal (Investimentos)")
+    xp_val = df_n.loc['INVESTIMENTO XP']; inter_val = df_n.loc['CONTA INTER']
+    xp_var = xp_val.diff().fillna(0); inter_var = inter_val.diff().fillna(0); rend_total = xp_var + inter_var; prev_bal = (xp_val + inter_val).shift(1).fillna(0)
+    df_rend = pd.DataFrame({'MESES': ['VARIAÇÃO INVESTIMENTO XP', 'VARIAÇÃO CONTA INTER', 'RENDIMENTO TOTAL', '% RETORNO MÊS', 'SALÁRIO + RENDIMENTO MÊS']})
+    for i, m in enumerate(meses_pt):
+        if (ano_selecionado > ano_atual) or (ano_selecionado == ano_atual and i > mes_hoje_idx - 1): df_rend[m] = [0, 0, 0, "0,00%", 0]
+        else:
+            rt = rend_total[m]; pb = prev_bal[m]; pct_val = (rt / pb * 100) if pb > 0 else 0
+            df_rend[m] = [xp_var[m], inter_var[m], rt, f"{pct_val:.2f}%".replace(".", ","), tot_ent[m] + rt]
+    styled_rend = df_rend[colunas_visiveis].style.apply(lambda row: [f'background-color: {"#FF9900" if row["MESES"] == "RENDIMENTO TOTAL" else "#FFF2CC" if "%" in row["MESES"] else "#9BC2E6" if "SALÁRIO" in row["MESES"] else "white"}; font-weight: bold; color: black; border-left: {"3px solid #4A90E2" if col == mes_atual_nome and ano_selecionado == ano_atual else "none"}' for col in colunas_visiveis], axis=1)
+    st.dataframe(styled_rend.format(lambda x: x if isinstance(x, str) and "%" in x else to_br_currency(x, False)), hide_index=True, column_config=col_cfg, use_container_width=True, height=215)
+    st.markdown('</div></div>', unsafe_allow_html=True)
+
+    # ---------------------------------------------
+    # 9.4 MÉTRICAS E GRÁFICOS
+    # ---------------------------------------------
+    st.markdown("<br>", unsafe_allow_html=True)
+    c1, c2, c3, c4 = st.columns(4)
+    meses_calculo = meses_pt if ano_selecionado < ano_atual else meses_pt[:mes_hoje_idx]
+    media_entradas = tot_ent[meses_calculo].mean(); media_rend_r = rend_total[meses_calculo].mean(); media_rend_p = (rend_total[meses_calculo] / prev_bal[meses_calculo].replace(0, np.nan)).mean() * 100
+    idx_ref = 11 if ano_selecionado < ano_atual else (mes_hoje_idx - 1 if mes_hoje_idx > 0 else 0)
+
+    c1.metric("💰 MÉDIA ENTRADAS FIXAS", to_br_currency(media_entradas, False))
+    c2.metric("🎯 LIMITE DE GASTO (MÉDIA REND.)", to_br_currency(media_rend_r, False))
+    c3.metric("📈 MÉDIA RETORNO (%)", f"{media_rend_p:.2f}%".replace(".", ","))
+    c4.metric("🏛️ PATRIMÔNIO ATUAL", to_br_currency(pat_tot.iloc[idx_ref], False))
+
     st.write("---")
     g1, g2 = st.columns(2)
-    g1.subheader("Evolução Patrimonial"); g1.line_chart(pat_tot)
-    
-    df_e_n = st.session_state.df_e.set_index('MESES'); tot_ent = df_e_n.sum()
-    g2.subheader("Recebimentos"); g2.area_chart(tot_ent)
+    with g1:
+        st.subheader("Aumento de Patrimônio Total"); st.line_chart(pat_tot[meses_pt])
+        st.subheader("Rendimento Mensal (R$)"); st.bar_chart(rend_total[meses_pt])
+    with g2:
+        st.subheader("Salário + Rendimento Mensal"); st.area_chart(tot_ent[meses_pt] + rend_total[meses_pt])
+        st.subheader("Faturamento Ecoclim"); st.line_chart(df_e_n.loc['ECOCLIM'][meses_pt])
 
-# ==========================================
-# 7. LOGIN E EXECUÇÃO PRINCIPAL
-# ==========================================
+# =============================================================================
+# MÓDULO 10: ROTEAMENTO PRINCIPAL (LOGIN E MENUS)
+# =============================================================================
 if "authenticated" not in st.session_state: st.session_state.authenticated = False
 if "pagina_atual" not in st.session_state: st.session_state.pagina_atual = "Página Inicial"
 
