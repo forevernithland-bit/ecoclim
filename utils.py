@@ -31,13 +31,15 @@ def init_connection():
 def load_catalog(table_name):
     supabase = st.session_state.supabase
     try:
-        res = supabase.table(table_name).select("*").order("id").execute()
+        # Correção principal: ordenando por 'item' para evitar erro se a tabela não tiver a coluna 'id'
+        res = supabase.table(table_name).select("*").order("item").execute()
         df = pd.DataFrame(res.data)
         if df.empty:
             return pd.DataFrame(columns=["Item", "Custo (R$)", "Margem (%)", "Lucro (R$)", "Venda (R$)"])
         df = df.rename(columns={"item": "Item", "custo": "Custo (R$)", "margem": "Margem (%)", "lucro": "Lucro (R$)", "venda": "Venda (R$)"})
         return df[["Item", "Custo (R$)", "Margem (%)", "Lucro (R$)", "Venda (R$)"]]
-    except:
+    except Exception as e:
+        st.error(f"Erro ao carregar a tabela {table_name} do banco de dados: {e}")
         return pd.DataFrame(columns=["Item", "Custo (R$)", "Margem (%)", "Lucro (R$)", "Venda (R$)"])
 
 def save_catalog(table_name, df):
@@ -160,9 +162,7 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
     p = canvas.Canvas(buffer, pagesize=A4)
     largura, altura = A4
 
-    # =========================================================================
     # PÁGINA 1: CAPA
-    # =========================================================================
     try:
         p.drawImage(IMG_CAPA, 0, 0, width=largura, height=altura, mask='auto')
         try: p.drawImage("logo.png", 2*cm, altura - 5*cm, width=6*cm, preserveAspectRatio=True, mask='auto')
@@ -176,9 +176,7 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
     except:
         p.showPage()
 
-    # =========================================================================
     # PÁGINA 2: PROPOSTA COMERCIAL
-    # =========================================================================
     try: p.drawImage("logo.png", 1.5*cm, altura - 3*cm, width=4*cm, preserveAspectRatio=True, mask='auto')
     except: pass
     
@@ -258,9 +256,7 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
 
     p.showPage()
 
-    # =========================================================================
     # PÁGINA 3: ESCOPO DE SERVIÇOS
-    # =========================================================================
     p.setFillColor(colors.HexColor("#f4f4f4"))
     p.rect(0, 0, largura, altura, fill=1, stroke=0)
     
