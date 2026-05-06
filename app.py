@@ -10,7 +10,7 @@ from fpdf import FPDF
 # ==========================================
 # 1. CONFIGURAÇÃO E CONEXÃO
 # ==========================================
-st.set_page_config(page_title="Controle Financeiro", layout="wide")
+st.set_page_config(page_title="Ecoclim ERP", layout="wide", page_icon="🌤️")
 
 @st.cache_resource
 def init_connection():
@@ -46,36 +46,31 @@ def parse_br_currency(val):
     except: return 0.0
 
 # ==========================================
-# 3. BASES DE DADOS DINÂMICAS (SESSION STATE)
+# 3. BASES DE DADOS INTELIGENTES (COM LUCRO)
 # ==========================================
-# Inicializa as bases de dados na sessão para que as edições fiquem salvas enquanto o app roda
 if 'db_produtos' not in st.session_state:
     st.session_state.db_produtos = pd.DataFrame([
-        {"Item": "Boiler Aquecedor Solar 200L", "Valor (R$)": 2500.00},
-        {"Item": "Boiler Aquecedor Solar 400L", "Valor (R$)": 3800.00},
-        {"Item": "Placa Coletora Solar 1x1m", "Valor (R$)": 850.00},
-        {"Item": "Trocador de Calor Piscina 40m3", "Valor (R$)": 9500.00},
-        {"Item": "Bomba Pressurizadora 1/2 CV", "Valor (R$)": 1200.00},
-        {"Item": "Tubo a Vácuo (Unidade)", "Valor (R$)": 150.00}
+        {"Item": "Boiler Aquecedor Solar 400L", "Custo (R$)": 2200.0, "Margem (%)": 72.7, "Lucro (R$)": 1600.0, "Venda (R$)": 3800, "Descrição": "Classe A INMETRO Aço 304\nIdeal para até 6 banhos/dia\nGarantia: 3 Anos de fábrica"},
+        {"Item": "Placa Coletora Solar 1x1m", "Custo (R$)": 500.0, "Margem (%)": 70.0, "Lucro (R$)": 350.0, "Venda (R$)": 850, "Descrição": "Vidro temperado de alta eficiência térmica."},
+        {"Item": "Trocador de Calor Piscina 40m3", "Custo (R$)": 6000.0, "Margem (%)": 58.3, "Lucro (R$)": 3500.0, "Venda (R$)": 9500, "Descrição": "Condensador em Titânio\nPainel digital inteligente\nGarantia: 1 Ano"},
+        {"Item": "Bomba Pressurizadora 1/2 CV", "Custo (R$)": 700.0, "Margem (%)": 71.4, "Lucro (R$)": 500.0, "Venda (R$)": 1200, "Descrição": "Bomba silenciosa com fluxostato integrado."},
+        {"Item": "Tubo a Vácuo (Unidade)", "Custo (R$)": 80.0, "Margem (%)": 87.5, "Lucro (R$)": 70.0, "Venda (R$)": 150, "Descrição": "Vidro borossilicato de altíssima resistência."}
     ])
 
 if 'db_servicos' not in st.session_state:
     st.session_state.db_servicos = pd.DataFrame([
-        {"Item": "Instalação Padrão Aquecedor Solar", "Valor (R$)": 1500.00},
-        {"Item": "Instalação Trocador de Calor", "Valor (R$)": 1200.00},
-        {"Item": "Manutenção Preventiva Sistema", "Valor (R$)": 450.00},
-        {"Item": "Limpeza de Placas e Boiler", "Valor (R$)": 300.00}
+        {"Item": "Instalação Padrão Aquecedor Solar", "Custo (R$)": 600.0, "Margem (%)": 150.0, "Lucro (R$)": 900.0, "Venda (R$)": 1500, "Descrição": "Mão de obra especializada para instalação completa do sistema no telhado."},
+        {"Item": "Manutenção Preventiva Sistema", "Custo (R$)": 150.0, "Margem (%)": 200.0, "Lucro (R$)": 300.0, "Venda (R$)": 450, "Descrição": "Troca de ânodo de sacrifício, limpeza de conectores e revisão hidráulica."}
     ])
 
 if 'db_outros' not in st.session_state:
     st.session_state.db_outros = pd.DataFrame([
-        {"Item": "Locação de Guindaste/Munck", "Valor (R$)": 800.00},
-        {"Item": "Frete Terceirizado Especial", "Valor (R$)": 350.00},
-        {"Item": "Material Hidráulico Extra", "Valor (R$)": 500.00}
+        {"Item": "Locação de Guindaste/Munck", "Custo (R$)": 600.0, "Margem (%)": 33.3, "Lucro (R$)": 200.0, "Venda (R$)": 800, "Descrição": "Diária de caminhão munck para içamento seguro do boiler."},
+        {"Item": "Material Hidráulico Extra", "Custo (R$)": 300.0, "Margem (%)": 66.7, "Lucro (R$)": 200.0, "Venda (R$)": 500, "Descrição": "Tubos e conexões em CPVC Aquatherm para adaptação térmica."}
     ])
 
 # ==========================================
-# 4. FUNÇÕES FINANCEIRAS E SUPABASE
+# 4. FUNÇÕES FINANCEIRAS (MANTIDAS)
 # ==========================================
 def load_year_data(table_name, itens_padrao, ano_escolhido):
     try:
@@ -156,7 +151,7 @@ def login_screen():
             else: st.error("Usuário ou senha incorretos")
 
 # ==========================================
-# 6. GERADOR DE PDF (ORÇAMENTOS)
+# 6. GERADOR DE PDF (COM DESCRIÇÕES)
 # ==========================================
 def gerar_pdf_orcamento(cliente, telefone, produto, df_equip, desc_serv, val_serv, desc_outros, val_outros, total, obs, mostrar_val_equip):
     pdf = FPDF()
@@ -205,12 +200,20 @@ def gerar_pdf_orcamento(cliente, telefone, produto, df_equip, desc_serv, val_ser
         pdf.cell(160, 8, " Item", border=1)
         pdf.cell(30, 8, " Qtd", border=1, ln=True, align="C")
     
-    pdf.set_font("helvetica", "", 10)
     for _, row in df_equip.iterrows():
         nome = row['Produto da Base'] if row['Produto da Base'] != "OUTRO (Digitar)" else row['Produto Manual']
         if nome.strip() != "":
             q = float(row['Quantidade'])
-            v = float(row['Valor Un.'])
+            v = float(row['Venda (R$)'])
+            
+            # Busca a descrição na base de dados (se existir)
+            desc_texto = ""
+            if nome in st.session_state.db_produtos['Item'].values:
+                desc_texto = st.session_state.db_produtos.loc[st.session_state.db_produtos['Item'] == nome, 'Descrição'].values[0]
+            
+            # Linha Principal (Nome e Preços)
+            pdf.set_font("helvetica", "B", 10)
+            pdf.set_text_color(0, 0, 0)
             if mostrar_val_equip:
                 pdf.cell(100, 8, f" {nome}", border=1)
                 pdf.cell(30, 8, f" {int(q)}", border=1, align="C")
@@ -218,13 +221,20 @@ def gerar_pdf_orcamento(cliente, telefone, produto, df_equip, desc_serv, val_ser
             else:
                 pdf.cell(160, 8, f" {nome}", border=1)
                 pdf.cell(30, 8, f" {int(q)}", border=1, ln=True, align="C")
+            
+            # Linha Secundária (Descrição do Item Mesclada em Baixo)
+            if desc_texto.strip() != "":
+                pdf.set_font("helvetica", "I", 8)
+                pdf.set_text_color(80, 80, 80) # Cinza para não brigar com o título
+                pdf.multi_cell(0, 5, f"  Detalhes: {desc_texto}", border=1)
 
     # 2. Serviços
+    pdf.set_text_color(0, 0, 0)
     pdf.ln(5)
     pdf.set_font("helvetica", "B", 12)
     pdf.cell(0, 8, " 2. ORÇAMENTO DO SERVIÇO", border=1, ln=True, fill=True)
     pdf.set_font("helvetica", "", 10)
-    pdf.multi_cell(0, 6, f"Descrição: {desc_serv}", border=1)
+    pdf.multi_cell(0, 6, f"Descrição:\n{desc_serv}", border=1)
     if val_serv > 0:
         pdf.cell(130, 8, "Valor do Serviço:", border=1)
         pdf.cell(60, 8, f" {to_br_currency(val_serv)}", border=1, ln=True, align="R")
@@ -235,7 +245,7 @@ def gerar_pdf_orcamento(cliente, telefone, produto, df_equip, desc_serv, val_ser
         pdf.set_font("helvetica", "B", 12)
         pdf.cell(0, 8, " 3. OUTROS SERVIÇOS / PRODUTOS", border=1, ln=True, fill=True)
         pdf.set_font("helvetica", "", 10)
-        pdf.multi_cell(0, 6, f"Descrição: {desc_outros}", border=1)
+        pdf.multi_cell(0, 6, f"Descrição:\n{desc_outros}", border=1)
         if val_outros > 0:
             pdf.cell(130, 8, "Valor Adicional:", border=1)
             pdf.cell(60, 8, f" {to_br_currency(val_outros)}", border=1, ln=True, align="R")
@@ -276,41 +286,50 @@ def tela_inicial():
     with col4:
         if st.button("🛠️\n\nServiços Ecoclim", use_container_width=True): st.info("Módulo em desenvolvimento.")
 
+def render_db_config(db_name):
+    df_old = st.session_state[db_name].copy()
+    
+    col_cfg = {
+        "Item": st.column_config.TextColumn("Item", width="medium"),
+        "Custo (R$)": st.column_config.NumberColumn("Custo (R$)", format="R$ %.2f", min_value=0.0),
+        "Margem (%)": st.column_config.NumberColumn("Margem (%)", format="%.1f%%", step=1.0),
+        "Lucro (R$)": st.column_config.NumberColumn("Lucro (R$)", format="R$ %.2f", disabled=True),
+        "Venda (R$)": st.column_config.NumberColumn("Venda (R$)", format="R$ %d", disabled=True), # Sem centavos!
+        "Descrição": st.column_config.TextColumn("Descrição (Aparece no PDF)", width="large")
+    }
+    
+    df_edit = st.data_editor(st.session_state[db_name], num_rows="dynamic", column_config=col_cfg, use_container_width=True)
+    
+    # Motor de Cálculo (Arredonda o valor de venda e calcula o lucro real)
+    df_edit['Venda (R$)'] = (df_edit['Custo (R$)'] * (1 + df_edit['Margem (%)'] / 100)).fillna(0).round().astype(int)
+    df_edit['Lucro (R$)'] = df_edit['Venda (R$)'] - df_edit['Custo (R$)']
+    
+    if not df_edit.equals(df_old):
+        st.session_state[db_name] = df_edit
+        st.rerun()
+
 def tela_configuracoes():
     st.markdown("## ⚙️ Configurações do Sistema")
-    st.write("Gerencie os produtos, serviços e outros itens do banco de dados do sistema.")
-    st.info("💡 **DICA:** Você pode alterar nomes e valores diretamente nas tabelas abaixo. Para adicionar um novo item, basta digitar na última linha em branco. Para excluir, clique na caixinha à esquerda da linha e aperte a tecla `Delete` do seu teclado.")
+    st.info("💡 **Como usar:** Edite o 'Custo' e a 'Margem (%)'. O sistema calculará o 'Lucro' e o 'Valor Venda' sozinho! O Valor de Venda é arredondado para não ter centavos.")
     
-    # Abas para organizar o menu
-    tab1, tab2, tab3, tab4 = st.tabs(["🛒 Equipamentos", "🛠️ Serviços", "➕ Terceirizados", "🔒 Outras Configurações"])
+    tab1, tab2, tab3 = st.tabs(["🛒 Equipamentos", "🛠️ Serviços", "➕ Terceirizados"])
     
-    # Formatação de coluna para R$
-    col_format = {"Valor (R$)": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f", min_value=0.0)}
-
     with tab1:
         st.subheader("Base de Dados: Equipamentos")
-        st.session_state.db_produtos = st.data_editor(st.session_state.db_produtos, num_rows="dynamic", column_config=col_format, use_container_width=True)
-        st.success("Alterações salvas temporariamente na memória.")
+        render_db_config('db_produtos')
 
     with tab2:
         st.subheader("Base de Dados: Serviços")
-        st.session_state.db_servicos = st.data_editor(st.session_state.db_servicos, num_rows="dynamic", column_config=col_format, use_container_width=True)
-        st.success("Alterações salvas temporariamente na memória.")
+        render_db_config('db_servicos')
 
     with tab3:
-        st.subheader("Base de Dados: Serviços Terceirizados / Outros")
-        st.session_state.db_outros = st.data_editor(st.session_state.db_outros, num_rows="dynamic", column_config=col_format, use_container_width=True)
-        st.success("Alterações salvas temporariamente na memória.")
-        
-    with tab4:
-        st.subheader("Avançado")
-        st.write("Aqui entrarão futuras configurações do sistema, usuários, caminhos de pasta no Google Drive, etc.")
+        st.subheader("Base de Dados: Terceirizados / Outros")
+        render_db_config('db_outros')
 
 def tela_orcamentos():
     st.markdown("## 📝 Novo Orçamento Ecoclim")
     st.write("Preencha os dados abaixo para gerar a proposta comercial.")
     
-    # Extrai as listas diretamente dos DataFrames da sessão de configurações
     lista_produtos_db = st.session_state.db_produtos['Item'].tolist()
     lista_servicos_db = st.session_state.db_servicos['Item'].tolist()
     lista_outros_db = st.session_state.db_outros['Item'].tolist()
@@ -331,13 +350,13 @@ def tela_orcamentos():
         opcoes_db_produtos = [""] + lista_produtos_db + ["OUTRO (Digitar)"]
         
         if 'df_equip' not in st.session_state:
-            st.session_state.df_equip = pd.DataFrame([{"Produto da Base": "", "Produto Manual": "", "Quantidade": 1, "Valor Un.": 0.0} for _ in range(5)])
+            st.session_state.df_equip = pd.DataFrame([{"Produto da Base": "", "Produto Manual": "", "Quantidade": 1, "Venda (R$)": 0.0} for _ in range(5)])
         
         config_colunas = {
             "Produto da Base": st.column_config.SelectboxColumn("Selecionar Produto (Base)", options=opcoes_db_produtos, width="medium"),
             "Produto Manual": st.column_config.TextColumn("Se 'OUTRO', digite aqui:", width="medium"),
             "Quantidade": st.column_config.NumberColumn("Qtd", min_value=1, step=1, width="small"),
-            "Valor Un.": st.column_config.NumberColumn("Valor Un. (R$)", format="R$ %.2f", width="small")
+            "Venda (R$)": st.column_config.NumberColumn("Valor Un. (R$)", format="R$ %d", width="small")
         }
 
         df_equip_edit = st.data_editor(st.session_state.df_equip, column_config=config_colunas, num_rows="dynamic", use_container_width=True)
@@ -345,11 +364,10 @@ def tela_orcamentos():
         mudou_algo = False
         for i in range(len(df_equip_edit)):
             prod_selecionado = df_equip_edit.at[i, 'Produto da Base']
-            valor_atual = df_equip_edit.at[i, 'Valor Un.']
+            valor_atual = df_equip_edit.at[i, 'Venda (R$)']
             if prod_selecionado in lista_produtos_db and valor_atual == 0.0:
-                # Busca o valor do produto na tabela de configuração
-                valor_banco = st.session_state.db_produtos.loc[st.session_state.db_produtos['Item'] == prod_selecionado, 'Valor (R$)'].values[0]
-                df_equip_edit.at[i, 'Valor Un.'] = float(valor_banco)
+                valor_banco = st.session_state.db_produtos.loc[st.session_state.db_produtos['Item'] == prod_selecionado, 'Venda (R$)'].values[0]
+                df_equip_edit.at[i, 'Venda (R$)'] = float(valor_banco)
                 mudou_algo = True
 
         if mudou_algo:
@@ -358,7 +376,7 @@ def tela_orcamentos():
         else:
             st.session_state.df_equip = df_equip_edit
 
-        total_equip = sum([float(r['Quantidade']) * float(r['Valor Un.']) for _, r in df_equip_edit.iterrows() if r['Produto da Base'] != ""])
+        total_equip = sum([float(r['Quantidade']) * float(r['Venda (R$)']) for _, r in df_equip_edit.iterrows() if r['Produto da Base'] != ""])
         st.markdown(f"**Subtotal Equipamentos:** {to_br_currency(total_equip)}")
 
     with st.container(border=True):
@@ -370,8 +388,11 @@ def tela_orcamentos():
             desc_servico = st.text_area("Descreva o serviço:")
             valor_servico = st.number_input("Valor do Serviço (R$)", min_value=0.0, step=100.0, format="%.2f")
         elif servico_selecionado != "Selecione da Base...":
-            desc_servico = st.text_area("Descreva o serviço:", value=servico_selecionado)
-            val_banco_serv = st.session_state.db_servicos.loc[st.session_state.db_servicos['Item'] == servico_selecionado, 'Valor (R$)'].values[0]
+            # Puxa o texto da descrição do banco também!
+            desc_banco_serv = st.session_state.db_servicos.loc[st.session_state.db_servicos['Item'] == servico_selecionado, 'Descrição'].values[0]
+            desc_servico = st.text_area("Descreva o serviço:", value=f"{servico_selecionado}\n{desc_banco_serv}")
+            
+            val_banco_serv = st.session_state.db_servicos.loc[st.session_state.db_servicos['Item'] == servico_selecionado, 'Venda (R$)'].values[0]
             valor_servico = st.number_input("Valor do Serviço (R$)", value=float(val_banco_serv), min_value=0.0, step=100.0, format="%.2f")
         else:
             desc_servico = ""; valor_servico = 0.0
@@ -385,8 +406,10 @@ def tela_orcamentos():
             desc_outros = st.text_area("Descreva materiais ou serviços extras:")
             valor_outros = st.number_input("Valor Adicional (R$)", min_value=0.0, step=100.0, format="%.2f")
         elif outros_selecionado != "Selecione da Base...":
-            desc_outros = st.text_area("Descreva materiais ou serviços extras:", value=outros_selecionado)
-            val_banco_outros = st.session_state.db_outros.loc[st.session_state.db_outros['Item'] == outros_selecionado, 'Valor (R$)'].values[0]
+            desc_banco_outros = st.session_state.db_outros.loc[st.session_state.db_outros['Item'] == outros_selecionado, 'Descrição'].values[0]
+            desc_outros = st.text_area("Descreva materiais ou serviços extras:", value=f"{outros_selecionado}\n{desc_banco_outros}")
+            
+            val_banco_outros = st.session_state.db_outros.loc[st.session_state.db_outros['Item'] == outros_selecionado, 'Venda (R$)'].values[0]
             valor_outros = st.number_input("Valor Adicional (R$)", value=float(val_banco_outros), min_value=0.0, step=100.0, format="%.2f")
         else:
             desc_outros = ""; valor_outros = 0.0
@@ -447,7 +470,7 @@ def tela_financeira():
 
     st.markdown('<div class="container-tabelas">', unsafe_allow_html=True)
     
-    # PATRIMÔNIO
+    # [PATRIMÔNIO]
     df_p_display = st.session_state.df_p[colunas_visiveis].copy()
     for m in [c for c in colunas_visiveis if c != "MESES"]: df_p_display[m] = df_p_display[m].apply(lambda x: to_br_currency(x).replace(",00", ""))
     styled_df_p = df_p_display.style.set_properties(subset=[mes_atual_nome] if mes_atual_nome in colunas_visiveis and ano_selecionado == ano_atual else [], **{'background-color': '#e0f0ff', 'font-weight': 'bold'})
@@ -471,7 +494,7 @@ def tela_financeira():
     styled_res_p = df_res_p[colunas_visiveis].style.apply(lambda row: [f'background-color: {"#FF9900" if row["MESES"] == "PATRIMÔNIO TOTAL" else "#FFF2CC" if "LÍQUIDO" in row["MESES"] else "white"}; font-weight: bold; border-left: {"3px solid #4A90E2" if col == mes_atual_nome and ano_selecionado == ano_atual else "none"}' for col in colunas_visiveis], axis=1)
     st.dataframe(styled_res_p.format(lambda x: to_br_currency(x).replace(",00","") if isinstance(x, (int, float, np.integer, np.floating)) else x), hide_index=True, column_config=col_cfg, use_container_width=True, height=175)
 
-    # ENTRADAS
+    # [ENTRADAS]
     df_e_display = st.session_state.df_e[colunas_visiveis].copy()
     for m in [c for c in colunas_visiveis if c != "MESES"]: df_e_display[m] = df_e_display[m].apply(lambda x: to_br_currency(x).replace(",00", ""))
     styled_df_e = df_e_display.style.set_properties(subset=[mes_atual_nome] if mes_atual_nome in colunas_visiveis and ano_selecionado == ano_atual else [], **{'background-color': '#e0f0ff', 'font-weight': 'bold'})
@@ -487,7 +510,7 @@ def tela_financeira():
     styled_res_e = df_res_e[colunas_visiveis].style.apply(lambda row: [f'background-color: #9BC2E6; font-weight: bold; border-left: {"3px solid #4A90E2" if col == mes_atual_nome and ano_selecionado == ano_atual else "none"}' for col in colunas_visiveis], axis=1)
     st.dataframe(styled_res_e.format(lambda x: to_br_currency(x).replace(",00","") if isinstance(x, (int, float, np.integer, np.floating)) else x), hide_index=True, column_config=col_cfg, use_container_width=True, height=75)
 
-    # RENDIMENTOS
+    # [RENDIMENTOS]
     st.markdown("#### 📈 Rendimento Mensal (Investimentos)")
     xp_val = df_n.loc['INVESTIMENTO XP']; inter_val = df_n.loc['CONTA INTER']
     xp_var = xp_val.diff().fillna(0); inter_var = inter_val.diff().fillna(0); rend_total = xp_var + inter_var; prev_bal = (xp_val + inter_val).shift(1).fillna(0)
@@ -501,7 +524,7 @@ def tela_financeira():
     st.dataframe(styled_rend.format(lambda x: to_br_currency(x).replace(",00","") if isinstance(x, (int, float, np.integer, np.floating)) else x), hide_index=True, column_config=col_cfg, use_container_width=True, height=215)
     st.markdown('</div></div>', unsafe_allow_html=True)
 
-    # MÉTRICAS E GRÁFICOS
+    # [MÉTRICAS E GRÁFICOS]
     st.markdown("<br>", unsafe_allow_html=True)
     c1, c2, c3, c4 = st.columns(4)
     meses_calculo = meses_pt if ano_selecionado < ano_atual else meses_pt[:mes_hoje_idx]
