@@ -25,7 +25,7 @@ except Exception as e:
     st.error(f"Erro na conexão Supabase: {e}")
 
 # =============================================================================
-# MÓDULO 2: UTILITÁRIOS E FORMATAÇÃO (R$ 3.000,00)
+# MÓDULO 2: UTILITÁRIOS E FORMATAÇÃO
 # =============================================================================
 meses_pt = ['JANEIRO', 'FEVEREIRO', 'MARÇO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO']
 hoje = datetime.datetime.now()
@@ -33,11 +33,14 @@ ano_atual = hoje.year
 mes_hoje_idx = hoje.month 
 mes_atual_nome = meses_pt[mes_hoje_idx - 1] 
 
-def to_br_currency(val):
+def to_br_currency(val, show_cents=True):
     try:
         v = float(val)
-        # Formata com separador de milhar e sempre com ,00
-        return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        if show_cents:
+            # Força o formato com centavos zerados (Ex: R$ 3.000,00)
+            return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        else:
+            return f"R$ {int(v):,}".replace(",", ".")
     except: return "R$ 0,00"
 
 def parse_br_currency(val):
@@ -69,7 +72,6 @@ def load_catalog(table_name):
             
         df = df.rename(columns={"item": "Item", "fornecedor": "Fornecedor", "custo": "Custo (R$)", "margem": "Margem (%)", "descricao": "Descrição"})
         
-        # Arredonda o valor, mas mantém como Float para exibir os centavos zerados (,00)
         df['Venda (R$)'] = (df['Custo (R$)'] * (1 + df['Margem (%)'] / 100)).round().astype(float)
         df['Lucro (R$)'] = (df['Venda (R$)'] - df['Custo (R$)']).astype(float)
         return df[["Item", "Fornecedor", "Custo (R$)", "Margem (%)", "Lucro (R$)", "Venda (R$)", "Descrição"]]
@@ -193,7 +195,6 @@ def gerar_pdf_orcamento(cliente, tel, produto, df_equip, desc_s, val_s, desc_o, 
             else:
                 pdf.cell(160, 8, f" {nome}", border=1); pdf.cell(30, 8, f" {int(q)}", border=1, ln=True, align="C")
             
-            # Descrição do Item
             if nome in st.session_state.db_produtos['Item'].values:
                 desc_texto = st.session_state.db_produtos.loc[st.session_state.db_produtos['Item'] == nome, 'Descrição'].values[0]
                 if str(desc_texto).strip() != "":
@@ -248,7 +249,7 @@ def tela_inicial():
     if c4.button("🚪\n\nSair do Sistema", use_container_width=True): st.session_state.authenticated = False; st.rerun()
 
 # =============================================================================
-# MÓDULO 7: TELA CONFIGURAÇÕES (32% Margem + R$ 3.000,00)
+# MÓDULO 7: TELA CONFIGURAÇÕES (COM PESQUISA E IMPORTAÇÃO INTELIGENTE)
 # =============================================================================
 def tela_configuracoes():
     st.markdown("## ⚙️ Configurações e Base de Dados")
@@ -261,13 +262,17 @@ def tela_configuracoes():
 
     with st.expander("📤 Importar/Atualizar Dados via Planilha Excel", expanded=False):
         st.write("A planilha deve conter as colunas: **PRODUTO**, **FORNECEDOR**, **CUSTO**, **DESCRIÇÃO**")
+        
+        # O usuário pode alterar a margem padrão a ser importada (padrão é 32%)
+        margem_padrao_importacao = st.number_input("Definir Margem Padrão (%) para os itens da planilha:", value=32.0, step=1.0, format="%.1f")
+        sobreescrever_margem = st.checkbox(f"Aplicar essa margem de {margem_padrao_importacao}% inclusive nos itens que JÁ EXISTEM no sistema?", value=True)
+        
         file = st.file_uploader("Subir .xlsx ou .csv", type=["xlsx", "csv"])
         
         if file:
             try:
                 if file.name.endswith(".csv"): df_ex = pd.read_csv(file)
                 else: df_ex = pd.read_excel(file)
-                
                 df_ex.columns = df_ex.columns.str.strip().str.upper()
                 
                 if "PRODUTO" in df_ex.columns and "CUSTO" in df_ex.columns:
@@ -287,12 +292,12 @@ def tela_configuracoes():
                                 idx = db_atual.index[db_atual["Item"] == item_nome][0]
                                 db_atual.at[idx, "Custo (R$)"] = custo
                                 db_atual.at[idx, "Fornecedor"] = forn
-                                db_atual.at[idx, "Descrição"] = desc
+                                if desc != "": db_atual.at[idx, "Descrição"] = desc
+                                if sobreescrever_margem: db_atual.at[idx, "Margem (%)"] = margem_padrao_importacao
                                 itens_atualizados += 1
                             else:
-                                # Nova Margem Padrão: 32%
-                                novo = {"Item": item_nome, "Fornecedor": forn, "Custo (R$)": custo, "Margem (%)": 32.0, "Lucro (R$)": 0.0, "Venda (R$)": 0.0, "Descrição": desc}
-                                db_atual = pd.concat([db_atual, pd.DataFrame([novo])], ignore_index=True)
+                                novo = pd.DataFrame([{"Item": item_nome, "Fornecedor": forn, "Custo (R$)": custo, "Margem (%)": margem_padrao_importacao, "Lucro (R$)": 0.0, "Venda (R$)": 0.0, "Descrição": desc}])
+                                db_atual = pd.concat([db_atual, novo], ignore_index=True)
                                 itens_novos += 1
                         
                         db_atual['Venda (R$)'] = (db_atual['Custo (R$)'] * (1 + db_atual['Margem (%)'] / 100)).fillna(0).round().astype(float)
@@ -309,24 +314,41 @@ def tela_configuracoes():
     
     def render_editor(table_name):
         df_db = load_catalog(table_name)
-        # Larguras configuradas aqui, já que o Streamlit não salva o "arrastar e soltar" do mouse
+        
+        # --- CAMPO DE PESQUISA INTELIGENTE ---
+        busca = st.text_input(f"🔍 Pesquisar em {table_name.split('_')[1].title()} (Busca por nome ou fornecedor)", "", key=f"busca_{table_name}")
+        
+        if busca:
+            mask = df_db['Item'].str.contains(busca, case=False, na=False) | df_db['Fornecedor'].str.contains(busca, case=False, na=False)
+            df_view = df_db[mask].copy()
+        else:
+            df_view = df_db.copy()
+
         col_cfg = {
             "Item": st.column_config.TextColumn("Item", width="large"),
-            "Fornecedor": st.column_config.TextColumn("Fornecedor", width="small"),
+            "Fornecedor": st.column_config.TextColumn("Fornecedor", width="medium"),
             "Custo (R$)": st.column_config.NumberColumn("Custo", format="R$ %,.2f"),
             "Margem (%)": st.column_config.NumberColumn("Margem", format="%.1f%%"),
             "Lucro (R$)": st.column_config.NumberColumn("Lucro", disabled=True, format="R$ %,.2f"),
             "Venda (R$)": st.column_config.NumberColumn("Venda (Final)", disabled=True, format="R$ %,.2f"),
             "Descrição": st.column_config.TextColumn("Descrição PDF", width="large")
         }
-        df_edit = st.data_editor(df_db, num_rows="dynamic", column_config=col_cfg, use_container_width=True, key=f"editor_{table_name}")
+        
+        df_edit = st.data_editor(df_view, num_rows="dynamic", column_config=col_cfg, use_container_width=True, key=f"editor_{table_name}")
         
         # Matemética: Arredonda e mantém os ,00 visíveis
         df_edit['Venda (R$)'] = (df_edit['Custo (R$)'] * (1 + df_edit['Margem (%)'] / 100)).fillna(0).round().astype(float)
         df_edit['Lucro (R$)'] = (df_edit['Venda (R$)'] - df_edit['Custo (R$)']).astype(float)
         
         if st.button(f"💾 Gravar Alterações: {table_name}"):
-            save_catalog(table_name, df_edit); st.success("Banco de dados atualizado!"); st.rerun()
+            if busca:
+                # Substitui as linhas filtradas no banco original e salva
+                df_restante = df_db[~mask]
+                df_final = pd.concat([df_restante, df_edit], ignore_index=True)
+            else:
+                df_final = df_edit
+                
+            save_catalog(table_name, df_final); st.success("Banco de dados atualizado!"); st.rerun()
 
     with tab1: render_editor('catalogo_produtos')
     with tab2: render_editor('catalogo_servicos')
@@ -441,7 +463,6 @@ def tela_financeira():
         st.session_state.df_e = load_year_data('entradas', contas_e, ano_selecionado)
         st.session_state.ano_dados_atual = ano_selecionado
 
-    # Truque do Streamlit: Usamos TextColumn para poder mostrar o "R$ 1.500,00" perfeitamente e deixar o usuário editar livre.
     col_cfg = {"MESES": st.column_config.TextColumn("MESES", width=220, disabled=True)}
     for m in meses_pt: col_cfg[m] = st.column_config.TextColumn(m, width=80) 
 
