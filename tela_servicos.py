@@ -63,7 +63,8 @@ def renderizar():
     # =========================================================================
     st.subheader("✅ Serviços em Andamento / Concluídos")
     if not df_ativos.empty:
-        sel_ativo = st.dataframe(df_ativos[colunas_rapidas], column_config=col_cfg, use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single")
+        # Correção aqui: selection_mode="single-row"
+        sel_ativo = st.dataframe(df_ativos[colunas_rapidas], column_config=col_cfg, use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single-row")
         if sel_ativo.selection.rows:
             exibir_detalhes(df_ativos.iloc[sel_ativo.selection.rows[0]], supabase)
     else:
@@ -75,7 +76,8 @@ def renderizar():
     st.markdown("<br><br>", unsafe_allow_html=True)
     st.subheader("📝 Orçamentos e Negociações")
     if not df_orcamentos.empty:
-        sel_orc = st.dataframe(df_orcamentos[colunas_rapidas], column_config=col_cfg, use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single")
+        # Correção aqui: selection_mode="single-row"
+        sel_orc = st.dataframe(df_orcamentos[colunas_rapidas], column_config=col_cfg, use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single-row")
         if sel_orc.selection.rows:
             exibir_detalhes(df_orcamentos.iloc[sel_orc.selection.rows[0]], supabase)
     else:
@@ -86,7 +88,8 @@ def renderizar():
     # =========================================================================
     if not df_outros.empty:
         with st.expander("❓ Itens com outros status"):
-            sel_out = st.dataframe(df_outros[colunas_rapidas], column_config=col_cfg, use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single")
+            # Correção aqui: selection_mode="single-row"
+            sel_out = st.dataframe(df_outros[colunas_rapidas], column_config=col_cfg, use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single-row")
             if sel_out.selection.rows:
                 exibir_detalhes(df_outros.iloc[sel_out.selection.rows[0]], supabase)
 
