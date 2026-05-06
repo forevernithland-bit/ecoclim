@@ -1,26 +1,23 @@
 import streamlit as st
 import os
 
-# 1. Configuração da Página sempre deve ser a primeira linha do app.py
+# 1. Configuração da Página sempre deve ser a primeira linha
 st.set_page_config(page_title="Ecoclim ERP", layout="wide", page_icon="🌤️")
 
-# Importa as outras telas (elas precisam estar criadas na mesma pasta)
-# Como ainda vamos criá-las, deixei comentado para não dar erro se você testar agora.
-# import tela_orcamentos
-# import tela_configuracoes
-# import tela_financeira
-
-# Carrega o cérebro
+# Importa os módulos (agora que os ficheiros já existem, eles funcionam perfeitamente)
 import utils
+import tela_orcamentos
+import tela_configuracoes
+import tela_financeira
 
-# Conecta ao banco
+# Conecta ao banco de dados usando o "cérebro" (utils)
 try:
     supabase = utils.init_connection()
     st.session_state.supabase = supabase # Salva a conexão para os outros arquivos usarem
 except Exception as e:
     st.error(f"Erro na conexão Supabase: {e}")
 
-# CSS Global
+# CSS Global para deixar a tela bonita e as tabelas coladas
 st.markdown("""
     <style>
     .block-container { padding-top: 1.5rem !important; padding-left: 1rem !important; padding-right: 1rem !important; max-width: 100% !important; }
@@ -32,7 +29,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Lógica de Roteamento (Menu)
+# Lógica de Autenticação e Menu
 if "authenticated" not in st.session_state: st.session_state.authenticated = False
 if "pagina_atual" not in st.session_state: st.session_state.pagina_atual = "Página Inicial"
 
@@ -57,7 +54,7 @@ else:
         st.write("---")
         if st.button("🚪 Sair"): st.session_state.authenticated = False; st.rerun()
 
-    # Roteador de Telas
+    # Roteador de Telas - Aqui acontece a mágica de chamar os ficheiros!
     if st.session_state.pagina_atual == "Página Inicial":
         st.markdown("## 🏠 Página Inicial")
         st.write(f"Bem-vindo, Breno. Hoje é {utils.hoje.strftime('%d/%m/%Y')}")
@@ -69,13 +66,10 @@ else:
         if c4.button("🚪\n\nSair do Sistema", use_container_width=True): st.session_state.authenticated = False; st.rerun()
         
     elif st.session_state.pagina_atual == "Orçamentos":
-        st.info("Módulo de Orçamentos será importado aqui.")
-        # tela_orcamentos.renderizar() 
+        tela_orcamentos.renderizar()
         
     elif st.session_state.pagina_atual == "Controle Financeiro":
-        st.info("Módulo Financeiro será importado aqui.")
-        # tela_financeira.renderizar()
+        tela_financeira.renderizar()
         
     elif st.session_state.pagina_atual == "Configurações":
-        st.info("Módulo de Configurações será importado aqui.")
-        # tela_configuracoes.renderizar()
+        tela_configuracoes.renderizar()
