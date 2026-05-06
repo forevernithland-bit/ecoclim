@@ -76,6 +76,9 @@ def save_catalog(table_name, df):
     except Exception as e:
         st.error(f"Erro ao salvar catálogo: {e}")
 
+# ==========================================
+# BANCO DE DADOS: TAXAS E IMPOSTOS
+# ==========================================
 def load_taxas():
     supabase = st.session_state.supabase
     try:
@@ -170,7 +173,7 @@ def to_excel(df):
     return output.getvalue()
 
 # ==========================================
-# GERAÇÃO DE PDF (LAYOUT ORIGINAL + CONTATOS + IMAGENS LOCAIS)
+# GERAÇÃO DE PDF
 # ==========================================
 def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v_out, total, obs, mostrar_un):
     buffer = BytesIO()
@@ -216,7 +219,7 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
         "AQUECEDOR SOLAR TRADICIONAL": "aquecedor_tradicional.jpg",
         "AQUECEDOR SOLAR A VÁCUO ACOPLADO": "vacuo_acoplado.jpg",
         "AQUECEDOR SOLAR MODULAR": "modular.jpg",
-        "AQUECEDOR DE PISCINA - TRADICIONAL": "piscina.jpg", # Se tiver a imagem depois, crie e salve com esse nome
+        "AQUECEDOR DE PISCINA - TRADICIONAL": "piscina.jpg",
         "AQUECEDOR DE PISCINA - TROCADOR DE CALOR": "piscina.jpg",
         "SISTEMAS DE PRESSURIZAÇÃO": "pressurizacao.jpg"
     }
@@ -226,7 +229,7 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
             img_path = img_map[capa_tipo]
             p.drawImage(img_path, 2*cm, y - 5.5*cm, width=largura - 4*cm, height=5.5*cm, preserveAspectRatio=True, mask='auto')
     except Exception:
-        pass # Se o arquivo não existir na pasta, ele apenas pula a imagem sem dar erro
+        pass # Se a imagem não for encontrada, ele simplesmente oculta o espaço
     
     y -= 6.5*cm
 
@@ -255,7 +258,7 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
             p.drawRightString(largura - 2.3*cm, y, to_br_currency(row.get('Venda Total', 0)))
             y -= 0.5*cm
 
-    # 5. SERVIÇOS E DIVERSOS (FORMATADO E ALINHADO)
+    # 5. SERVIÇOS E DIVERSOS (ALINHAMENTO CORRIGIDO)
     y -= 0.3*cm
     p.setFillColor(colors.HexColor("#004488"))
     p.rect(2*cm, y, largura - 4*cm, 0.7*cm, fill=1, stroke=0)
@@ -288,7 +291,7 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
     p.drawString(2.3*cm, y + 0.3*cm, "INVESTIMENTO TOTAL")
     p.drawRightString(largura - 2.3*cm, y + 0.3*cm, to_br_currency(total))
 
-    # 7. OBSERVAÇÕES
+    # 7. OBSERVAÇÕES E MARCA D'ÁGUA
     y -= 1.5*cm
     p.setFillColor(colors.red)
     p.setFont("Helvetica-Bold", 10)
@@ -297,10 +300,10 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
     p.setFillColor(colors.black)
     p.drawString(2*cm, y - 0.5*cm, str(obs)[:100])
     
-    # Marca d'água de versão invisível para teste
+    # Esta é a marca que vai provar que o código atualizou!
     p.setFont("Helvetica", 6)
     p.setFillColor(colors.lightgrey)
-    p.drawString(2*cm, 1*cm, "v.2.1")
+    p.drawString(2*cm, 1*cm, "Versão Final")
 
     p.save()
     buffer.seek(0)
