@@ -1,128 +1,178 @@
 import streamlit as st
 import pandas as pd
-import datetime
 import utils
+from datetime import datetime
 
 def renderizar():
-    st.markdown("## 📝 Novo Orçamento")
+    # Etiqueta de controlo para saber se o código atualizou
+    st.caption("v3.0 - Gestão Ativa + Histórico")
+    st.markdown("## 🛠️ Gestão de Serviços e Orçamentos")
     
-    # Garante que os catálogos estejam carregados para buscar os CUSTOS
-    if 'db_produtos' not in st.session_state:
-        st.session_state.db_produtos = utils.load_catalog('catalogo_produtos')
-        st.session_state.db_servicos = utils.load_catalog('catalogo_servicos')
-        st.session_state.db_outros = utils.load_catalog('catalogo_outros')
-
-    cat_p = st.session_state.db_produtos
-    lista_p = cat_p['Item'].tolist()
+    supabase = st.session_state.supabase
+    agora = datetime.now()
     
-    with st.container(border=True):
-        st.subheader("👤 Dados do Cliente")
-        c1, c2 = st.columns(2)
-        nome_c = c1.text_input("Nome do Cliente", key="nome_cliente_orc")
-        tel_c = c2.text_input("WhatsApp", key="tel_cliente_orc")
-        capa = st.selectbox("Modelo para Capa", [
-            "AQUECEDOR SOLAR TRADICIONAL", 
-            "AQUECEDOR SOLAR A VÁCUO ACOPLADO", 
-            "AQUECEDOR SOLAR MODULAR", 
-            "AQUECEDOR DE PISCINA - TRADICIONAL", 
-            "AQUECEDOR DE PISCINA - TROCADOR DE CALOR", 
-            "SISTEMAS DE PRESSURIZAÇÃO"
-        ])
+    # 1. Carregar Dados
+    try:
+        res = supabase.table('servicos_andamento').select('*').order('id', desc=True).execute()
+        df_raw = pd.DataFrame(res.data)
+    except Exception as e:
+        st.error(f"Erro ao ligar ao banco de dados: {e}")
+        return
 
-    with st.container(border=True):
-        st.subheader("⚙️ 1. Equipamentos")
-        mostrar_pdf = st.checkbox("Mostrar Preços Unitários no PDF?", value=True)
-        if 'df_orc' not in st.session_state:
-            st.session_state.df_orc = pd.DataFrame([{"Produto da Base": "", "Produto Manual": "", "Quantidade": 1, "Venda (R$)": 0.0} for _ in range(5)])
-        
-        cfg = {
-            "Produto da Base": st.column_config.SelectboxColumn("Produto", options=[""] + lista_p + ["OUTRO"], width="large"), 
-            "Produto Manual": st.column_config.TextColumn("Produto Manual", width="medium"),
-            "Venda (R$)": st.column_config.NumberColumn("Preço Un.", format="R$ %,.2f")
-        }
-        df_ed = st.data_editor(st.session_state.df_orc, column_config=cfg, num_rows="dynamic", use_container_width=True)
-        
-        # Lógica de Preço Automático
-        for i in range(len(df_ed)):
-            p = df_ed.at[i, 'Produto da Base']
-            if p in lista_p and df_ed.at[i, 'Venda (R$)'] == 0:
-                df_ed.at[i, 'Venda (R$)'] = float(cat_p.loc[cat_p['Item'] == p, 'Venda (R$)'].values[0])
-                st.session_state.df_orc = df_ed
-                st.rerun()
-        
-        st.session_state.df_orc = df_ed
-        total_equip = sum(df_ed['Quantidade'] * df_ed['Venda (R$)'])
-        st.write(f"**Subtotal Equipamentos:** {utils.to_br_currency(total_equip)}")
+    # 2. Carregar Preços do Banco (Catalogo)
+    try:
+        p = utils.load_catalog('catalogo_produtos')
+        s = utils.load_catalog('catalogo_servicos')
+        o = utils.load_catalog('catalogo_outros')
+        base_unificada = pd.concat([p, s, o], ignore_index=True)
+        st.session_state.base_unificada = base_unificada
+    except:
+        st.session_state.base_unificada = pd.DataFrame()
 
-    with st.container(border=True):
-        st.subheader("🛠️ 2. Serviços / Diversos")
-        # Busca serviços e outros para compor o orçamento
-        lista_s = st.session_state.db_servicos['Item'].tolist()
-        s_sel = st.selectbox("Selecionar Serviço Principal:", [""] + lista_s + ["Manual"])
-        if s_sel == "Manual": 
-            d_s = st.text_area("Descreva o Serviço:")
-            v_s = st.number_input("Valor do Serviço:", min_value=0.0, format="%.2f")
-        elif s_sel != "":
-            d_s = f"{s_sel}\n{st.session_state.db_servicos.loc[st.session_state.db_servicos['Item']==s_sel, 'Descrição'].values[0]}"
-            v_s = float(st.session_state.db_servicos.loc[st.session_state.db_servicos['Item']==s_sel, 'Venda (R$)'].values[0])
-            st.write(f"Valor: {utils.to_br_currency(v_s)}")
-        else: d_s, v_s = "", 0.0
-        
-        lista_o = st.session_state.db_outros['Item'].tolist()
-        o_sel = st.selectbox("Adicionar Outros/Diversos:", [""] + lista_o + ["Manual"])
-        if o_sel == "Manual": 
-            d_o = st.text_area("Descreva Diversos:")
-            v_o = st.number_input("Valor Adicional:", min_value=0.0, format="%.2f")
-        elif o_sel != "":
-            d_o = f"{o_sel}\n{st.session_state.db_outros.loc[st.session_state.db_outros['Item']==o_sel, 'Descrição'].values[0]}"
-            v_o = float(st.session_state.db_outros.loc[st.session_state.db_outros['Item']==o_sel, 'Venda (R$)'].values[0])
-            st.write(f"Valor: {utils.to_br_currency(v_o)}")
-        else: d_o, v_o = "", 0.0
+    if df_raw.empty:
+        st.info("Nenhum registo encontrado.")
+        return
 
-    total_geral = total_equip + v_s + v_o
-    st.markdown(f"<h3 style='color:#004488;'>💰 INVESTIMENTO TOTAL: {utils.to_br_currency(total_geral)}</h3>", unsafe_allow_html=True)
-    obs = st.text_area("Observações no PDF:", value="Material Hidráulico não incluído na proposta")
+    # Tratamento de Datas
+    df_raw['data_orcamento'] = pd.to_datetime(df_raw['data_orcamento'])
+    df_raw['data_conclusao'] = pd.to_datetime(df_raw['data_conclusao'])
+    
+    # --- LÓGICA DE SEPARAÇÃO (ATIVA vs HISTÓRICO) ---
+    def definir_destino(row):
+        stt = row['status_projeto']
+        # Se cancelado há mais de 50 dias -> Histórico
+        if stt == 'Cancelado':
+            if pd.notna(row['data_orcamento']) and (agora.date() - row['data_orcamento'].date()).days > 50:
+                return 'Historico'
+            return 'Orcamento'
+        # Se concluído e já mudou o mês -> Histórico
+        if stt in ['Concluído PIX', 'Concluído CARTÃO']:
+            if pd.notna(row['data_conclusao']):
+                if row['data_conclusao'].year < agora.year or (row['data_conclusao'].year == agora.year and row['data_conclusao'].month < agora.month):
+                    return 'Historico'
+            return 'Servico'
+        if stt == 'Em Andamento': return 'Servico'
+        return 'Orcamento'
 
-    if st.button("🚀 GERAR PDF E ENVIAR PARA SERVIÇOS", type="primary"):
-        if nome_c:
-            # 1. CÁLCULO DE CUSTO (Oculto) para controle interno
-            custo_real_equip = 0.0
-            resumo_produtos = []
-            for _, row in df_ed.iterrows():
-                nome_p = row['Produto da Base']
-                if nome_p in lista_p:
-                    c_un = float(cat_p.loc[cat_p['Item'] == nome_p, 'Custo (R$)'].values[0])
-                    custo_real_equip += (c_un * row['Quantidade'])
-                    resumo_produtos.append(f"{int(row['Quantidade'])}x {nome_p}")
+    df_raw['Destino'] = df_raw.apply(definir_destino, axis=1)
+
+    # --- INTERFACE DE ABAS ---
+    tab_ativa, tab_hist = st.tabs(["📊 GESTÃO ATIVA", "📁 HISTÓRICO MENSAL"])
+
+    col_view = {
+        "nome_cliente": st.column_config.TextColumn("Cliente"),
+        "produtos_adquiridos": st.column_config.TextColumn("Resumo Itens", width="large"),
+        "valor_venda_total": st.column_config.NumberColumn("Venda", format="R$ %,.2f"),
+        "lucro_estimado": st.column_config.NumberColumn("Lucro", format="R$ %,.2f"),
+        "status_projeto": st.column_config.TextColumn("Status")
+    }
+
+    with tab_ativa:
+        # SERVIÇOS
+        st.subheader("✅ Serviços Ativos")
+        df_serv = df_raw[df_raw['Destino'] == 'Servico']
+        if not df_serv.empty:
+            sel_s = st.dataframe(df_serv[['nome_cliente', 'produtos_adquiridos', 'valor_venda_total', 'lucro_estimado', 'status_projeto']], 
+                                 column_config=col_view, use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single-row")
             
-            # 2. GERAÇÃO DE NÚMERO DE ORÇAMENTO
-            num_orc = f"ORC-{datetime.datetime.now().strftime('%y%m%d-%H%M')}"
+            # Lucro Acumulado
+            st.info(f"**💰 Lucro Estimado nos Serviços Ativos: {utils.to_br_currency(df_serv['lucro_estimado'].sum())}**")
             
-            # 3. GRAVAÇÃO NO BANCO DE DADOS (MIGRAÇÃO)
-            try:
-                st.session_state.supabase.table("servicos_andamento").insert({
-                    "numero_orcamento": num_orc,
-                    "nome_cliente": nome_c, 
-                    "telefone_cliente": tel_c, 
-                    "produtos_adquiridos": ", ".join(resumo_produtos),
-                    "servicos_adquiridos": d_s,
-                    "valor_venda_total": total_geral,
-                    "valor_custo_equipamentos": custo_real_equip,
-                    "lucro_estimado": total_geral - custo_real_equip,
-                    "status_projeto": "Orçamento Enviado"
-                }).execute()
-                st.success(f"✅ Orçamento {num_orc} migrado para 'Serviços em Andamento'!")
-            except Exception as e:
-                st.error(f"Erro ao migrar para serviços: {e}")
+            if sel_s.selection.rows:
+                abrir_formulario(df_serv.iloc[sel_s.selection.rows[0]], supabase)
+        
+        st.markdown("---")
+        
+        # ORÇAMENTOS
+        st.subheader("📝 Orçamentos em Aberto")
+        df_orc = df_raw[df_raw['Destino'] == 'Orcamento']
+        if not df_orc.empty:
+            sel_o = st.dataframe(df_orc[['nome_cliente', 'produtos_adquiridos', 'valor_venda_total', 'lucro_estimado', 'status_projeto']], 
+                                 column_config=col_view, use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single-row")
+            if sel_o.selection.rows:
+                abrir_formulario(df_orc.iloc[sel_o.selection.rows[0]], supabase)
 
-            # 4. GERAÇÃO DO PDF PARA DOWNLOAD
-            pdf_bytes = utils.gerar_pdf_orcamento(nome_c, tel_c, capa, df_ed, d_s, v_s, d_o, v_o, total_geral, obs, mostrar_pdf)
-            st.download_button(
-                label="📥 BAIXAR PDF DO ORÇAMENTO", 
-                data=pdf_bytes, 
-                file_name=f"{num_orc}_{nome_c}.pdf", 
-                mime="application/pdf", 
-                use_container_width=True
-            )
+    with tab_hist:
+        st.subheader("📁 Arquivo de Meses Anteriores")
+        df_h = df_raw[df_raw['Destino'] == 'Historico']
+        if df_h.empty:
+            st.write("O histórico está vazio.")
         else:
-            st.error("Por favor, preencha o nome do cliente antes de gerar.")
+            df_h['Mes_Ref'] = df_h['data_conclusao'].dt.strftime('%m/%Y').fillna("Cancelados")
+            for mes in sorted(df_h['Mes_Ref'].unique(), reverse=True):
+                with st.expander(f"📅 Período: {mes}"):
+                    df_mes = df_h[df_h['Mes_Ref'] == mes]
+                    st.table(df_mes[['nome_cliente', 'valor_venda_total', 'lucro_estimado', 'status_projeto']])
+                    st.success(f"Lucro total no período: {utils.to_br_currency(df_mes['lucro_estimado'].sum())}")
+
+def abrir_formulario(item, supabase):
+    st.markdown(f"### 📋 Editar: {item['nome_cliente']}")
+    
+    with st.container(border=True):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            n_status = st.selectbox("Status", ["Orçamento Enviado", "Em Negociação", "Em Andamento", "Concluído PIX", "Concluído CARTÃO", "Cancelado"], 
+                                    index=["Orçamento Enviado", "Em Negociação", "Em Andamento", "Concluído PIX", "Concluído CARTÃO", "Cancelado"].index(item['status_projeto']))
+        with c2:
+            n_inst = st.text_input("Instalador", value=item['instalador_responsavel'] or "")
+        with c3:
+            n_p_inst = st.number_input("Pago ao Instalador", value=float(item['valor_pago_instalador'] or 0.0))
+
+        # --- MEMÓRIA DE CÁLCULO ---
+        st.write("**Memória de Cálculo (Itens e Lucros)**")
+        
+        # Carregar ou Criar Dados
+        if not item.get('detalhamento_itens'):
+            df_itens = pd.DataFrame([{"Item": "OUTRO / MANUAL", "Descrição": item['produtos_adquiridos'], "Qtd": 1, "Custo Un.": float(item['valor_custo_equipamentos']), "Venda Un.": float(item['valor_venda_total'])}])
+        else:
+            df_itens = pd.DataFrame(item['detalhamento_itens'])
+
+        # Colunas calculadas
+        df_itens["Lucro Un."] = df_itens["Venda Un."] - df_itens["Custo Un."]
+        df_itens["Lucro Total"] = df_itens["Lucro Un."] * df_itens["Qtd"]
+
+        opcoes_banco = ["OUTRO / MANUAL"] + st.session_state.base_unificada['Item'].tolist()
+        
+        config_tabela = {
+            "Item": st.column_config.SelectboxColumn("Puxar do Banco", options=opcoes_banco, width="medium"),
+            "Custo Un.": st.column_config.NumberColumn("Custo Un.", format="R$ %,.2f"),
+            "Venda Un.": st.column_config.NumberColumn("Venda Un.", format="R$ %,.2f"),
+            "Lucro Un.": st.column_config.NumberColumn("Lucro Un.", format="R$ %,.2f", disabled=True),
+            "Lucro Total": st.column_config.NumberColumn("Lucro Total", format="R$ %,.2f", disabled=True)
+        }
+
+        df_editado = st.data_editor(df_itens, column_config=config_tabela, num_rows="dynamic", use_container_width=True, key=f"ed_{item['id']}")
+
+        # Lógica de Auto-Preenchimento
+        for i in range(len(df_editado)):
+            nome = df_editado.iloc[i]['Item']
+            if nome != "OUTRO / MANUAL" and df_editado.iloc[i]['Custo Un.'] == 0:
+                match = st.session_state.base_unificada[st.session_state.base_unificada['Item'] == nome]
+                if not match.empty:
+                    df_editado.at[i, 'Custo Un.'] = float(match['Custo (R$)'].values[0])
+                    df_editado.at[i, 'Venda Un.'] = float(match['Venda (R$)'].values[0])
+                    st.rerun()
+
+        # Recalcular Totais
+        total_v = (df_editado['Venda Un.'] * df_editado['Qtd']).sum()
+        total_c = (df_editado['Custo Un.'] * df_editado['Qtd']).sum()
+        lucro_l = total_v - (total_c + n_p_inst)
+
+        st.metric("LUCRO LÍQUIDO FINAL", utils.to_br_currency(lucro_l))
+
+        if st.button("💾 Gravar Dados do Projeto", type="primary"):
+            # Se mudou para concluído hoje, grava a data
+            data_concl = item['data_conclusao']
+            if n_status in ['Concluído PIX', 'Concluído CARTÃO'] and item['status_projeto'] not in ['Concluído PIX', 'Concluído CARTÃO']:
+                data_concl = datetime.now().date().isoformat()
+
+            resumo = ", ".join([f"{int(r['Qtd'])}x {r['Item']}" for _, r in df_editado.iterrows()])
+            
+            supabase.table('servicos_andamento').update({
+                "status_projeto": n_status, "instalador_responsavel": n_inst, "valor_pago_instalador": n_p_inst,
+                "valor_venda_total": total_v, "valor_custo_equipamentos": total_c, "lucro_estimado": lucro_l,
+                "produtos_adquiridos": resumo, "detalhamento_itens": df_editado.to_dict('records'),
+                "data_conclusao": str(data_concl) if data_concl else None
+            }).eq('id', item['id']).execute()
+            st.success("Atualizado!")
+            st.rerun()
