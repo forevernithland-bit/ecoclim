@@ -48,7 +48,8 @@ def parse_br_currency(val):
 # ==========================================
 # 3. BASES DE DADOS INTELIGENTES (COM LUCRO)
 # ==========================================
-if 'db_produtos' not in st.session_state:
+# TRAVA ANTI-ERRO: Verifica se a tabela não existe ou se está com o formato antigo. Se sim, atualiza!
+if 'db_produtos' not in st.session_state or 'Custo (R$)' not in st.session_state.db_produtos.columns:
     st.session_state.db_produtos = pd.DataFrame([
         {"Item": "Boiler Aquecedor Solar 400L", "Custo (R$)": 2200.0, "Margem (%)": 72.7, "Lucro (R$)": 1600.0, "Venda (R$)": 3800, "Descrição": "Classe A INMETRO Aço 304\nIdeal para até 6 banhos/dia\nGarantia: 3 Anos de fábrica"},
         {"Item": "Placa Coletora Solar 1x1m", "Custo (R$)": 500.0, "Margem (%)": 70.0, "Lucro (R$)": 350.0, "Venda (R$)": 850, "Descrição": "Vidro temperado de alta eficiência térmica."},
@@ -57,13 +58,13 @@ if 'db_produtos' not in st.session_state:
         {"Item": "Tubo a Vácuo (Unidade)", "Custo (R$)": 80.0, "Margem (%)": 87.5, "Lucro (R$)": 70.0, "Venda (R$)": 150, "Descrição": "Vidro borossilicato de altíssima resistência."}
     ])
 
-if 'db_servicos' not in st.session_state:
+if 'db_servicos' not in st.session_state or 'Custo (R$)' not in st.session_state.db_servicos.columns:
     st.session_state.db_servicos = pd.DataFrame([
         {"Item": "Instalação Padrão Aquecedor Solar", "Custo (R$)": 600.0, "Margem (%)": 150.0, "Lucro (R$)": 900.0, "Venda (R$)": 1500, "Descrição": "Mão de obra especializada para instalação completa do sistema no telhado."},
         {"Item": "Manutenção Preventiva Sistema", "Custo (R$)": 150.0, "Margem (%)": 200.0, "Lucro (R$)": 300.0, "Venda (R$)": 450, "Descrição": "Troca de ânodo de sacrifício, limpeza de conectores e revisão hidráulica."}
     ])
 
-if 'db_outros' not in st.session_state:
+if 'db_outros' not in st.session_state or 'Custo (R$)' not in st.session_state.db_outros.columns:
     st.session_state.db_outros = pd.DataFrame([
         {"Item": "Locação de Guindaste/Munck", "Custo (R$)": 600.0, "Margem (%)": 33.3, "Lucro (R$)": 200.0, "Venda (R$)": 800, "Descrição": "Diária de caminhão munck para içamento seguro do boiler."},
         {"Item": "Material Hidráulico Extra", "Custo (R$)": 300.0, "Margem (%)": 66.7, "Lucro (R$)": 200.0, "Venda (R$)": 500, "Descrição": "Tubos e conexões em CPVC Aquatherm para adaptação térmica."}
@@ -206,12 +207,10 @@ def gerar_pdf_orcamento(cliente, telefone, produto, df_equip, desc_serv, val_ser
             q = float(row['Quantidade'])
             v = float(row['Venda (R$)'])
             
-            # Busca a descrição na base de dados (se existir)
             desc_texto = ""
             if nome in st.session_state.db_produtos['Item'].values:
                 desc_texto = st.session_state.db_produtos.loc[st.session_state.db_produtos['Item'] == nome, 'Descrição'].values[0]
             
-            # Linha Principal (Nome e Preços)
             pdf.set_font("helvetica", "B", 10)
             pdf.set_text_color(0, 0, 0)
             if mostrar_val_equip:
@@ -222,10 +221,9 @@ def gerar_pdf_orcamento(cliente, telefone, produto, df_equip, desc_serv, val_ser
                 pdf.cell(160, 8, f" {nome}", border=1)
                 pdf.cell(30, 8, f" {int(q)}", border=1, ln=True, align="C")
             
-            # Linha Secundária (Descrição do Item Mesclada em Baixo)
             if desc_texto.strip() != "":
                 pdf.set_font("helvetica", "I", 8)
-                pdf.set_text_color(80, 80, 80) # Cinza para não brigar com o título
+                pdf.set_text_color(80, 80, 80)
                 pdf.multi_cell(0, 5, f"  Detalhes: {desc_texto}", border=1)
 
     # 2. Serviços
@@ -294,13 +292,13 @@ def render_db_config(db_name):
         "Custo (R$)": st.column_config.NumberColumn("Custo (R$)", format="R$ %.2f", min_value=0.0),
         "Margem (%)": st.column_config.NumberColumn("Margem (%)", format="%.1f%%", step=1.0),
         "Lucro (R$)": st.column_config.NumberColumn("Lucro (R$)", format="R$ %.2f", disabled=True),
-        "Venda (R$)": st.column_config.NumberColumn("Venda (R$)", format="R$ %d", disabled=True), # Sem centavos!
+        "Venda (R$)": st.column_config.NumberColumn("Venda (R$)", format="R$ %d", disabled=True),
         "Descrição": st.column_config.TextColumn("Descrição (Aparece no PDF)", width="large")
     }
     
     df_edit = st.data_editor(st.session_state[db_name], num_rows="dynamic", column_config=col_cfg, use_container_width=True)
     
-    # Motor de Cálculo (Arredonda o valor de venda e calcula o lucro real)
+    # Motor de Cálculo: Multiplica Custo x Margem e Arredonda o valor de venda (sem centavos)
     df_edit['Venda (R$)'] = (df_edit['Custo (R$)'] * (1 + df_edit['Margem (%)'] / 100)).fillna(0).round().astype(int)
     df_edit['Lucro (R$)'] = df_edit['Venda (R$)'] - df_edit['Custo (R$)']
     
@@ -388,7 +386,6 @@ def tela_orcamentos():
             desc_servico = st.text_area("Descreva o serviço:")
             valor_servico = st.number_input("Valor do Serviço (R$)", min_value=0.0, step=100.0, format="%.2f")
         elif servico_selecionado != "Selecione da Base...":
-            # Puxa o texto da descrição do banco também!
             desc_banco_serv = st.session_state.db_servicos.loc[st.session_state.db_servicos['Item'] == servico_selecionado, 'Descrição'].values[0]
             desc_servico = st.text_area("Descreva o serviço:", value=f"{servico_selecionado}\n{desc_banco_serv}")
             
