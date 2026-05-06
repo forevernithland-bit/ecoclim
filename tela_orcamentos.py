@@ -42,14 +42,24 @@ def renderizar():
         }
         df_ed = st.data_editor(st.session_state.df_orc, column_config=cfg, num_rows="dynamic", use_container_width=True)
         
-        # Auto-preço apenas na tela de orçamentos (pegando o preço atual)
+        # ==========================================================
+        # CORREÇÃO AQUI: Reseta o index para organizar a numeração 
+        # das linhas quando você adiciona ou deleta algo.
+        # ==========================================================
+        df_ed = df_ed.reset_index(drop=True)
+        
+        # Auto-preço apenas na tela de orçamentos
+        precisa_atualizar = False
         for i in range(len(df_ed)):
             p = df_ed.at[i, 'Produto da Base']
             if p in lista_p and df_ed.at[i, 'Venda (R$)'] == 0:
                 df_ed.at[i, 'Venda (R$)'] = float(cat_p.loc[cat_p['Item'] == p, 'Venda (R$)'].values[0])
-                st.session_state.df_orc = df_ed
-                st.rerun()
+                precisa_atualizar = True
         
+        if precisa_atualizar:
+            st.session_state.df_orc = df_ed
+            st.rerun()
+            
         st.session_state.df_orc = df_ed
         total_equip = sum(df_ed['Quantidade'] * df_ed['Venda (R$)'])
         st.write(f"**Subtotal Equipamentos:** {utils.to_br_currency(total_equip)}")
