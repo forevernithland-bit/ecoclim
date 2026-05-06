@@ -173,40 +173,67 @@ def to_excel(df):
     return output.getvalue()
 
 # ==========================================
-# GERAÇÃO DE PDF (PÁGINA ÚNICA, ALINHAMENTO CORRIGIDO)
+# GERAÇÃO DE PDF (PADRÃO ORIGINAL RECUPERADO COM CORREÇÃO DE ALINHAMENTO)
 # ==========================================
+IMG_VACUO = "http://googleusercontent.com/image_collection/image_retrieval/4744835434356641686"
+IMG_TRADICIONAL = "http://googleusercontent.com/image_collection/image_retrieval/1248258249000705016"
+IMG_PISCINA = "http://googleusercontent.com/image_collection/image_retrieval/7319541597131710314"
+IMG_AR = "http://googleusercontent.com/image_collection/image_retrieval/13303198893195767277"
+
 def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v_out, total, obs, mostrar_un):
     buffer = BytesIO()
     p = canvas.Canvas(buffer, pagesize=A4)
     largura, altura = A4
 
-    # Cabeçalho Simples e Direto
-    p.setFont("Helvetica-Bold", 16)
-    p.setFillColor(colors.black)
-    p.drawString(2*cm, altura - 2*cm, "PROPOSTA COMERCIAL")
-    
+    # 1. LOGO E CABEÇALHO
+    try:
+        p.drawImage("logo.png", 2*cm, altura - 3.5*cm, width=4*cm, preserveAspectRatio=True, mask='auto')
+    except Exception:
+        p.setFont("Helvetica-Bold", 16)
+        p.drawString(2*cm, altura - 2.5*cm, "Ecoclim")
+        
+    p.setFont("Helvetica-Bold", 14)
+    p.drawString(largura - 7*cm, altura - 2*cm, "PROPOSTA COMERCIAL")
     p.setFont("Helvetica", 10)
-    p.drawRightString(largura - 2*cm, altura - 2*cm, f"Data: {datetime.date.today().strftime('%d/%m/%Y')}")
-    p.drawRightString(largura - 2*cm, altura - 2.5*cm, "Validade: 15 dias")
+    p.drawString(largura - 7*cm, altura - 2.5*cm, f"Data: {datetime.date.today().strftime('%d/%m/%Y')}")
+    p.drawString(largura - 7*cm, altura - 3*cm, "Validade: 15 dias")
 
-    # Dados do Cliente
+    # 2. DADOS DO CLIENTE
+    y = altura - 4.5*cm
+    p.setFillColor(colors.HexColor("#f0f0f0"))
+    p.rect(2*cm, y - 1.5*cm, largura - 4*cm, 2*cm, fill=1, stroke=0)
+    p.setFillColor(colors.black)
+    p.setFont("Helvetica-Bold", 10)
+    p.drawString(2.3*cm, y, "DADOS DO CLIENTE")
+    p.setFont("Helvetica", 10)
+    p.drawString(2.3*cm, y - 0.5*cm, f"Nome: {nome}")
+    p.drawString(2.3*cm, y - 1*cm, f"Telefone: {tel}")
+
+    # 3. IMAGEM DE APRESENTAÇÃO
+    y -= 2.2*cm
+    img_map = {
+        "AQUECEDOR SOLAR TRADICIONAL": IMG_TRADICIONAL,
+        "AQUECEDOR SOLAR A VÁCUO ACOPLADO": IMG_VACUO,
+        "AQUECEDOR SOLAR MODULAR": IMG_VACUO,
+        "AQUECEDOR DE PISCINA - TRADICIONAL": IMG_PISCINA,
+        "AQUECEDOR DE PISCINA - TROCADOR DE CALOR": IMG_PISCINA,
+        "SISTEMAS DE PRESSURIZAÇÃO": IMG_AR
+    }
+    
+    try:
+        if capa_tipo in img_map:
+            # Insere a foto grande do equipamento no meio do PDF
+            p.drawImage(img_map[capa_tipo], 2*cm, y - 5.5*cm, width=largura - 4*cm, height=5.5*cm, preserveAspectRatio=True, mask='auto')
+    except Exception:
+        pass
+    
+    y -= 6.5*cm
+
+    # 4. EQUIPAMENTOS
     p.setFillColor(colors.HexColor("#004488"))
-    p.rect(2*cm, altura - 4.5*cm, largura - 4*cm, 0.7*cm, fill=1, stroke=0)
-    p.setFillColor(colors.white)
-    p.setFont("Helvetica-Bold", 11)
-    p.drawString(2.3*cm, altura - 4.05*cm, "DADOS DO CLIENTE")
-    
-    p.setFillColor(colors.black)
-    p.setFont("Helvetica", 10)
-    p.rect(2*cm, altura - 6.5*cm, largura - 4*cm, 2*cm, fill=0, stroke=1)
-    p.drawString(2.3*cm, altura - 5.3*cm, f"Nome: {nome}")
-    p.drawString(2.3*cm, altura - 6.0*cm, f"WhatsApp: {tel}")
-
-    # 1. EQUIPAMENTOS
-    y = altura - 8*cm
-    p.setFillColor(colors.HexColor("#333333"))
     p.rect(2*cm, y, largura - 4*cm, 0.7*cm, fill=1, stroke=0)
     p.setFillColor(colors.white)
+    p.setFont("Helvetica-Bold", 11)
     p.drawString(2.3*cm, y + 0.2*cm, "1. EQUIPAMENTOS")
     
     y -= 0.6*cm
@@ -218,6 +245,7 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
     
     p.setFont("Helvetica", 9)
     y -= 0.8*cm
+    
     for _, row in df_items.iterrows():
         if row['Quantidade'] > 0:
             item_nome = row['Produto da Base'] if row['Produto da Base'] != "OUTRO" else row['Produto Manual']
@@ -226,13 +254,13 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
             p.drawRightString(largura - 2.3*cm, y, to_br_currency(row.get('Venda Total', 0)))
             y -= 0.5*cm
 
-    # 2. SERVIÇOS E OUTROS
-    y -= 1*cm
-    p.setFillColor(colors.HexColor("#666666"))
+    # 5. SERVIÇOS (COM O ALINHAMENTO CORRIGIDO!)
+    y -= 0.5*cm
+    p.setFillColor(colors.HexColor("#004488"))
     p.rect(2*cm, y, largura - 4*cm, 0.7*cm, fill=1, stroke=0)
     p.setFillColor(colors.white)
     p.setFont("Helvetica-Bold", 11)
-    p.drawString(2.3*cm, y + 0.2*cm, "2. SERVIÇOS E DIVERSOS")
+    p.drawString(2.3*cm, y + 0.2*cm, "2. SERVIÇOS")
     
     y -= 0.7*cm
     p.setFillColor(colors.black)
@@ -241,8 +269,8 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
     if str(d_serv).strip() != "":
         desc_s = str(d_serv).replace('\n', ' ')[:75]
         p.drawString(2.3*cm, y - 0.3*cm, desc_s)
-        # CORREÇÃO AQUI: Valor do serviço perfeitamente alinhado à direita
-        p.drawRightString(largura - 2.3*cm, y - 0.3*cm, to_br_currency(v_serv)) 
+        # CORREÇÃO DO ALINHAMENTO NA DIREITA DO TOTAL DO SERVIÇO
+        p.drawRightString(largura - 2.3*cm, y - 0.3*cm, to_br_currency(v_serv))
         y -= 0.5*cm
         
     if str(d_out).strip() != "":
@@ -251,16 +279,16 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
         p.drawRightString(largura - 2.3*cm, y - 0.3*cm, to_br_currency(v_out))
         y -= 0.5*cm
 
-    # INVESTIMENTO TOTAL
-    y -= 1.5*cm
-    p.setFillColor(colors.HexColor("#004488"))
-    p.rect(2*cm, y, largura - 4*cm, 1.2*cm, fill=1, stroke=0)
-    p.setFillColor(colors.white)
-    p.setFont("Helvetica-Bold", 14)
-    p.drawString(2.3*cm, y + 0.4*cm, "INVESTIMENTO TOTAL")
-    p.drawRightString(largura - 2.3*cm, y + 0.4*cm, to_br_currency(total))
+    # 6. INVESTIMENTO TOTAL
+    y -= 1*cm
+    p.setFillColor(colors.HexColor("#f0f0f0"))
+    p.rect(2*cm, y, largura - 4*cm, 1*cm, fill=1, stroke=0)
+    p.setFillColor(colors.black)
+    p.setFont("Helvetica-Bold", 12)
+    p.drawString(2.3*cm, y + 0.3*cm, "INVESTIMENTO TOTAL")
+    p.drawRightString(largura - 2.3*cm, y + 0.3*cm, to_br_currency(total))
 
-    # OBSERVAÇÕES
+    # 7. OBSERVAÇÕES
     y -= 1.5*cm
     p.setFillColor(colors.red)
     p.setFont("Helvetica-Bold", 10)
