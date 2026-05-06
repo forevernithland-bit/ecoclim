@@ -49,6 +49,13 @@ def parse_br_currency(val):
         return float(clean) if clean else 0.0
     except: return 0.0
 
+def to_excel(df):
+    output = io.BytesIO()
+    # Converte para Excel mantendo a formatação
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Base_Ecoclim')
+    return output.getvalue()
+
 # =============================================================================
 # MÓDULO 3: BANCO DE DADOS (FUNÇÕES GERAIS)
 # =============================================================================
@@ -58,14 +65,18 @@ def load_catalog(table_name):
         res = supabase.table(table_name).select("*").order("item").execute()
         df = pd.DataFrame(res.data)
         if df.empty:
-            return pd.DataFrame(columns=["Item", "Custo (R$)", "Margem (%)", "Lucro (R$)", "Venda (R$)", "Descrição"])
+            return pd.DataFrame(columns=["Item", "Fornecedor", "Custo (R$)", "Margem (%)", "Lucro (R$)", "Venda (R$)", "Descrição"])
         
-        df = df.rename(columns={"item": "Item", "custo": "Custo (R$)", "margem": "Margem (%)", "descricao": "Descrição"})
+        # Mapeia colunas do banco, incluindo FORNECEDOR
+        if "fornecedor" not in df.columns:
+            df["fornecedor"] = ""
+            
+        df = df.rename(columns={"item": "Item", "fornecedor": "Fornecedor", "custo": "Custo (R$)", "margem": "Margem (%)", "descricao": "Descrição"})
         df['Venda (R$)'] = (df['Custo (R$)'] * (1 + df['Margem (%)'] / 100)).round().astype(int)
         df['Lucro (R$)'] = df['Venda (R$)'] - df['Custo (R$)']
-        return df[["Item", "Custo (R$)", "Margem (%)", "Lucro (R$)", "Venda (R$)", "Descrição"]]
+        return df[["Item", "Fornecedor", "Custo (R$)", "Margem (%)", "Lucro (R$)", "Venda (R$)", "Descrição"]]
     except:
-        return pd.DataFrame(columns=["Item", "Custo (R$)", "Margem (%)", "Lucro (R$)", "Venda (R$)", "Descrição"])
+        return pd.DataFrame(columns=["Item", "Fornecedor", "Custo (R$)", "Margem (%)", "Lucro (R$)", "Venda (R$)", "Descrição"])
 
 def save_catalog(table_name, df):
     try:
@@ -74,6 +85,7 @@ def save_catalog(table_name, df):
             if row['Item'] and str(row['Item']).strip() != "":
                 data.append({
                     "item": row['Item'],
+                    "fornecedor": str(row.get('Fornecedor', '')),
                     "custo": float(row['Custo (R$)']),
                     "margem": float(row['Margem (%)']),
                     "descricao": str(row['Descrição']) if row['Descrição'] else ""
@@ -82,7 +94,7 @@ def save_catalog(table_name, df):
         if data: supabase.table(table_name).insert(data).execute()
     except Exception as e: st.error(f"Erro ao sincronizar catálogo: {e}")
 
-# --- FINANCEIRO ---
+# --- FINANCEIRO E CONFIGURAÇÕES DE USUÁRIO (MANTIDOS) ---
 def load_year_data(table_name, itens_padrao, ano_escolhido):
     try:
         res = supabase.table(table_name).select("*").eq("ano", ano_escolhido).execute()
@@ -90,18 +102,15 @@ def load_year_data(table_name, itens_padrao, ano_escolhido):
         if df_raw.empty:
             df = pd.DataFrame(0, index=range(len(itens_padrao)), columns=meses_pt)
             df.insert(0, 'MESES', itens_padrao); return df
-        
         df_pivot = df_raw.pivot(index='conta', columns='mes', values='valor').fillna(0)
         for m in meses_pt:
             if m not in df_pivot.columns: df_pivot[m] = 0
         df_pivot = df_pivot[meses_pt].reset_index()
         df_pivot.rename(columns={'conta': 'MESES'}, inplace=True)
-        
         for item in itens_padrao:
             if item not in df_pivot['MESES'].values:
                 nova_linha = {m: 0 for m in meses_pt}; nova_linha['MESES'] = item
                 df_pivot = pd.concat([df_pivot, pd.DataFrame([nova_linha])], ignore_index=True)
-        
         df_pivot.set_index('MESES', inplace=True); df_pivot = df_pivot.reindex(itens_padrao).reset_index()
         df_pivot[meses_pt] = df_pivot[meses_pt].astype(float)
         return df_pivot
@@ -118,7 +127,6 @@ def save_to_supabase(table_name, df_int, ano_escolhido):
         supabase.table(table_name).insert(data).execute()
     except Exception as e: st.error(f"Erro ao salvar financeiro: {e}")
 
-# --- PREFERÊNCIAS DO USUÁRIO ---
 def load_user_settings():
     try:
         res = supabase.table('configuracoes').select("*").eq('user_id', 'breno.lima').execute()
@@ -133,7 +141,7 @@ def save_user_settings(inicio, fim):
     except: pass
 
 # =============================================================================
-# MÓDULO 4: GERADOR DE PDF (ORÇAMENTOS)
+# MÓDULO 4: GERADOR DE PDF (ORÇAMENTOS - SEM FORNECEDOR)
 # =============================================================================
 def gerar_pdf_orcamento(cliente, tel, produto, df_equip, desc_s, val_s, desc_o, val_o, total, obs, mostrar_val):
     pdf = FPDF()
@@ -167,6 +175,7 @@ def gerar_pdf_orcamento(cliente, tel, produto, df_equip, desc_s, val_s, desc_o, 
     except: pdf.cell(0, 20, f"[IMAGEM: {produto}]", border=1, ln=True, align="C")
     pdf.ln(5)
 
+    # Itens
     pdf.set_font("helvetica", "B", 12); pdf.cell(0, 8, " 1. EQUIPAMENTOS", border=1, ln=True, fill=True)
     if mostrar_val:
         pdf.cell(100, 8, " Item", border=1); pdf.cell(30, 8, " Qtd", border=1, align="C"); pdf.cell(60, 8, " Subtotal", border=1, ln=True, align="R")
@@ -182,7 +191,16 @@ def gerar_pdf_orcamento(cliente, tel, produto, df_equip, desc_s, val_s, desc_o, 
                 pdf.cell(100, 8, f" {nome}", border=1); pdf.cell(30, 8, f" {int(q)}", border=1, align="C"); pdf.cell(60, 8, f" {to_br_currency(q*v, False)}", border=1, ln=True, align="R")
             else:
                 pdf.cell(160, 8, f" {nome}", border=1); pdf.cell(30, 8, f" {int(q)}", border=1, ln=True, align="C")
+            
+            # Busca descrição sem puxar o fornecedor
+            if nome in st.session_state.db_produtos['Item'].values:
+                desc_texto = st.session_state.db_produtos.loc[st.session_state.db_produtos['Item'] == nome, 'Descrição'].values[0]
+                if str(desc_texto).strip() != "":
+                    pdf.set_font("helvetica", "I", 8); pdf.set_text_color(80, 80, 80)
+                    pdf.multi_cell(0, 5, f"  Detalhes: {desc_texto}", border=1)
+                    pdf.set_text_color(0, 0, 0) # Volta pro preto
 
+    # Serviços e Outros
     if val_s > 0:
         pdf.ln(5); pdf.set_font("helvetica", "B", 12); pdf.cell(0, 8, " 2. SERVIÇOS", border=1, ln=True, fill=True)
         pdf.set_font("helvetica", "", 10); pdf.multi_cell(0, 6, f" {desc_s}", border=1)
@@ -210,8 +228,6 @@ st.markdown("""
     .dvn-scroller { overflow-y: hidden !important; }
     .stDataFrame table, .stDataEditor table { table-layout: fixed !important; width: 100% !important; }
     .stDataFrame td, .stDataFrame th, .stDataEditor td, .stDataEditor th { text-align: center !important; font-size: 0.85rem !important; }
-    
-    /* ESCONDE CABEÇALHOS DAS TABELAS DE RESULTADO NO FINANCEIRO */
     .financeiro div[data-testid="stDataFrame"] thead { display: none !important; }
     </style>
 """, unsafe_allow_html=True)
@@ -230,29 +246,78 @@ def tela_inicial():
     if c4.button("🚪\n\nSair do Sistema", use_container_width=True): st.session_state.authenticated = False; st.rerun()
 
 # =============================================================================
-# MÓDULO 7: TELA CONFIGURAÇÕES
+# MÓDULO 7: TELA CONFIGURAÇÕES (COM ATUALIZAÇÃO INTELIGENTE DE PLANILHA)
 # =============================================================================
 def tela_configuracoes():
     st.markdown("## ⚙️ Configurações e Base de Dados")
     
-    with st.expander("📥 Importar Equipamentos via Excel", expanded=False):
-        st.write("Planilha: **PRODUTO**, **CUSTO**, **DESCRIÇÃO**")
-        file = st.file_uploader("Subir .xlsx", type=["xlsx"])
+    # --- NOVO: EXPORTAÇÃO (DOWNLOAD DA BASE) ---
+    col_exp1, col_exp2 = st.columns([2, 1])
+    with col_exp2:
+        df_download = load_catalog('catalogo_produtos')
+        excel_data = to_excel(df_download)
+        st.download_button(label="📥 Baixar Base de Equipamentos (Excel)", data=excel_data, file_name="Ecoclim_Equipamentos.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+
+    # --- ATUALIZADO: IMPORTAÇÃO INTELIGENTE (UPSERT) ---
+    with st.expander("📤 Importar/Atualizar Dados via Planilha Excel", expanded=False):
+        st.write("A planilha deve conter as colunas: **PRODUTO**, **FORNECEDOR**, **CUSTO**, **DESCRIÇÃO**")
+        file = st.file_uploader("Subir .xlsx ou .csv", type=["xlsx", "csv"])
+        
         if file:
             try:
-                df_ex = pd.read_excel(file)
-                if all(c in df_ex.columns for c in ["PRODUTO", "CUSTO", "DESCRIÇÃO"]):
-                    novos = pd.DataFrame({"Item": df_ex["PRODUTO"], "Custo (R$)": df_ex["CUSTO"], "Margem (%)": 70.0, "Descrição": df_ex["DESCRIÇÃO"]})
-                    if st.button("Confirmar Importação"):
-                        save_catalog('catalogo_produtos', novos); st.success("Importado com sucesso!"); st.rerun()
+                # Lê csv ou excel e limpa espaços vazios nos títulos
+                if file.name.endswith(".csv"): df_ex = pd.read_csv(file)
+                else: df_ex = pd.read_excel(file)
+                
+                df_ex.columns = df_ex.columns.str.strip().str.upper()
+                
+                if "PRODUTO" in df_ex.columns and "CUSTO" in df_ex.columns:
+                    if st.button("🚀 Sincronizar Equipamentos", type="primary"):
+                        db_atual = load_catalog('catalogo_produtos')
+                        
+                        # Processa cada linha da planilha subida
+                        itens_atualizados = 0
+                        itens_novos = 0
+                        
+                        for _, row in df_ex.iterrows():
+                            item_nome = str(row["PRODUTO"]).strip()
+                            if not item_nome or item_nome.lower() == "nan": continue
+                            
+                            custo = float(row["CUSTO"]) if pd.notna(row["CUSTO"]) else 0.0
+                            desc = str(row["DESCRIÇÃO"]).strip() if "DESCRIÇÃO" in df_ex.columns and pd.notna(row["DESCRIÇÃO"]) else ""
+                            forn = str(row["FORNECEDOR"]).strip() if "FORNECEDOR" in df_ex.columns and pd.notna(row["FORNECEDOR"]) else ""
+                            
+                            # Atualiza se existir, cria se for novo
+                            if item_nome in db_atual["Item"].values:
+                                idx = db_atual.index[db_atual["Item"] == item_nome][0]
+                                db_atual.at[idx, "Custo (R$)"] = custo
+                                db_atual.at[idx, "Fornecedor"] = forn
+                                db_atual.at[idx, "Descrição"] = desc
+                                itens_atualizados += 1
+                            else:
+                                novo = {"Item": item_nome, "Fornecedor": forn, "Custo (R$)": custo, "Margem (%)": 70.0, "Lucro (R$)": 0.0, "Venda (R$)": 0, "Descrição": desc}
+                                db_atual = pd.concat([db_atual, pd.DataFrame([novo])], ignore_index=True)
+                                itens_novos += 1
+                        
+                        # Recalcula e salva
+                        db_atual['Venda (R$)'] = (db_atual['Custo (R$)'] * (1 + db_atual['Margem (%)'] / 100)).fillna(0).round().astype(int)
+                        db_atual['Lucro (R$)'] = db_atual['Venda (R$)'] - db_atual['Custo (R$)']
+                        save_catalog('catalogo_produtos', db_atual)
+                        
+                        st.success(f"Sincronização Concluída! {itens_atualizados} atualizados, {itens_novos} adicionados.")
+                        st.rerun()
+                else:
+                    st.error("Colunas obrigatórias não encontradas: PRODUTO, CUSTO.")
             except Exception as e: st.error(f"Erro: {e}")
 
+    # --- ABAS DE EDIÇÃO MANUAL ---
     tab1, tab2, tab3 = st.tabs(["🛒 Equipamentos", "🛠️ Serviços", "➕ Terceirizados"])
     
     def render_editor(table_name):
         df_db = load_catalog(table_name)
         col_cfg = {
             "Item": st.column_config.TextColumn("Item", width="medium"),
+            "Fornecedor": st.column_config.TextColumn("Fornecedor", width="small"),
             "Custo (R$)": st.column_config.NumberColumn("Custo", format="R$ %.2f"),
             "Margem (%)": st.column_config.NumberColumn("Margem", format="%.1f%%"),
             "Lucro (R$)": st.column_config.NumberColumn("Lucro", disabled=True, format="R$ %.2f"),
@@ -276,9 +341,15 @@ def tela_configuracoes():
 # =============================================================================
 def tela_orcamentos():
     st.markdown("## 📝 Novo Orçamento")
-    cat_p = load_catalog('catalogo_produtos'); lista_p = cat_p['Item'].tolist()
-    cat_s = load_catalog('catalogo_servicos'); lista_s = cat_s['Item'].tolist()
-    cat_o = load_catalog('catalogo_outros'); lista_o = cat_o['Item'].tolist()
+    
+    if 'db_produtos' not in st.session_state:
+        st.session_state.db_produtos = load_catalog('catalogo_produtos')
+        st.session_state.db_servicos = load_catalog('catalogo_servicos')
+        st.session_state.db_outros = load_catalog('catalogo_outros')
+
+    cat_p = st.session_state.db_produtos; lista_p = cat_p['Item'].tolist()
+    cat_s = st.session_state.db_servicos; lista_s = cat_s['Item'].tolist()
+    cat_o = st.session_state.db_outros; lista_o = cat_o['Item'].tolist()
     
     with st.container(border=True):
         st.subheader("👤 Cliente")
@@ -337,7 +408,7 @@ def tela_orcamentos():
         else: st.error("Digite o nome do cliente!")
 
 # =============================================================================
-# MÓDULO 9: TELA CONTROLE FINANCEIRO (COMPLETO RESTAURADO)
+# MÓDULO 9: TELA CONTROLE FINANCEIRO
 # =============================================================================
 def tela_financeira():
     st.markdown('<div class="financeiro">', unsafe_allow_html=True)
@@ -374,9 +445,7 @@ def tela_financeira():
 
     st.markdown('<div class="container-tabelas">', unsafe_allow_html=True)
     
-    # ---------------------------------------------
-    # 9.1 PATRIMÔNIO (EDITÁVEL + RESULTADOS)
-    # ---------------------------------------------
+    # 9.1 PATRIMÔNIO
     df_p_display = st.session_state.df_p[colunas_visiveis].copy()
     for m in [c for c in colunas_visiveis if c != "MESES"]: df_p_display[m] = df_p_display[m].apply(lambda x: to_br_currency(x, False))
     styled_df_p = df_p_display.style.set_properties(subset=[mes_atual_nome] if mes_atual_nome in colunas_visiveis and ano_selecionado == ano_atual else [], **{'background-color': '#e0f0ff', 'font-weight': 'bold'})
@@ -400,9 +469,7 @@ def tela_financeira():
     styled_res_p = df_res_p[colunas_visiveis].style.apply(lambda row: [f'background-color: {"#FF9900" if row["MESES"] == "PATRIMÔNIO TOTAL" else "#FFF2CC" if "LÍQUIDO" in row["MESES"] else "white"}; font-weight: bold; color: black; border-left: {"3px solid #4A90E2" if col == mes_atual_nome and ano_selecionado == ano_atual else "none"}' for col in colunas_visiveis], axis=1)
     st.dataframe(styled_res_p.format(lambda x: x if isinstance(x, str) and "%" in x else to_br_currency(x, False)), hide_index=True, column_config=col_cfg, use_container_width=True, height=175)
 
-    # ---------------------------------------------
-    # 9.2 ENTRADAS (EDITÁVEL + RESULTADOS)
-    # ---------------------------------------------
+    # 9.2 ENTRADAS
     df_e_display = st.session_state.df_e[colunas_visiveis].copy()
     for m in [c for c in colunas_visiveis if c != "MESES"]: df_e_display[m] = df_e_display[m].apply(lambda x: to_br_currency(x, False))
     styled_df_e = df_e_display.style.set_properties(subset=[mes_atual_nome] if mes_atual_nome in colunas_visiveis and ano_selecionado == ano_atual else [], **{'background-color': '#e0f0ff', 'font-weight': 'bold'})
@@ -418,9 +485,7 @@ def tela_financeira():
     styled_res_e = df_res_e[colunas_visiveis].style.apply(lambda row: [f'background-color: #9BC2E6; font-weight: bold; color: black; border-left: {"3px solid #4A90E2" if col == mes_atual_nome and ano_selecionado == ano_atual else "none"}' for col in colunas_visiveis], axis=1)
     st.dataframe(styled_res_e.format(lambda x: to_br_currency(x, False)), hide_index=True, column_config=col_cfg, use_container_width=True, height=75)
 
-    # ---------------------------------------------
-    # 9.3 RENDIMENTOS MENSAIS
-    # ---------------------------------------------
+    # 9.3 RENDIMENTOS
     st.markdown("#### 📈 Rendimento Mensal (Investimentos)")
     xp_val = df_n.loc['INVESTIMENTO XP']; inter_val = df_n.loc['CONTA INTER']
     xp_var = xp_val.diff().fillna(0); inter_var = inter_val.diff().fillna(0); rend_total = xp_var + inter_var; prev_bal = (xp_val + inter_val).shift(1).fillna(0)
@@ -432,11 +497,9 @@ def tela_financeira():
             df_rend[m] = [xp_var[m], inter_var[m], rt, f"{pct_val:.2f}%".replace(".", ","), tot_ent[m] + rt]
     styled_rend = df_rend[colunas_visiveis].style.apply(lambda row: [f'background-color: {"#FF9900" if row["MESES"] == "RENDIMENTO TOTAL" else "#FFF2CC" if "%" in row["MESES"] else "#9BC2E6" if "SALÁRIO" in row["MESES"] else "white"}; font-weight: bold; color: black; border-left: {"3px solid #4A90E2" if col == mes_atual_nome and ano_selecionado == ano_atual else "none"}' for col in colunas_visiveis], axis=1)
     st.dataframe(styled_rend.format(lambda x: x if isinstance(x, str) and "%" in x else to_br_currency(x, False)), hide_index=True, column_config=col_cfg, use_container_width=True, height=215)
-    st.markdown('</div></div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    # ---------------------------------------------
-    # 9.4 MÉTRICAS E GRÁFICOS
-    # ---------------------------------------------
+    # 9.4 GRÁFICOS
     st.markdown("<br>", unsafe_allow_html=True)
     c1, c2, c3, c4 = st.columns(4)
     meses_calculo = meses_pt if ano_selecionado < ano_atual else meses_pt[:mes_hoje_idx]
