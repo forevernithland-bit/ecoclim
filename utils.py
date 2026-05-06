@@ -173,7 +173,7 @@ def to_excel(df):
     return output.getvalue()
 
 # ==========================================
-# GERAÇÃO DE PDF (PADRÃO ORIGINAL RECUPERADO COM CORREÇÃO DE ALINHAMENTO)
+# GERAÇÃO DE PDF (PÁGINA ÚNICA)
 # ==========================================
 IMG_VACUO = "http://googleusercontent.com/image_collection/image_retrieval/4744835434356641686"
 IMG_TRADICIONAL = "http://googleusercontent.com/image_collection/image_retrieval/1248258249000705016"
@@ -222,7 +222,6 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
     
     try:
         if capa_tipo in img_map:
-            # Insere a foto grande do equipamento no meio do PDF
             p.drawImage(img_map[capa_tipo], 2*cm, y - 5.5*cm, width=largura - 4*cm, height=5.5*cm, preserveAspectRatio=True, mask='auto')
     except Exception:
         pass
@@ -254,29 +253,34 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
             p.drawRightString(largura - 2.3*cm, y, to_br_currency(row.get('Venda Total', 0)))
             y -= 0.5*cm
 
-    # 5. SERVIÇOS (COM O ALINHAMENTO CORRIGIDO!)
+    # 5. SERVIÇOS E DIVERSOS
     y -= 0.5*cm
     p.setFillColor(colors.HexColor("#004488"))
     p.rect(2*cm, y, largura - 4*cm, 0.7*cm, fill=1, stroke=0)
     p.setFillColor(colors.white)
     p.setFont("Helvetica-Bold", 11)
-    p.drawString(2.3*cm, y + 0.2*cm, "2. SERVIÇOS")
+    p.drawString(2.3*cm, y + 0.2*cm, "2. SERVIÇOS E DIVERSOS")
     
-    y -= 0.7*cm
+    y -= 0.6*cm
     p.setFillColor(colors.black)
+    p.setFont("Helvetica-Bold", 9)
+    p.drawString(2.3*cm, y - 0.3*cm, "Descrição")
+    p.drawRightString(largura - 2.3*cm, y - 0.3*cm, "Subtotal")
+    
     p.setFont("Helvetica", 9)
+    y -= 0.8*cm
     
     if str(d_serv).strip() != "":
-        desc_s = str(d_serv).replace('\n', ' ')[:75]
-        p.drawString(2.3*cm, y - 0.3*cm, desc_s)
-        # CORREÇÃO DO ALINHAMENTO NA DIREITA DO TOTAL DO SERVIÇO
-        p.drawRightString(largura - 2.3*cm, y - 0.3*cm, to_br_currency(v_serv))
+        # Extrai apenas a primeira linha do serviço para não desconfigurar
+        desc_s = str(d_serv).split('\n')[0][:75]
+        p.drawString(2.3*cm, y, desc_s)
+        p.drawRightString(largura - 2.3*cm, y, to_br_currency(v_serv))
         y -= 0.5*cm
         
     if str(d_out).strip() != "":
-        desc_o = str(d_out).replace('\n', ' ')[:75]
-        p.drawString(2.3*cm, y - 0.3*cm, desc_o)
-        p.drawRightString(largura - 2.3*cm, y - 0.3*cm, to_br_currency(v_out))
+        desc_o = str(d_out).split('\n')[0][:75]
+        p.drawString(2.3*cm, y, desc_o)
+        p.drawRightString(largura - 2.3*cm, y, to_br_currency(v_out))
         y -= 0.5*cm
 
     # 6. INVESTIMENTO TOTAL
