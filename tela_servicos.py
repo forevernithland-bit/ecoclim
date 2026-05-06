@@ -57,6 +57,7 @@ def renderizar():
             sel_ativo = st.dataframe(df_ativos[['nome_cliente', 'produtos_adquiridos', 'valor_venda_total', 'lucro_estimado', 'status_projeto']], column_config=col_cfg_v1, use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single-row")
             st.markdown(f"**💰 Lucro Estimado Acumulado:** :blue[{utils.to_br_currency(df_ativos['lucro_estimado'].sum())}]")
             if sel_ativo.selection.rows: exibir_detalhes_avancados(df_ativos.iloc[sel_ativo.selection.rows[0]], supabase)
+        else: st.write("_Sem serviços ativos._")
         
         st.markdown("<br><hr>", unsafe_allow_html=True)
 
@@ -64,6 +65,7 @@ def renderizar():
         if not df_orcamentos.empty:
             sel_orc = st.dataframe(df_orcamentos[['nome_cliente', 'produtos_adquiridos', 'valor_venda_total', 'lucro_estimado', 'status_projeto']], column_config=col_cfg_v1, use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single-row")
             if sel_orc.selection.rows: exibir_detalhes_avancados(df_orcamentos.iloc[sel_orc.selection.rows[0]], supabase)
+        else: st.write("_Sem orçamentos pendentes._")
 
     with tab2:
         st.subheader("📁 Histórico e Lucro Mensal")
@@ -76,6 +78,12 @@ def renderizar():
                         df_mes = df_hist_concluidos[df_hist_concluidos['Mes_Ano'] == mes]
                         st.dataframe(df_mes[['nome_cliente', 'valor_venda_total', 'lucro_estimado']], use_container_width=True, hide_index=True)
                         st.markdown(f"#### 💰 Lucro Líquido do Mês: :green[{utils.to_br_currency(df_mes['lucro_estimado'].sum())}]")
+            
+            df_hist_cancel = df_historico[df_historico['status_projeto'] == 'Cancelado'].copy()
+            if not df_hist_cancel.empty:
+                st.markdown("### 🚫 Orçamentos Cancelados (+50 dias)")
+                with st.expander("Ver Cancelados"):
+                    st.dataframe(df_hist_cancel[['nome_cliente', 'valor_venda_total']], hide_index=True)
 
 def exibir_detalhes_avancados(item, supabase):
     st.markdown(f"### 🔍 Projeto: {item['nome_cliente']}")
@@ -89,18 +97,37 @@ def exibir_detalhes_avancados(item, supabase):
         with c3:
             n_v_inst = st.number_input("Pago ao Instalador (R$)", value=float(item['valor_pago_instalador'] or 0.0), format="%.2f", key=f"pago_{item['id']}")
 
-        # --- NOVA SEÇÃO: IMPOSTOS E TAXAS ---
+        # --- NOVA SEÇÃO: IMPOSTOS, TAXAS E COMISSÃO ---
         st.markdown("---")
-        t1, t2 = st.columns(2)
+        t1, t2, t3 = st.columns(3)
         
-        # Opções de pagamento filtradas do banco de taxas (tirando a NF)
         taxas_df = st.session_state.db_taxas
-        opcoes_pagamento = ["Dinheiro / PIX"] + [t for t in taxas_df['Item'].tolist() if "NF" not in t]
+        opcoes_pagamento_com_taxa = ["Dinheiro / PIX (0.00%)"]
+        mapa_pagamentos = {"Dinheiro / PIX": 0.0}
+        
+        # Puxa as taxas do banco e formata com o % na tela
+        for _, row_taxa in taxas_df.iterrows():
+            if "NF" not in str(row_taxa['Item']):
+                desc_taxa = f"{row_taxa['Item']} ({float(row_taxa['Taxa (%)']):.2f}%)"
+                opcoes_pagamento_com_taxa.append(desc_taxa)
+                mapa_pagamentos[desc_taxa] = float(row_taxa['Taxa (%)'])
+        
+        # Localiza qual é o método salvo no banco
+        metodo_salvo = item.get('metodo_pagamento', 'Dinheiro / PIX')
+        idx_pgto = 0
+        for i, opt in enumerate(opcoes_pagamento_com_taxa):
+            if opt.startswith(metodo_salvo):
+                idx_pgto = i
+                break
         
         with t1:
-            n_pgto = st.selectbox("Forma de Pagamento", options=opcoes_pagamento, index=opcoes_pagamento.index(item.get('metodo_pagamento', 'Dinheiro / PIX')) if item.get('metodo_pagamento') in opcoes_pagamento else 0, key=f"pgto_{item['id']}")
+            n_pgto_selecionado = st.selectbox("Forma de Pagamento", options=opcoes_pagamento_com_taxa, index=idx_pgto, key=f"pgto_{item['id']}")
+            n_pgto = n_pgto_selecionado.split(" (")[0] # Pega só o nome para salvar
+            taxa_cartao_pct = mapa_pagamentos[n_pgto_selecionado]
         with t2:
             n_nf = st.radio("Emitir Nota Fiscal?", options=["Não", "Sim"], index=1 if item.get('nf_emitida') else 0, horizontal=True, key=f"nf_{item['id']}")
+        with t3:
+            n_comissao = st.number_input("Comissão Repasse (%)", value=float(item.get('comissao_percentual') or 0.0), format="%.2f", key=f"com_{item['id']}")
 
         st.markdown("---")
         st.subheader("📋 Memória de Cálculo / Itens Adquiridos")
@@ -129,9 +156,18 @@ def exibir_detalhes_avancados(item, supabase):
 
         df_edit = st.data_editor(df_atual, column_config=col_itens_cfg, num_rows="dynamic", use_container_width=True, key=f"ed_{item['id']}")
 
-        # Cálculos de Linha (Com a Venda Total e Lucro Total arrumados)
+        # =========================================================================
+        # CÁLCULOS DE LINHA DA TABELA (FORÇANDO A MULTIPLICAÇÃO)
+        # =========================================================================
         precisa_atualizar = False
+        
+        # Converte tudo para número para evitar erros
+        df_edit['Qtd'] = df_edit['Qtd'].astype(int)
+        df_edit['Custo Un.'] = df_edit['Custo Un.'].astype(float)
+        df_edit['Venda Un.'] = df_edit['Venda Un.'].astype(float)
+
         for i in range(len(df_edit)):
+            # Se puxou do banco, preenche custo e venda
             if df_edit.iloc[i]['Item'] != "OUTRO / MANUAL" and df_edit.iloc[i]['Custo Un.'] == 0:
                 match = st.session_state.base_unificada[st.session_state.base_unificada['Item'] == df_edit.iloc[i]['Item']]
                 if not match.empty:
@@ -139,45 +175,61 @@ def exibir_detalhes_avancados(item, supabase):
                     df_edit.at[i, 'Venda Un.'] = float(match['Venda (R$)'].values[0])
                     precisa_atualizar = True
 
-        df_edit['Qtd'] = df_edit['Qtd'].astype(int)
-        df_edit['Venda Total'] = df_edit['Venda Un.'] * df_edit['Qtd']
-        df_edit['Lucro Un.'] = df_edit['Venda Un.'] - df_edit['Custo Un.']
-        df_edit['Lucro Total'] = df_edit['Lucro Un.'] * df_edit['Qtd']
+        # Cálculos de Totais por linha!
+        nova_venda_total = df_edit['Venda Un.'] * df_edit['Qtd']
+        novo_lucro_un = df_edit['Venda Un.'] - df_edit['Custo Un.']
+        novo_lucro_total = novo_lucro_un * df_edit['Qtd']
+
+        # Verifica se algo mudou para atualizar a tela
+        if not df_edit['Venda Total'].equals(nova_venda_total) or not df_edit['Lucro Total'].equals(novo_lucro_total):
+            df_edit['Venda Total'] = nova_venda_total
+            df_edit['Lucro Un.'] = novo_lucro_un
+            df_edit['Lucro Total'] = novo_lucro_total
+            precisa_atualizar = True
 
         if precisa_atualizar:
-            st.session_state[key_state] = df_edit; st.rerun()
+            st.session_state[key_state] = df_edit
+            st.rerun()
 
         st.session_state[key_state] = df_edit
 
-        # --- CÁLCULOS FINANCEIROS FINAIS ---
+        # =========================================================================
+        # CÁLCULOS FINANCEIROS GERAIS DO RESULTADO
+        # =========================================================================
         faturamento_bruto = df_edit['Venda Total'].sum()
         custo_materiais = (df_edit['Custo Un.'] * df_edit['Qtd']).sum()
         
-        # 1. Calcular Imposto da NF
+        # 1. Imposto da NF
         taxa_nf_pct = 0.0
         if n_nf == "Sim":
             try: taxa_nf_pct = float(taxas_df.loc[taxas_df['Item'].str.contains('NF', case=False), 'Taxa (%)'].values[0])
             except: taxa_nf_pct = 6.0
         valor_nf = faturamento_bruto * (taxa_nf_pct / 100)
         
-        # 2. Calcular Taxa do Cartão
-        taxa_cartao_pct = 0.0
-        if n_pgto != "Dinheiro / PIX":
-            try: taxa_cartao_pct = float(taxas_df.loc[taxas_df['Item'] == n_pgto, 'Taxa (%)'].values[0])
-            except: taxa_cartao_pct = 0.0
+        # 2. Taxa do Cartão
         valor_cartao = faturamento_bruto * (taxa_cartao_pct / 100)
+        
+        # 3. Comissão
+        valor_comissao = faturamento_bruto * (n_comissao / 100)
 
-        total_taxas = valor_nf + valor_cartao
-        lucro_final_liquido = faturamento_bruto - (custo_materiais + n_v_inst + total_taxas)
+        total_deducoes = valor_nf + valor_cartao + valor_comissao
+        lucro_final_liquido = faturamento_bruto - (custo_materiais + n_v_inst + total_deducoes)
 
-        st.markdown("#### Resultado do Projeto")
-        r1, r2, r3, r4 = st.columns(4)
-        r1.metric("Faturamento", utils.to_br_currency(faturamento_bruto))
-        r2.metric("Materiais + Inst.", utils.to_br_currency(custo_materiais + n_v_inst))
-        r3.metric(f"Taxas (NF + {n_pgto})", utils.to_br_currency(total_taxas))
-        r4.metric("LUCRO LÍQUIDO", utils.to_br_currency(lucro_final_liquido))
+        # Apresentação do Resultado Final detalhado
+        st.markdown("#### 📊 Resultado Detalhado do Projeto")
+        r1, r2, r3 = st.columns(3)
+        r1.metric("Faturamento (Total Venda)", utils.to_br_currency(faturamento_bruto))
+        r2.metric("Materiais + Serviço", utils.to_br_currency(custo_materiais + n_v_inst))
+        r3.metric("LUCRO LÍQUIDO", utils.to_br_currency(lucro_final_liquido))
+        
+        st.caption("Detalhamento de Deduções (Abatidos do Lucro):")
+        det_cols = st.columns(3)
+        det_cols[0].write(f"🏷️ **Comissão ({n_comissao}%):** -{utils.to_br_currency(valor_comissao)}")
+        det_cols[1].write(f"🧾 **Nota Fiscal ({taxa_nf_pct}%):** -{utils.to_br_currency(valor_nf)}")
+        det_cols[2].write(f"💳 **Taxa Cartão ({taxa_cartao_pct}%):** -{utils.to_br_currency(valor_cartao)}")
 
-        if st.button("💾 SALVAR PROJETO", type="primary", use_container_width=True, key=f"sv_{item['id']}"):
+        # Botão de Salvar
+        if st.button("💾 SALVAR DADOS DO PROJETO", type="primary", use_container_width=True, key=f"sv_{item['id']}"):
             try:
                 resumo = ", ".join([f"{int(r['Qtd'])}x {r['Item'] if r['Item'] != 'OUTRO / MANUAL' else r['Descrição Manual']}" for _, r in df_edit.iterrows()])
                 
@@ -193,7 +245,8 @@ def exibir_detalhes_avancados(item, supabase):
                     "data_conclusao": str(dt_conclusao) if dt_conclusao else None,
                     "nf_emitida": True if n_nf == "Sim" else False,
                     "metodo_pagamento": n_pgto,
-                    "valor_taxas_impostos": float(total_taxas)
+                    "valor_taxas_impostos": float(total_deducoes),
+                    "comissao_percentual": float(n_comissao)
                 }).eq('id', item['id']).execute()
                 
                 if key_state in st.session_state: del st.session_state[key_state]
