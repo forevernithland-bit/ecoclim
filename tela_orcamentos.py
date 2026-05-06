@@ -32,64 +32,84 @@ def renderizar():
     with st.container(border=True):
         st.subheader("⚙️ 1. Equipamentos")
         mostrar_pdf = st.checkbox("Mostrar Preços Unitários no PDF?", value=True)
+        
+        # Inicia a tabela com a coluna 'Venda Total'
         if 'df_orc' not in st.session_state:
-            st.session_state.df_orc = pd.DataFrame([{"Produto da Base": "", "Produto Manual": "", "Quantidade": 1, "Venda (R$)": 0.0} for _ in range(5)])
+            st.session_state.df_orc = pd.DataFrame([{"Produto da Base": "", "Produto Manual": "", "Quantidade": 1, "Venda (R$)": 0.0, "Venda Total": 0.0} for _ in range(5)])
         
         cfg = {
             "Produto da Base": st.column_config.SelectboxColumn("Produto", options=[""] + lista_p + ["OUTRO"], width="large"), 
             "Produto Manual": st.column_config.TextColumn("Produto Manual", width="medium"),
-            "Venda (R$)": st.column_config.NumberColumn("Preço Un.", format="R$ %,.2f")
+            "Quantidade": st.column_config.NumberColumn("Qtd", min_value=1, step=1),
+            "Venda (R$)": st.column_config.NumberColumn("Preço Un. (R$)", format="R$ %,.2f"),
+            "Venda Total": st.column_config.NumberColumn("Venda Total (R$)", format="R$ %,.2f", disabled=True)
         }
         df_ed = st.data_editor(st.session_state.df_orc, column_config=cfg, num_rows="dynamic", use_container_width=True)
         
-        # ==========================================================
-        # CORREÇÃO AQUI: Reseta o index para organizar a numeração 
-        # das linhas quando você adiciona ou deleta algo.
-        # ==========================================================
+        # Reseta o index para evitar erros de KeyError ao adicionar novas linhas
         df_ed = df_ed.reset_index(drop=True)
         
-        # Auto-preço apenas na tela de orçamentos
+        # Força as colunas para números, evitando o erro de TypeError
+        df_ed['Quantidade'] = pd.to_numeric(df_ed['Quantidade'], errors='coerce').fillna(1).astype(int)
+        df_ed['Venda (R$)'] = pd.to_numeric(df_ed['Venda (R$)'], errors='coerce').fillna(0.0).astype(float)
+
         precisa_atualizar = False
+        
+        # Puxa o preço automaticamente da base se o campo estiver vazio
         for i in range(len(df_ed)):
             p = df_ed.at[i, 'Produto da Base']
             if p in lista_p and df_ed.at[i, 'Venda (R$)'] == 0:
                 df_ed.at[i, 'Venda (R$)'] = float(cat_p.loc[cat_p['Item'] == p, 'Venda (R$)'].values[0])
                 precisa_atualizar = True
+                
+        # Lógica matemática: Qtd x Preço Un. = Venda Total
+        nova_venda_total = df_ed['Venda (R$)'] * df_ed['Quantidade']
+        if not df_ed['Venda Total'].equals(nova_venda_total):
+            df_ed['Venda Total'] = nova_venda_total
+            precisa_atualizar = True
         
         if precisa_atualizar:
             st.session_state.df_orc = df_ed
             st.rerun()
             
         st.session_state.df_orc = df_ed
-        total_equip = sum(df_ed['Quantidade'] * df_ed['Venda (R$)'])
-        st.write(f"**Subtotal Equipamentos:** {utils.to_br_currency(total_equip)}")
+        
+        # Subtotal correto usando a coluna 'Venda Total'
+        total_equip = df_ed['Venda Total'].sum()
+        st.markdown(f"**Subtotal Equipamentos:** :blue[{utils.to_br_currency(total_equip)}]")
 
     with st.container(border=True):
         st.subheader("🛠️ 2. Serviços / Diversos")
         
+        # 2.1 Serviço Principal
         lista_s = st.session_state.db_servicos['Item'].tolist()
         s_sel = st.selectbox("Selecionar Serviço Principal:", [""] + lista_s + ["Manual"])
         if s_sel == "Manual": 
             d_s = st.text_area("Descreva o Serviço:")
-            v_s = st.number_input("Valor do Serviço:", min_value=0.0, format="%.2f")
+            v_s = st.number_input("Valor do Serviço (R$):", min_value=0.0, format="%.2f")
         elif s_sel != "":
             d_s = f"{s_sel}\n{st.session_state.db_servicos.loc[st.session_state.db_servicos['Item']==s_sel, 'Descrição'].values[0]}"
             v_s = float(st.session_state.db_servicos.loc[st.session_state.db_servicos['Item']==s_sel, 'Venda (R$)'].values[0])
-            st.write(f"Valor: {utils.to_br_currency(v_s)}")
-        else: d_s, v_s = "", 0.0
+            st.write(f"Valor do Serviço: {utils.to_br_currency(v_s)}")
+        else: 
+            d_s, v_s = "", 0.0
         
+        # 2.2 Materiais Extras / Terceiros
         lista_o = st.session_state.db_outros['Item'].tolist()
         o_sel = st.selectbox("Adicionar Outros/Diversos:", [""] + lista_o + ["Manual"])
         if o_sel == "Manual": 
             d_o = st.text_area("Descreva Diversos:")
-            v_o = st.number_input("Valor Adicional:", min_value=0.0, format="%.2f")
+            v_o = st.number_input("Valor Adicional (R$):", min_value=0.0, format="%.2f")
         elif o_sel != "":
             d_o = f"{o_sel}\n{st.session_state.db_outros.loc[st.session_state.db_outros['Item']==o_sel, 'Descrição'].values[0]}"
             v_o = float(st.session_state.db_outros.loc[st.session_state.db_outros['Item']==o_sel, 'Venda (R$)'].values[0])
-            st.write(f"Valor: {utils.to_br_currency(v_o)}")
-        else: d_o, v_o = "", 0.0
+            st.write(f"Valor Adicional: {utils.to_br_currency(v_o)}")
+        else: 
+            d_o, v_o = "", 0.0
 
+    # Matemática Final: Equipamentos + Serviço + Diversos
     total_geral = total_equip + v_s + v_o
+    
     st.markdown(f"<h3 style='color:#004488;'>💰 INVESTIMENTO TOTAL: {utils.to_br_currency(total_geral)}</h3>", unsafe_allow_html=True)
     obs = st.text_area("Observações no PDF:", value="Material Hidráulico não incluído na proposta")
 
@@ -98,7 +118,7 @@ def renderizar():
             # 1. CRIANDO O SNAPSHOT (Foto do Momento) PARA CONGELAR PREÇOS
             custo_real_equip = 0.0
             resumo_produtos = []
-            detalhamento_snapshot = [] # Aqui guardamos a foto dos preços atuais
+            detalhamento_snapshot = []
             
             # Varrendo Equipamentos
             for _, row in df_ed.iterrows():
@@ -106,6 +126,10 @@ def renderizar():
                 desc_m = row['Produto Manual']
                 qtd = int(row['Quantidade'])
                 venda_un = float(row['Venda (R$)'])
+                
+                # Ignora linhas em branco com quantidade 0
+                if qtd <= 0 or (nome_p == "" and desc_m.strip() == ""): 
+                    continue
                 
                 if nome_p in lista_p:
                     c_un = float(cat_p.loc[cat_p['Item'] == nome_p, 'Custo (R$)'].values[0])
@@ -149,9 +173,9 @@ def renderizar():
                     "valor_custo_equipamentos": custo_real_equip,
                     "lucro_estimado": total_geral - custo_real_equip,
                     "status_projeto": "Orçamento Enviado",
-                    "detalhamento_itens": detalhamento_snapshot # <<< ESTA É A MÁGICA QUE CONGELA OS PREÇOS!
+                    "detalhamento_itens": detalhamento_snapshot
                 }).execute()
-                st.success(f"✅ Orçamento {num_orc} salvo! Preços congelados com sucesso.")
+                st.success(f"✅ Orçamento {num_orc} salvo com sucesso.")
             except Exception as e:
                 st.error(f"Erro ao salvar no banco: {e}")
 
