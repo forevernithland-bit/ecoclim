@@ -8,7 +8,7 @@ from supabase import create_client
 # ==========================================
 # 1. CONFIGURAÇÃO E CONEXÃO
 # ==========================================
-st.set_page_config(page_title="Controle Financeiro", layout="wide", page_icon="🏦")
+st.set_page_config(page_title="Controle Financeiro", layout="wide")
 
 @st.cache_resource
 def init_connection():
@@ -19,56 +19,16 @@ def init_connection():
 try:
     supabase = init_connection()
 except Exception as e:
-    st.error(f"Erro ao conectar com Supabase: {e}")
+    st.error(f"Erro na conexão Supabase: {e}")
 
 # ==========================================
-# 2. SISTEMA DE LOGIN
-# ==========================================
-def login():
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
-
-    if not st.session_state.authenticated:
-        st.markdown("<h2 style='text-align: center;'>Acesso ao Sistema</h2>", unsafe_allow_html=True)
-        col1, col2, col3 = st.columns([1, 1, 1])
-        with col2:
-            user = st.text_input("Usuário")
-            password = st.text_input("Senha", type="password")
-            if st.button("Entrar", use_container_width=True):
-                if user == "breno.lima" and password == "Ecoclim2026@":
-                    st.session_state.authenticated = True
-                    st.rerun()
-                else:
-                    st.error("Usuário ou senha incorretos")
-        return False
-    return True
-
-# ==========================================
-# 3. LÓGICA DE PERSISTÊNCIA DE PREFERÊNCIAS
-# ==========================================
-def load_user_settings():
-    try:
-        res = supabase.table('configuracoes').select("*").eq('user_id', 'breno.lima').execute()
-        if res.data:
-            return res.data[0]['mes_inicio'], res.data[0]['mes_fim']
-    except:
-        pass
-    return "JANEIRO", "MAIO" # Padrão se não achar nada
-
-def save_user_settings(inicio, fim):
-    try:
-        data = {"user_id": "breno.lima", "mes_inicio": inicio, "mes_fim": fim}
-        supabase.table('configuracoes').upsert(data, on_conflict='user_id').execute()
-    except:
-        pass
-
-# ==========================================
-# 4. LÓGICA DE DADOS E FORMATAÇÃO
+# 2. VARIÁVEIS GLOBAIS E FORMATAÇÃO
 # ==========================================
 meses_pt = ['JANEIRO', 'FEVEREIRO', 'MARÇO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO']
 hoje = datetime.datetime.now()
 ano_atual = hoje.year
 mes_hoje_idx = hoje.month 
+mes_atual_nome = meses_pt[mes_hoje_idx - 1] 
 
 def to_br_currency(val):
     try:
@@ -83,15 +43,16 @@ def parse_br_currency(val):
         return int(clean) if clean else 0
     except: return 0
 
-# Funções de Banco (load/save) mantidas iguais às anteriores...
+# ==========================================
+# 3. FUNÇÕES DE BANCO DE DADOS
+# ==========================================
 def load_year_data(table_name, itens_padrao, ano_escolhido):
     try:
         res = supabase.table(table_name).select("*").eq("ano", ano_escolhido).execute()
         df_raw = pd.DataFrame(res.data)
         if df_raw.empty:
             df = pd.DataFrame(0, index=range(len(itens_padrao)), columns=meses_pt)
-            df.insert(0, 'MESES', itens_padrao)
-            return df
+            df.insert(0, 'MESES', itens_padrao); return df
         df_pivot = df_raw.pivot(index='conta', columns='mes', values='valor').fillna(0)
         for m in meses_pt:
             if m not in df_pivot.columns: df_pivot[m] = 0
@@ -109,88 +70,236 @@ def load_year_data(table_name, itens_padrao, ano_escolhido):
         df.insert(0, 'MESES', itens_padrao); return df
 
 def save_to_supabase(table_name, df_int, ano_escolhido):
-    df_melted = df_int.melt(id_vars=['MESES'], var_name='mes', value_name='valor')
-    df_melted['ano'] = ano_escolhido; df_melted.rename(columns={'MESES': 'conta'}, inplace=True)
-    data = df_melted.to_dict(orient='records')
-    supabase.table(table_name).delete().eq('ano', ano_escolhido).execute()
-    supabase.table(table_name).insert(data).execute()
+    try:
+        df_melted = df_int.melt(id_vars=['MESES'], var_name='mes', value_name='valor')
+        df_melted['ano'] = ano_escolhido; df_melted.rename(columns={'MESES': 'conta'}, inplace=True)
+        df_melted['valor'] = df_melted['valor'].astype(int)
+        data = df_melted.to_dict(orient='records')
+        supabase.table(table_name).delete().eq('ano', ano_escolhido).execute()
+        supabase.table(table_name).insert(data).execute()
+    except Exception as e:
+        st.error(f"Erro ao salvar: {e}")
+
+def load_user_settings():
+    try:
+        res = supabase.table('configuracoes').select("*").eq('user_id', 'breno.lima').execute()
+        if res.data: return res.data[0]['mes_inicio'], res.data[0]['mes_fim']
+    except: pass
+    return "JANEIRO", mes_atual_nome
+
+def save_user_settings(inicio, fim):
+    try:
+        data = {"id": 1, "user_id": "breno.lima", "mes_inicio": inicio, "mes_fim": fim}
+        supabase.table('configuracoes').upsert(data).execute()
+    except: pass
+
+# ==========================================
+# 4. CSS GERAL E LOGIN
+# ==========================================
+st.markdown("""
+    <style>
+    .block-container { padding-top: 1.5rem !important; padding-left: 1rem !important; padding-right: 1rem !important; max-width: 100% !important; }
+    div.container-tabelas div[data-testid="stVerticalBlock"] { gap: 0px !important; padding: 0px !important; }
+    [data-testid="stTable"] { overflow: hidden !important; }
+    .dvn-scroller { overflow-y: hidden !important; }
+    .stDataFrame table, .stDataEditor table { table-layout: fixed !important; width: 100% !important; }
+    .stDataFrame td, .stDataFrame th, .stDataEditor td, .stDataEditor th { text-align: center !important; font-size: 0.85rem !important; }
+    section.main div[data-testid="stDataFrame"]:nth-of-type(1) thead, section.main div[data-testid="stDataEditor"]:nth-of-type(2) thead, section.main div[data-testid="stDataFrame"]:nth-of-type(2) thead, section.main div[data-testid="stDataFrame"]:nth-of-type(3) thead { display: none !important; }
+    </style>
+""", unsafe_allow_html=True)
+
+if "authenticated" not in st.session_state: st.session_state.authenticated = False
+if "pagina_atual" not in st.session_state: st.session_state.pagina_atual = "Página Inicial"
+
+def login_screen():
+    st.markdown("<br><br><h2 style='text-align: center;'>Acesso ao Sistema</h2>", unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col2:
+        user = st.text_input("Usuário")
+        password = st.text_input("Senha", type="password")
+        if st.button("Entrar", use_container_width=True):
+            if user == "breno.lima" and password == "Ecoclim2026@":
+                st.session_state.authenticated = True
+                st.rerun()
+            else:
+                st.error("Usuário ou senha incorretos")
 
 # ==========================================
 # 5. TELAS DO SISTEMA
 # ==========================================
-
 def tela_inicial():
     st.markdown("## Página Inicial")
     st.write("Bem-vindo ao sistema de gestão, Breno. Selecione uma opção abaixo:")
     st.write("---")
     
-    # Grid de botões quadrados (Cards)
     col1, col2 = st.columns(2)
     col3, col4 = st.columns(2)
     
+    # Removido o height=150 que estava causando o erro!
     with col1:
-        if st.button("📝\n\nFazer Orçamento", use_container_width=True, height=150):
-            st.info("Módulo Orçamentos em desenvolvimento.")
+        if st.button("📝\n\nFazer Orçamento", use_container_width=True): st.info("Módulo em desenvolvimento.")
     with col2:
-        if st.button("📊\n\nControle Financeiro", use_container_width=True, height=150):
-            st.session_state.menu = "Controle Financeiro"
+        if st.button("📊\n\nControle Financeiro", use_container_width=True):
+            st.session_state.pagina_atual = "Controle Financeiro"
             st.rerun()
     with col3:
-        if st.button("🏠\n\nAirbnb", use_container_width=True, height=150):
-            st.info("Módulo Airbnb em desenvolvimento.")
+        if st.button("🏠\n\nAirbnb", use_container_width=True): st.info("Módulo em desenvolvimento.")
     with col4:
-        if st.button("🛠️\n\nServiços Ecoclim", use_container_width=True, height=150):
-            st.info("Módulo Ecoclim em desenvolvimento.")
+        if st.button("🛠️\n\nServiços Ecoclim", use_container_width=True): st.info("Módulo em desenvolvimento.")
 
 def tela_financeira():
     st.subheader("📊 Controle Financeiro")
     
-    # Barra lateral interna desta tela
     with st.sidebar:
         ano_selecionado = st.selectbox("Ano Fiscal", options=[2025, 2026, 2027, 2028], index=1)
         st.write("---")
+        st.markdown("### 👁️ Linha do Tempo")
         
-        # Carrega preferências salvas
         pref_inicio, pref_fim = load_user_settings()
+        if pref_inicio not in meses_pt: pref_inicio = "JANEIRO"
+        if pref_fim not in meses_pt: pref_fim = mes_atual_nome
+            
+        mes_inicio, mes_fim = st.select_slider("Período Visível:", options=meses_pt, value=(pref_inicio, pref_fim))
         
-        mes_inicio, mes_fim = st.select_slider(
-            "Período Visível:", options=meses_pt, value=(pref_inicio, pref_fim)
-        )
-        
-        # Salva se houver alteração
         if (mes_inicio != pref_inicio) or (mes_fim != pref_fim):
             save_user_settings(mes_inicio, mes_fim)
             
-        colunas_visiveis = ["MESES"] + meses_pt[meses_pt.index(mes_inicio):meses_pt.index(mes_fim) + 1]
+        idx_inicio = meses_pt.index(mes_inicio)
+        idx_fim = meses_pt.index(mes_fim)
+        colunas_visiveis = ["MESES"] + meses_pt[idx_inicio:idx_fim + 1]
 
-    # Carrega dados
+        if st.button("🔄 Recarregar Dados"):
+            st.session_state.pop('ano_dados_atual', None); st.rerun()
+
     contas_p = ['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS', 'IMÓVEIS', 'VEÍCULOS']
     contas_e = ['ECOCLIM', 'AIRNB', 'CONS INVESTIMENTOS', 'MAGGI CONSORCIOS']
     
-    df_p = load_year_data('patrimonio', contas_p, ano_selecionado)
-    df_e = load_year_data('entradas', contas_e, ano_selecionado)
+    if 'ano_dados_atual' not in st.session_state or st.session_state.ano_dados_atual != ano_selecionado:
+        st.session_state.df_p = load_year_data('patrimonio', contas_p, ano_selecionado)
+        st.session_state.df_e = load_year_data('entradas', contas_e, ano_selecionado)
+        st.session_state.ano_dados_atual = ano_selecionado
 
-    # Renderização das tabelas (lógica igual à versão anterior)...
-    # [Omitido por brevidade, mas deve conter toda a lógica de st.data_editor e cálculos anteriores]
-    # ...
-    st.write("Aqui entra o dashboard que construímos nas etapas anteriores...")
-    # (Inserir aqui o bloco de tabelas e gráficos da última versão)
+    col_cfg = {"MESES": st.column_config.TextColumn("MESES", width=220, disabled=True)}
+    for m in meses_pt: col_cfg[m] = st.column_config.TextColumn(m, width=80) 
+
+    st.markdown('<div class="container-tabelas">', unsafe_allow_html=True)
+
+    # PATRIMÔNIO
+    df_p_display = st.session_state.df_p[colunas_visiveis].copy()
+    for m in [c for c in colunas_visiveis if c != "MESES"]: df_p_display[m] = df_p_display[m].apply(to_br_currency)
+    styled_df_p = df_p_display.style.set_properties(subset=[mes_atual_nome] if mes_atual_nome in colunas_visiveis and ano_selecionado == ano_atual else [], **{'background-color': '#e0f0ff', 'font-weight': 'bold'})
+    df_p_edit_str = st.data_editor(styled_df_p, hide_index=True, column_config=col_cfg, use_container_width=True, height=295)
+
+    if not df_p_edit_str.equals(df_p_display):
+        for m in [c for c in colunas_visiveis if c != "MESES"]:
+            st.session_state.df_p.loc[:, m] = df_p_edit_str[m].apply(parse_br_currency)
+        save_to_supabase('patrimonio', st.session_state.df_p, ano_selecionado)
+        st.toast("💾 Salvo!", icon="✅"); st.rerun()
+
+    df_n = st.session_state.df_p.set_index('MESES')
+    pat_liq = df_n.loc[['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS']].sum()
+    pat_tot = pat_liq + df_n.loc['IMÓVEIS'] + df_n.loc['VEÍCULOS']
+    var_abs = pat_tot.diff().fillna(0); var_pct = (pat_tot.pct_change().fillna(0) * 100).round(2)
+
+    for i, m in enumerate(meses_pt):
+        if (ano_selecionado > ano_atual) or (ano_selecionado == ano_atual and i > mes_hoje_idx - 1):
+            var_abs[m] = 0; var_pct[m] = 0
+
+    df_res_p = pd.DataFrame({'MESES': ['PATRIMÔNIO LÍQUIDO', 'PATRIMÔNIO TOTAL', 'VARIAÇÃO MENSAL ($)', 'VARIAÇÃO MENSAL (%)']})
+    for m in meses_pt: df_res_p[m] = [pat_liq[m], pat_tot[m], var_abs[m], f"{var_pct[m]:.2f}%"]
+
+    styled_res_p = df_res_p[colunas_visiveis].style.apply(lambda row: [f'background-color: {"#FF9900" if row["MESES"] == "PATRIMÔNIO TOTAL" else "#FFF2CC" if "LÍQUIDO" in row["MESES"] else "white"}; font-weight: bold; border-left: {"3px solid #4A90E2" if col == mes_atual_nome and ano_selecionado == ano_atual else "none"}' for col in colunas_visiveis], axis=1)
+    st.dataframe(styled_res_p.format(lambda x: to_br_currency(x) if isinstance(x, (int, float, np.integer, np.floating)) else x), hide_index=True, column_config=col_cfg, use_container_width=True, height=175)
+
+    # ENTRADAS
+    df_e_display = st.session_state.df_e[colunas_visiveis].copy()
+    for m in [c for c in colunas_visiveis if c != "MESES"]: df_e_display[m] = df_e_display[m].apply(to_br_currency)
+    styled_df_e = df_e_display.style.set_properties(subset=[mes_atual_nome] if mes_atual_nome in colunas_visiveis and ano_selecionado == ano_atual else [], **{'background-color': '#e0f0ff', 'font-weight': 'bold'})
+    df_e_edit_str = st.data_editor(styled_df_e, hide_index=True, column_config=col_cfg, use_container_width=True, height=190)
+
+    if not df_e_edit_str.equals(df_e_display):
+        for m in [c for c in colunas_visiveis if c != "MESES"]:
+            st.session_state.df_e.loc[:, m] = df_e_edit_str[m].apply(parse_br_currency)
+        save_to_supabase('entradas', st.session_state.df_e, ano_selecionado)
+        st.toast("💾 Salvo!", icon="✅"); st.rerun()
+
+    df_e_n = st.session_state.df_e.set_index('MESES'); tot_ent = df_e_n.sum()
+    df_res_e = pd.DataFrame({'MESES': ['TOTAL RECEBIMENTOS:']})
+    for m in meses_pt: df_res_e[m] = [tot_ent[m]]
+
+    styled_res_e = df_res_e[colunas_visiveis].style.apply(lambda row: [f'background-color: #9BC2E6; font-weight: bold; border-left: {"3px solid #4A90E2" if col == mes_atual_nome and ano_selecionado == ano_atual else "none"}' for col in colunas_visiveis], axis=1)
+    st.dataframe(styled_res_e.format(lambda x: to_br_currency(x) if isinstance(x, (int, float, np.integer, np.floating)) else x), hide_index=True, column_config=col_cfg, use_container_width=True, height=75)
+
+    # RENDIMENTOS
+    st.markdown("#### 📈 Rendimento Mensal (Investimentos)")
+    xp_val = df_n.loc['INVESTIMENTO XP']; inter_val = df_n.loc['CONTA INTER']
+    xp_var = xp_val.diff().fillna(0); inter_var = inter_val.diff().fillna(0)
+    rend_total = xp_var + inter_var; prev_bal = (xp_val + inter_val).shift(1).fillna(0)
+
+    df_rend = pd.DataFrame({'MESES': ['VARIAÇÃO INVESTIMENTO XP', 'VARIAÇÃO CONTA INTER', 'RENDIMENTO TOTAL', '% RETORNO MÊS', 'SALÁRIO + RENDIMENTO MÊS']})
+    for i, m in enumerate(meses_pt):
+        if (ano_selecionado > ano_atual) or (ano_selecionado == ano_atual and i > mes_hoje_idx - 1):
+            df_rend[m] = [0, 0, 0, "0,00%", 0]
+        else:
+            rt = rend_total[m]; pb = prev_bal[m]
+            pct_val = (rt / pb * 100) if pb > 0 else 0
+            df_rend[m] = [xp_var[m], inter_var[m], rt, f"{pct_val:.2f}%".replace(".", ","), tot_ent[m] + rt]
+
+    styled_rend = df_rend[colunas_visiveis].style.apply(lambda row: [f'background-color: {"#FF9900" if row["MESES"] == "RENDIMENTO TOTAL" else "#FFF2CC" if "%" in row["MESES"] else "#9BC2E6" if "SALÁRIO" in row["MESES"] else "white"}; font-weight: bold; border-left: {"3px solid #4A90E2" if col == mes_atual_nome and ano_selecionado == ano_atual else "none"}' for col in colunas_visiveis], axis=1)
+    st.dataframe(styled_rend.format(lambda x: to_br_currency(x) if isinstance(x, (int, float, np.integer, np.floating)) else x), hide_index=True, column_config=col_cfg, use_container_width=True, height=215)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # MÉTRICAS E GRÁFICOS
+    st.markdown("<br>", unsafe_allow_html=True)
+    c1, c2, c3, c4 = st.columns(4)
+    meses_calculo = meses_pt if ano_selecionado < ano_atual else meses_pt[:mes_hoje_idx]
+    media_entradas = tot_ent[meses_calculo].mean()
+    media_rend_r = rend_total[meses_calculo].mean()
+    media_rend_p = (rend_total[meses_calculo] / prev_bal[meses_calculo].replace(0, np.nan)).mean() * 100
+    idx_ref = 11 if ano_selecionado < ano_atual else (mes_hoje_idx - 1 if mes_hoje_idx > 0 else 0)
+
+    c1.metric("💰 MÉDIA ENTRADAS FIXAS", to_br_currency(media_entradas))
+    c2.metric("🎯 LIMITE DE GASTO (MÉDIA REND.)", to_br_currency(media_rend_r), help="Média de rendimento XP e Inter.")
+    c3.metric("📈 MÉDIA RETORNO (%)", f"{media_rend_p:.2f}%".replace(".", ","))
+    c4.metric("🏛️ PATRIMÔNIO ATUAL", to_br_currency(pat_tot.iloc[idx_ref]))
+
+    st.write("---")
+    g1, g2 = st.columns(2)
+    with g1:
+        st.subheader("Aumento de Patrimônio Total")
+        st.line_chart(pat_tot[meses_pt])
+        st.subheader("Rendimento Mensal (R$)")
+        st.bar_chart(rend_total[meses_pt])
+    with g2:
+        st.subheader("Salário + Rendimento Mensal")
+        st.area_chart(tot_ent[meses_pt] + rend_total[meses_pt])
+        st.subheader("Faturamento Ecoclim")
+        st.line_chart(df_e_n.loc['ECOCLIM'][meses_pt])
 
 # ==========================================
 # 6. EXECUÇÃO PRINCIPAL
 # ==========================================
-if login():
-    # Sidebar Global
+if not st.session_state.authenticated:
+    login_screen()
+else:
     with st.sidebar:
-        st.write("### Menu")
-        menu = st.radio("Navegação", ["Página Inicial", "Controle Financeiro", "Sair"])
+        st.write("### Menu Principal")
+        # Controla a navegação no menu lateral com base no state atual
+        opcoes_menu = ["Página Inicial", "Controle Financeiro"]
+        idx_menu = opcoes_menu.index(st.session_state.pagina_atual) if st.session_state.pagina_atual in opcoes_menu else 0
         
-        if menu == "Sair":
+        escolha = st.radio("Navegação:", opcoes_menu, index=idx_menu)
+        
+        if escolha != st.session_state.pagina_atual:
+            st.session_state.pagina_atual = escolha
+            st.rerun()
+            
+        st.write("---")
+        if st.button("🚪 Sair", use_container_width=True):
             st.session_state.authenticated = False
             st.rerun()
 
-    # Roteamento
-    if menu == "Página Inicial":
+    if st.session_state.pagina_atual == "Página Inicial":
         tela_inicial()
-    elif menu == "Controle Financeiro":
+    elif st.session_state.pagina_atual == "Controle Financeiro":
         tela_financeira()
