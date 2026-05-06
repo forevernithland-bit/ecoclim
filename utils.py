@@ -1,238 +1,172 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
+from reportlab.lib.units import cm
+from reportlab.lib.utils import ImageReader
+from io import BytesIO
 import datetime
-import re
-import os
-import io
-from supabase import create_client
-from fpdf import FPDF
 
-# ==========================================
-# VARIÁVEIS GLOBAIS E FORMATAÇÃO
-# ==========================================
-meses_pt = ['JANEIRO', 'FEVEREIRO', 'MARÇO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO']
-hoje = datetime.datetime.now()
-ano_atual = hoje.year
-mes_hoje_idx = hoje.month 
-mes_atual_nome = meses_pt[mes_hoje_idx - 1] 
+# Constantes de Imagens (URLs recuperadas para o seu projeto)
+IMG_CAPA = "http://googleusercontent.com/image_collection/image_retrieval/6422524173617068594"
+IMG_VACUO = "http://googleusercontent.com/image_collection/image_retrieval/4744835434356641686"
+IMG_TRADICIONAL = "http://googleusercontent.com/image_collection/image_retrieval/1248258249000705016"
+IMG_PISCINA = "http://googleusercontent.com/image_collection/image_retrieval/7319541597131710314"
+IMG_AR = "http://googleusercontent.com/image_collection/image_retrieval/13303198893195767277"
 
-def init_connection():
-    url = st.secrets["SUPABASE_URL"].strip()
-    key = st.secrets["SUPABASE_KEY"].strip()
-    return create_client(url, key)
+def to_br_currency(value, symbol=True):
+    if value is None: value = 0.0
+    res = f"{value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"R$ {res}" if symbol else res
 
-def to_br_currency(val, show_cents=True):
+def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v_out, total, obs, mostrar_un):
+    buffer = BytesIO()
+    p = canvas.Canvas(buffer, pagesize=A4)
+    largura, altura = A4
+
+    # =========================================================================
+    # PÁGINA 1: CAPA
+    # =========================================================================
     try:
-        v = float(val)
-        if show_cents:
-            return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-        else:
-            return f"R$ {int(v):,}".replace(",", ".")
-    except: return "R$ 0,00"
-
-def parse_br_currency(val):
-    try:
-        if isinstance(val, (int, float)): return float(val)
-        clean = re.sub(r'[^\d,-]', '', str(val)).replace(",", ".")
-        return float(clean) if clean else 0.0
-    except: return 0.0
-
-def to_excel(df):
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='Base_Ecoclim')
-    return output.getvalue()
-
-# ==========================================
-# BANCO DE DADOS: CATÁLOGOS (CONFIGURAÇÕES)
-# ==========================================
-def load_catalog(table_name):
-    # Usa a conexão salva na sessão
-    supabase = st.session_state.supabase
-    try:
-        res = supabase.table(table_name).select("*").order("item").execute()
-        df = pd.DataFrame(res.data)
-        if df.empty:
-            return pd.DataFrame(columns=["Item", "Fornecedor", "Custo (R$)", "Margem (%)", "Lucro (R$)", "Venda (R$)", "Descrição"])
+        # Fundo da Capa (Imagem de Paisagem)
+        p.drawImage(IMG_CAPA, 0, 0, width=largura, height=altura, mask='auto')
         
-        if "fornecedor" not in df.columns:
-            df["fornecedor"] = ""
-            
-        df = df.rename(columns={"item": "Item", "fornecedor": "Fornecedor", "custo": "Custo (R$)", "margem": "Margem (%)", "descricao": "Descrição"})
-        df['Venda (R$)'] = (df['Custo (R$)'] * (1 + df['Margem (%)'] / 100)).round().astype(float)
-        df['Lucro (R$)'] = (df['Venda (R$)'] - df['Custo (R$)']).astype(float)
-        return df[["Item", "Fornecedor", "Custo (R$)", "Margem (%)", "Lucro (R$)", "Venda (R$)", "Descrição"]]
+        # Logo (Tenta carregar local, senão deixa espaço)
+        try: p.drawImage("logo.png", 2*cm, altura - 5*cm, width=6*cm, preserveAspectRatio=True, mask='auto')
+        except: pass
+        
+        # Faixa Escura Inferior
+        p.setFillColor(colors.HexColor("#001529"))
+        p.rect(0, 0, largura, 5*cm, fill=1, stroke=0)
+        
+        # Texto da Capa
+        p.setFillColor(colors.white)
+        p.setFont("Helvetica-Bold", 36)
+        p.drawCentredString(largura/2, 2*cm, "PROPOSTA DE SERVIÇO")
+        
+        p.showPage()
     except:
-        return pd.DataFrame(columns=["Item", "Fornecedor", "Custo (R$)", "Margem (%)", "Lucro (R$)", "Venda (R$)", "Descrição"])
+        p.showPage() # Fallback caso a imagem da capa falhe
 
-def save_catalog(table_name, df):
-    supabase = st.session_state.supabase
-    try:
-        data = []
-        for _, row in df.iterrows():
-            if row['Item'] and str(row['Item']).strip() != "":
-                data.append({
-                    "item": row['Item'],
-                    "fornecedor": str(row.get('Fornecedor', '')),
-                    "custo": float(row['Custo (R$)']),
-                    "margem": float(row['Margem (%)']),
-                    "descricao": str(row['Descrição']) if row['Descrição'] else ""
-                })
-        supabase.table(table_name).delete().neq("item", "___vazio___").execute()
-        if data: supabase.table(table_name).insert(data).execute()
-    except Exception as e: st.error(f"Erro ao sincronizar catálogo: {e}")
-
-# ==========================================
-# BANCO DE DADOS: FINANCEIRO
-# ==========================================
-def load_year_data(table_name, itens_padrao, ano_escolhido):
-    supabase = st.session_state.supabase
-    try:
-        res = supabase.table(table_name).select("*").eq("ano", ano_escolhido).execute()
-        df_raw = pd.DataFrame(res.data)
-        if df_raw.empty:
-            df = pd.DataFrame(0.0, index=range(len(itens_padrao)), columns=meses_pt)
-            df.insert(0, 'MESES', itens_padrao); return df
-        df_pivot = df_raw.pivot(index='conta', columns='mes', values='valor').fillna(0.0)
-        for m in meses_pt:
-            if m not in df_pivot.columns: df_pivot[m] = 0.0
-        df_pivot = df_pivot[meses_pt].reset_index()
-        df_pivot.rename(columns={'conta': 'MESES'}, inplace=True)
-        for item in itens_padrao:
-            if item not in df_pivot['MESES'].values:
-                nova_linha = {m: 0.0 for m in meses_pt}; nova_linha['MESES'] = item
-                df_pivot = pd.concat([df_pivot, pd.DataFrame([nova_linha])], ignore_index=True)
-        df_pivot.set_index('MESES', inplace=True); df_pivot = df_pivot.reindex(itens_padrao).reset_index()
-        df_pivot[meses_pt] = df_pivot[meses_pt].astype(float)
-        return df_pivot
-    except:
-        df = pd.DataFrame(0.0, index=range(len(itens_padrao)), columns=meses_pt)
-        df.insert(0, 'MESES', itens_padrao); return df
-
-def save_to_supabase(table_name, df_float, ano_escolhido):
-    supabase = st.session_state.supabase
-    try:
-        df_melted = df_float.melt(id_vars=['MESES'], var_name='mes', value_name='valor')
-        df_melted['ano'] = ano_escolhido; df_melted.rename(columns={'MESES': 'conta'}, inplace=True)
-        df_melted['valor'] = df_melted['valor'].astype(float)
-        data = df_melted.to_dict(orient='records')
-        supabase.table(table_name).delete().eq('ano', ano_escolhido).execute()
-        supabase.table(table_name).insert(data).execute()
-    except Exception as e: st.error(f"Erro ao salvar financeiro: {e}")
-
-# ==========================================
-# CONFIGURAÇÕES DE USUÁRIO (SLIDER)
-# ==========================================
-def load_user_settings():
-    supabase = st.session_state.supabase
-    try:
-        res = supabase.table('configuracoes').select("*").eq('user_id', 'breno.lima').execute()
-        if res.data: return res.data[0]['mes_inicio'], res.data[0]['mes_fim']
+    # =========================================================================
+    # PÁGINA 2: PROPOSTA COMERCIAL (CORRIGIDA)
+    # =========================================================================
+    # Cabeçalho
+    try: p.drawImage("logo.png", 1.5*cm, altura - 3*cm, width=4*cm, preserveAspectRatio=True, mask='auto')
     except: pass
-    return "JANEIRO", mes_atual_nome
-
-def save_user_settings(inicio, fim):
-    supabase = st.session_state.supabase
-    try:
-        data = {"id": 1, "user_id": "breno.lima", "mes_inicio": inicio, "mes_fim": fim}
-        supabase.table('configuracoes').upsert(data).execute()
-    except: pass
-
-# ==========================================
-# GERADOR DE PDF
-# ==========================================
-def gerar_pdf_orcamento(cliente, tel, produto, df_equip, desc_s, val_s, desc_o, val_o, total, obs, mostrar_val):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("helvetica", "B", 16)
-    if os.path.exists("logo.png"): pdf.image("logo.png", 10, 8, 40)
     
-    pdf.cell(0, 10, "PROPOSTA COMERCIAL", ln=True, align="R")
-    pdf.set_font("helvetica", "", 10)
-    pdf.cell(0, 5, f"Data: {datetime.datetime.now().strftime('%d/%m/%Y')}", ln=True, align="R")
-    pdf.cell(0, 5, "Validade: 15 dias", ln=True, align="R")
-    pdf.ln(10)
+    p.setFont("Helvetica-Bold", 16)
+    p.setFillColor(colors.black)
+    p.drawString(10*cm, altura - 2*cm, "PROPOSTA COMERCIAL")
     
-    pdf.set_fill_color(230, 240, 255)
-    pdf.set_font("helvetica", "B", 12)
-    pdf.cell(0, 8, " DADOS DO CLIENTE", border=1, ln=True, fill=True)
-    pdf.set_font("helvetica", "", 11)
-    pdf.cell(0, 8, f" Nome: {cliente}", border=1, ln=True)
-    pdf.cell(0, 8, f" Telefone: {tel}", border=1, ln=True)
-    pdf.ln(5)
+    p.setFont("Helvetica", 10)
+    p.drawRightString(largura - 1.5*cm, altura - 2*cm, f"Data: {datetime.date.today().strftime('%d/%m/%Y')}")
+    p.drawRightString(largura - 1.5*cm, altura - 2.5*cm, "Validade: 15 dias")
 
-    img_urls = {
-        "AQUECEDOR SOLAR TRADICIONAL": "https://dummyimage.com/600x200/004488/fff&text=Aquecedor+Solar+Tradicional",
-        "AQUECEDOR SOLAR A VÁCUO ACOPLADO": "https://dummyimage.com/600x200/004488/fff&text=Tubos+a+Vacuo+Acoplado",
-        "AQUECEDOR SOLAR MODULAR": "https://dummyimage.com/600x200/004488/fff&text=Aquecedor+Solar+Modular",
-        "AQUECEDOR DE PISCINA - TRADICIONAL": "https://dummyimage.com/600x200/004488/fff&text=Aquecedor+de+Piscina",
-        "AQUECEDOR DE PISCINA - TROCADOR DE CALOR": "https://dummyimage.com/600x200/004488/fff&text=Trocador+de+Calor",
-        "SISTEMAS DE PRESSURIZAÇÃO": "https://dummyimage.com/600x200/004488/fff&text=Sistema+de+Pressurizacao"
-    }
-    try: pdf.image(img_urls.get(produto, img_urls["AQUECEDOR SOLAR TRADICIONAL"]), x=10, w=190)
-    except: pdf.cell(0, 20, f"[IMAGEM: {produto}]", border=1, ln=True, align="C")
-    pdf.ln(5)
-
-    pdf.set_font("helvetica", "B", 12); pdf.cell(0, 8, " 1. EQUIPAMENTOS", border=1, ln=True, fill=True)
-    pdf.set_font("helvetica", "B", 10)
-    if mostrar_val:
-        pdf.cell(100, 8, " Item", border=1); pdf.cell(30, 8, " Qtd", border=1, align="C"); pdf.cell(60, 8, " Subtotal", border=1, ln=True, align="R")
-    else:
-        pdf.cell(160, 8, " Item", border=1); pdf.cell(30, 8, " Qtd", border=1, ln=True, align="C")
+    # Dados do Cliente
+    p.setFillColor(colors.HexColor("#004488"))
+    p.rect(1.5*cm, altura - 4.5*cm, largura - 3*cm, 0.7*cm, fill=1, stroke=0)
+    p.setFillColor(colors.white)
+    p.setFont("Helvetica-Bold", 11)
+    p.drawString(1.8*cm, altura - 4.05*cm, "DADOS DO CLIENTE")
     
-    for _, row in df_equip.iterrows():
-        nome = row['Produto da Base'] if row['Produto da Base'] != "OUTRO" else row['Produto Manual']
-        if str(nome).strip() != "":
-            q, v = float(row['Quantidade']), float(row['Venda (R$)'])
-            pdf.set_font("helvetica", "B", 10); pdf.set_text_color(0, 0, 0)
-            
-            if mostrar_val:
-                pdf.cell(100, 8, f" {nome}", border=1); pdf.cell(30, 8, f" {int(q)}", border=1, align="C"); pdf.cell(60, 8, f" {to_br_currency(q*v)}", border=1, ln=True, align="R")
-            else:
-                pdf.cell(160, 8, f" {nome}", border=1); pdf.cell(30, 8, f" {int(q)}", border=1, ln=True, align="C")
-            
-            if nome in st.session_state.db_produtos['Item'].values:
-                desc_texto = st.session_state.db_produtos.loc[st.session_state.db_produtos['Item'] == nome, 'Descrição'].values[0]
-                if str(desc_texto).strip() != "":
-                    pdf.set_font("helvetica", "I", 8); pdf.set_text_color(80, 80, 80)
-                    pdf.multi_cell(0, 5, f"  Detalhes: {desc_texto}", border=1)
-                    pdf.set_text_color(0, 0, 0)
+    p.setFillColor(colors.black)
+    p.setFont("Helvetica", 10)
+    p.rect(1.5*cm, altura - 6.5*cm, largura - 3*cm, 2*cm, fill=0, stroke=1)
+    p.drawString(1.8*cm, altura - 5.3*cm, f"Nome: {nome}")
+    p.drawString(1.8*cm, altura - 6.0*cm, f"WhatsApp: {tel}")
 
-    if val_s > 0:
-        pdf.ln(5); pdf.set_font("helvetica", "B", 12); pdf.cell(0, 8, " 2. SERVIÇOS", border=1, ln=True, fill=True)
-        pdf.set_font("helvetica", "", 10); pdf.multi_cell(0, 6, f" {desc_s}", border=1)
-        pdf.cell(130, 8, " Valor do Serviço:", border=1); pdf.cell(60, 8, f" {to_br_currency(val_s)}", border=1, ln=True, align="R")
-
-    if val_o > 0:
-        pdf.ln(5); pdf.set_font("helvetica", "B", 12); pdf.cell(0, 8, " 3. DIVERSOS", border=1, ln=True, fill=True)
-        pdf.set_font("helvetica", "", 10); pdf.multi_cell(0, 6, f" {desc_o}", border=1)
-        pdf.cell(130, 8, " Valor Adicional:", border=1); pdf.cell(60, 8, f" {to_br_currency(val_o)}", border=1, ln=True, align="R")
-
-    pdf.ln(5); pdf.set_font("helvetica", "B", 14); pdf.set_fill_color(0, 68, 136); pdf.set_text_color(255, 255, 255)
-    pdf.cell(130, 10, " INVESTIMENTO TOTAL", border=1, fill=True); pdf.cell(60, 10, f" {to_br_currency(total)}", border=1, ln=True, align="R", fill=True)
-    pdf.ln(10); pdf.set_text_color(200, 0, 0); pdf.set_font("helvetica", "B", 10); pdf.multi_cell(0, 6, f"OBSERVAÇÕES:\n{obs}", border=0)
+    # 1. EQUIPAMENTOS
+    y = altura - 8*cm
+    p.setFillColor(colors.HexColor("#333333"))
+    p.rect(1.5*cm, y, largura - 3*cm, 0.7*cm, fill=1, stroke=0)
+    p.setFillColor(colors.white)
+    p.drawString(1.8*cm, y + 0.2*cm, "1. EQUIPAMENTOS")
     
-    return bytes(pdf.output())
-# ==========================================
-# BANCO DE DADOS: TAXAS E IMPOSTOS
-# ==========================================
-def load_taxas():
-    supabase = st.session_state.supabase
-    try:
-        res = supabase.table('catalogo_taxas').select("*").order("item").execute()
-        df = pd.DataFrame(res.data)
-        if df.empty:
-            return pd.DataFrame(columns=["Item", "Taxa (%)"])
-        df = df.rename(columns={"item": "Item", "taxa_percentual": "Taxa (%)"})
-        return df[["Item", "Taxa (%)"]]
-    except:
-        return pd.DataFrame(columns=["Item", "Taxa (%)"])
+    y -= 0.6*cm
+    p.setFillColor(colors.black)
+    p.setFont("Helvetica-Bold", 9)
+    p.drawString(1.8*cm, y - 0.3*cm, "Item")
+    p.drawString(12*cm, y - 0.3*cm, "Qtd")
+    p.drawRightString(largura - 1.8*cm, y - 0.3*cm, "Subtotal")
+    
+    p.setFont("Helvetica", 9)
+    y -= 0.8*cm
+    for _, row in df_items.iterrows():
+        if row['Quantidade'] > 0:
+            item_nome = row['Produto da Base'] if row['Produto da Base'] != "OUTRO" else row['Produto Manual']
+            p.drawString(1.8*cm, y, str(item_nome)[:55])
+            p.drawString(12.3*cm, y, str(int(row['Quantidade'])))
+            p.drawRightString(largura - 1.8*cm, y, to_br_currency(row['Venda Total']))
+            y -= 0.5*cm
+            if y < 4*cm: # Nova página se necessário
+                p.showPage()
+                y = altura - 3*cm
 
-def save_taxas(df):
-    supabase = st.session_state.supabase
-    try:
-        data = [{"item": row['Item'], "taxa_percentual": float(row['Taxa (%)'])} for _, row in df.iterrows() if row['Item'] and str(row['Item']).strip() != ""]
-        supabase.table('catalogo_taxas').delete().neq("item", "___vazio___").execute()
-        if data: supabase.table('catalogo_taxas').insert(data).execute()
-    except Exception as e: st.error(f"Erro ao salvar taxas: {e}")
+    # 2. SERVIÇOS (CORREÇÃO DE ALINHAMENTO)
+    y -= 1*cm
+    p.setFillColor(colors.HexColor("#666666"))
+    p.rect(1.5*cm, y, largura - 3*cm, 0.7*cm, fill=1, stroke=0)
+    p.setFillColor(colors.white)
+    p.setFont("Helvetica-Bold", 11)
+    p.drawString(1.8*cm, y + 0.2*cm, "2. SERVIÇOS")
+    
+    y -= 0.7*cm
+    p.setFillColor(colors.black)
+    p.setFont("Helvetica", 9)
+    p.drawString(1.8*cm, y - 0.3*cm, str(d_serv)[:80])
+    p.drawRightString(largura - 1.8*cm, y - 0.3*cm, to_br_currency(v_serv)) # VALOR ALINHADO À DIREITA
+
+    # INVESTIMENTO TOTAL
+    y -= 2*cm
+    p.setFillColor(colors.HexColor("#004488"))
+    p.rect(1.5*cm, y, largura - 3*cm, 1.2*cm, fill=1, stroke=0)
+    p.setFillColor(colors.white)
+    p.setFont("Helvetica-Bold", 14)
+    p.drawString(1.8*cm, y + 0.4*cm, "INVESTIMENTO TOTAL")
+    p.drawRightString(largura - 1.8*cm, y + 0.4*cm, to_br_currency(total))
+
+    # OBSERVAÇÕES
+    y -= 1.5*cm
+    p.setFillColor(colors.red)
+    p.setFont("Helvetica-Bold", 10)
+    p.drawString(1.5*cm, y, "OBSERVAÇÕES:")
+    p.setFont("Helvetica", 9)
+    p.drawString(1.5*cm, y - 0.5*cm, obs)
+
+    p.showPage()
+
+    # =========================================================================
+    # PÁGINA 3: ESCOPO DE SERVIÇOS
+    # =========================================================================
+    p.setFillColor(colors.HexColor("#f4f4f4"))
+    p.rect(0, 0, largura, altura, fill=1, stroke=0)
+    
+    # Título da Página de Escopo
+    p.setFillColor(colors.black)
+    p.setFont("Helvetica-Bold", 22)
+    p.drawCentredString(largura/2, altura - 2*cm, "CONHEÇA NOSSAS SOLUÇÕES")
+    
+    # Galeria de Imagens (Grid 2x2)
+    def draw_service_box(x, y, img_url, title):
+        try:
+            p.drawImage(img_url, x, y, width=8*cm, height=6*cm, preserveAspectRatio=True)
+            p.setFillColor(colors.HexColor("#004488"))
+            p.rect(x, y - 1*cm, 8*cm, 0.8*cm, fill=1, stroke=0)
+            p.setFillColor(colors.white)
+            p.setFont("Helvetica-Bold", 10)
+            p.drawCentredString(x + 4*cm, y - 0.5*cm, title)
+        except: pass
+
+    # Linha 1
+    draw_service_box(1.5*cm, altura - 9*cm, IMG_VACUO, "AQUECEDOR A VÁCUO")
+    draw_service_box(largura - 9.5*cm, altura - 9*cm, IMG_TRADICIONAL, "SISTEMA TRADICIONAL")
+    
+    # Linha 2
+    draw_service_box(1.5*cm, altura - 17*cm, IMG_PISCINA, "AQUECIMENTO DE PISCINA")
+    draw_service_box(largura - 9.5*cm, altura - 17*cm, IMG_AR, "AR CONDICIONADO")
+
+    p.save()
+    buffer.seek(0)
+    return buffer
