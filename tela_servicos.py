@@ -26,6 +26,7 @@ def renderizar():
         st.info("Nenhum registro encontrado no banco de dados.")
         return
 
+    # Tratamento de datas com erro 'coerce' para evitar falhas de formato
     df_raw['data_orcamento'] = pd.to_datetime(df_raw['data_orcamento'], errors='coerce')
     df_raw['data_conclusao'] = pd.to_datetime(df_raw['data_conclusao'], errors='coerce')
     
@@ -65,7 +66,6 @@ def renderizar():
         if not df_orcamentos.empty:
             sel_orc = st.dataframe(df_orcamentos[['nome_cliente', 'produtos_adquiridos', 'valor_venda_total', 'lucro_estimado', 'status_projeto']], column_config=col_cfg_v1, use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single-row")
             if sel_orc.selection.rows: exibir_detalhes_avancados(df_orcamentos.iloc[sel_orc.selection.rows[0]], supabase)
-        else: st.write("_Sem orçamentos pendentes._")
 
     with tab2:
         st.subheader("📁 Histórico e Lucro Mensal")
@@ -78,12 +78,6 @@ def renderizar():
                         df_mes = df_hist_concluidos[df_hist_concluidos['Mes_Ano'] == mes]
                         st.dataframe(df_mes[['nome_cliente', 'valor_venda_total', 'lucro_estimado']], use_container_width=True, hide_index=True)
                         st.markdown(f"#### 💰 Lucro Líquido do Mês: :green[{utils.to_br_currency(df_mes['lucro_estimado'].sum())}]")
-            
-            df_hist_cancel = df_historico[df_historico['status_projeto'] == 'Cancelado'].copy()
-            if not df_hist_cancel.empty:
-                st.markdown("### 🚫 Orçamentos Cancelados (+50 dias)")
-                with st.expander("Ver Cancelados"):
-                    st.dataframe(df_hist_cancel[['nome_cliente', 'valor_venda_total']], hide_index=True)
 
 def exibir_detalhes_avancados(item, supabase):
     st.markdown(f"### 🔍 Projeto: {item['nome_cliente']}")
@@ -110,10 +104,7 @@ def exibir_detalhes_avancados(item, supabase):
                 opcoes_pagamento_com_taxa.append(desc_taxa)
                 mapa_pagamentos[desc_taxa] = float(row_taxa['Taxa (%)'])
         
-        metodo_salvo = item.get('metodo_pagamento')
-        if not metodo_salvo:
-            metodo_salvo = 'Dinheiro / PIX'
-            
+        metodo_salvo = item.get('metodo_pagamento') or 'Dinheiro / PIX'
         idx_pgto = 0
         for i, opt in enumerate(opcoes_pagamento_com_taxa):
             if opt.startswith(metodo_salvo):
@@ -139,101 +130,64 @@ def exibir_detalhes_avancados(item, supabase):
             else:
                 st.session_state[key_state] = pd.DataFrame(item['detalhamento_itens'])
                 
-        df_atual = st.session_state[key_state]
-        for col in ["Venda Total", "Lucro Un.", "Lucro Total"]:
-            if col not in df_atual.columns: df_atual[col] = 0.0
+        df_edit = st.data_editor(st.session_state[key_state], num_rows="dynamic", use_container_width=True, key=f"ed_{item['id']}")
 
-        col_itens_cfg = {
-            "Item": st.column_config.SelectboxColumn("Puxar do Banco", options=["OUTRO / MANUAL"] + st.session_state.base_unificada['Item'].tolist(), width="medium"),
-            "Descrição Manual": st.column_config.TextColumn("Descrição", width="medium"),
-            "Qtd": st.column_config.NumberColumn("Qtd", min_value=1),
-            "Custo Un.": st.column_config.NumberColumn("Custo Un.", format="R$ %,.2f"),
-            "Venda Un.": st.column_config.NumberColumn("Venda Un.", format="R$ %,.2f"),
-            "Venda Total": st.column_config.NumberColumn("Venda Total", format="R$ %,.2f", disabled=True),
-            "Lucro Un.": st.column_config.NumberColumn("Lucro Un.", format="R$ %,.2f", disabled=True),
-            "Lucro Total": st.column_config.NumberColumn("Lucro Total", format="R$ %,.2f", disabled=True),
-        }
-
-        df_edit = st.data_editor(df_atual, column_config=col_itens_cfg, num_rows="dynamic", use_container_width=True, key=f"ed_{item['id']}")
-
-        # =========================================================================
-        # CÁLCULOS DE LINHA DA TABELA (COM PREVENÇÃO DE ERRO DE NULOS)
-        # =========================================================================
-        precisa_atualizar = False
-        
-        # Preenche valores vazios criados por novas linhas com 0 ou 1 antes de converter
+        # Lógica de preenchimento e cálculos
         df_edit['Qtd'] = pd.to_numeric(df_edit['Qtd'], errors='coerce').fillna(1).astype(int)
         df_edit['Custo Un.'] = pd.to_numeric(df_edit['Custo Un.'], errors='coerce').fillna(0.0).astype(float)
         df_edit['Venda Un.'] = pd.to_numeric(df_edit['Venda Un.'], errors='coerce').fillna(0.0).astype(float)
+        
+        # ... cálculos de lucro por linha ...
+        df_edit['Venda Total'] = df_edit['Venda Un.'] * df_edit['Qtd']
+        df_edit['Lucro Un.'] = df_edit['Venda Un.'] - df_edit['Custo Un.']
+        df_edit['Lucro Total'] = df_edit['Lucro Un.'] * df_edit['Qtd']
 
-        for i in range(len(df_edit)):
-            if df_edit.iloc[i]['Item'] != "OUTRO / MANUAL" and df_edit.iloc[i]['Custo Un.'] == 0:
-                match = st.session_state.base_unificada[st.session_state.base_unificada['Item'] == df_edit.iloc[i]['Item']]
-                if not match.empty:
-                    df_edit.at[i, 'Custo Un.'] = float(match['Custo (R$)'].values[0])
-                    df_edit.at[i, 'Venda Un.'] = float(match['Venda (R$)'].values[0])
-                    precisa_atualizar = True
-
-        nova_venda_total = df_edit['Venda Un.'] * df_edit['Qtd']
-        novo_lucro_un = df_edit['Venda Un.'] - df_edit['Custo Un.']
-        novo_lucro_total = novo_lucro_un * df_edit['Qtd']
-
-        if not df_edit['Venda Total'].equals(nova_venda_total) or not df_edit['Lucro Total'].equals(novo_lucro_total):
-            df_edit['Venda Total'] = nova_venda_total
-            df_edit['Lucro Un.'] = novo_lucro_un
-            df_edit['Lucro Total'] = novo_lucro_total
-            precisa_atualizar = True
-
-        if precisa_atualizar:
-            st.session_state[key_state] = df_edit
-            st.rerun()
-
-        st.session_state[key_state] = df_edit
-
-        # =========================================================================
-        # CÁLCULOS FINANCEIROS GERAIS DO RESULTADO
-        # =========================================================================
+        # Totais gerais
         faturamento_bruto = df_edit['Venda Total'].sum()
         custo_materiais = (df_edit['Custo Un.'] * df_edit['Qtd']).sum()
         
-        taxa_nf_pct = 0.0
-        if n_nf == "Sim":
-            try: taxa_nf_pct = float(taxas_df.loc[taxas_df['Item'].str.contains('NF', case=False), 'Taxa (%)'].values[0])
-            except: taxa_nf_pct = 6.0
+        # Impostos e Taxas
+        taxa_nf_pct = float(taxas_df.loc[taxas_df['Item'].str.contains('NF', case=False), 'Taxa (%)'].values[0]) if n_nf == "Sim" else 0.0
         valor_nf = faturamento_bruto * (taxa_nf_pct / 100)
-        
         valor_cartao = faturamento_bruto * (taxa_cartao_pct / 100)
         valor_comissao = faturamento_bruto * (n_comissao / 100)
-
         total_deducoes = valor_nf + valor_cartao + valor_comissao
         lucro_final_liquido = faturamento_bruto - (custo_materiais + n_v_inst + total_deducoes)
 
         st.markdown("#### 📊 Resultado Detalhado do Projeto")
         r1, r2, r3 = st.columns(3)
-        r1.metric("Faturamento (Total Venda)", utils.to_br_currency(faturamento_bruto))
+        r1.metric("Faturamento", utils.to_br_currency(faturamento_bruto))
         r2.metric("Materiais + Serviço", utils.to_br_currency(custo_materiais + n_v_inst))
-        r3.metric("LUCRO LÍQUIDO FINAL", utils.to_br_currency(lucro_final_liquido))
-        
-        st.caption("Detalhamento de Deduções (Abatidos do Lucro):")
-        det_cols = st.columns(3)
-        det_cols[0].write(f"🏷️ **Comissão ({n_comissao}%):** -{utils.to_br_currency(valor_comissao)}")
-        det_cols[1].write(f"🧾 **Nota Fiscal ({taxa_nf_pct}%):** -{utils.to_br_currency(valor_nf)}")
-        det_cols[2].write(f"💳 **Taxa Cartão ({taxa_cartao_pct}%):** -{utils.to_br_currency(valor_cartao)}")
+        r3.metric("LUCRO LÍQUIDO", utils.to_br_currency(lucro_final_liquido))
 
         if st.button("💾 SALVAR DADOS DO PROJETO", type="primary", use_container_width=True, key=f"sv_{item['id']}"):
             try:
                 resumo = ", ".join([f"{int(r['Qtd'])}x {r['Item'] if r['Item'] != 'OUTRO / MANUAL' else r['Descrição Manual']}" for _, r in df_edit.iterrows()])
                 
-                dt_conclusao = item['data_conclusao']
-                if n_status in ['Concluído PIX', 'Concluído CARTÃO'] and item['status_projeto'] not in ['Concluído PIX', 'Concluído CARTÃO']:
-                    dt_conclusao = datetime.now().date().isoformat()
+                # --- CORREÇÃO DO ERRO NaT ---
+                # Pegamos a data atual do banco
+                data_concl_db = item['data_conclusao']
                 
+                # Se mudou para concluído agora e antes não era, bota data de hoje
+                if n_status in ['Concluído PIX', 'Concluído CARTÃO'] and item['status_projeto'] not in ['Concluído PIX', 'Concluído CARTÃO']:
+                    dt_final = datetime.now().date().isoformat()
+                # Se já era concluído, mantém a data que estava (evitando NaT)
+                elif n_status in ['Concluído PIX', 'Concluído CARTÃO'] and pd.notna(data_concl_db):
+                    dt_final = pd.to_datetime(data_concl_db).date().isoformat()
+                # Caso contrário, nulo
+                else:
+                    dt_final = None
+
                 supabase.table('servicos_andamento').update({
-                    "status_projeto": n_status, "instalador_responsavel": n_inst, "valor_pago_instalador": n_v_inst,
-                    "valor_venda_total": float(faturamento_bruto), "valor_custo_equipamentos": float(custo_materiais),
-                    "lucro_estimado": float(lucro_final_liquido), "produtos_adquiridos": resumo,
+                    "status_projeto": n_status, 
+                    "instalador_responsavel": n_inst, 
+                    "valor_pago_instalador": n_v_inst,
+                    "valor_venda_total": float(faturamento_bruto), 
+                    "valor_custo_equipamentos": float(custo_materiais),
+                    "lucro_estimado": float(lucro_final_liquido), 
+                    "produtos_adquiridos": resumo,
                     "detalhamento_itens": df_edit.to_dict('records'),
-                    "data_conclusao": str(dt_conclusao) if dt_conclusao else None,
+                    "data_conclusao": dt_final, # Enviando dt_final limpo
                     "nf_emitida": True if n_nf == "Sim" else False,
                     "metodo_pagamento": n_pgto,
                     "valor_taxas_impostos": float(total_deducoes),
@@ -242,4 +196,5 @@ def exibir_detalhes_avancados(item, supabase):
                 
                 if key_state in st.session_state: del st.session_state[key_state]
                 st.success("Salvo com sucesso!"); st.rerun()
-            except Exception as e: st.error(f"Erro: {e}")
+            except Exception as e:
+                st.error(f"Erro: {e}")
