@@ -26,6 +26,7 @@ except Exception as e:
 # ==========================================
 meses_pt = ['JANEIRO', 'FEVEREIRO', 'MARÇO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO']
 hoje = datetime.datetime.now()
+ano_atual = hoje.year
 mes_hoje_idx = hoje.month 
 mes_atual_nome = meses_pt[mes_hoje_idx - 1] 
 
@@ -56,7 +57,7 @@ st.markdown("""
     .stDataFrame table, .stDataEditor table { table-layout: fixed !important; width: 100% !important; }
     .stDataFrame td, .stDataFrame th, .stDataEditor td, .stDataEditor th { text-align: center !important; font-size: 0.85rem !important; }
     
-    /* Esconde cabeçalhos das tabelas de resultado para parecer uma só */
+    /* Esconde cabeçalhos das tabelas de resultado */
     section.main div[data-testid="stDataFrame"]:nth-of-type(1) thead { display: none !important; }
     section.main div[data-testid="stDataEditor"]:nth-of-type(2) thead { display: none !important; }
     section.main div[data-testid="stDataFrame"]:nth-of-type(2) thead { display: none !important; }
@@ -107,18 +108,25 @@ with st.sidebar:
     ano_selecionado = st.selectbox("Ano Fiscal", options=[2025, 2026, 2027, 2028], index=1)
     
     st.write("---")
-    ver_tudo = st.toggle("👁️ Ver todos os meses", value=False)
+    st.markdown("### 👁️ Colunas Visíveis")
     
+    # Se for um ano passado (ex: 2025), mostra tudo por padrão. Se for o ano atual, mostra até o mês atual.
+    meses_default = meses_pt if ano_selecionado < ano_atual else meses_pt[:mes_hoje_idx]
+    
+    meses_selecionados = st.multiselect(
+        "Selecione os meses que deseja ver nas tabelas:", 
+        options=meses_pt, 
+        default=meses_default
+    )
+    
+    # Previne que o app quebre se o usuário remover todos os meses
+    if not meses_selecionados:
+        meses_selecionados = [meses_pt[0]]
+
+    colunas_visiveis = ["MESES"] + meses_selecionados
+
     if st.button("🔄 Recarregar Dados"):
         st.session_state.clear(); st.rerun()
-
-# Lógica de colunas visíveis
-if ver_tudo:
-    colunas_visiveis = ["MESES"] + meses_pt
-else:
-    # Mostra até 1 mês pra frente do atual (limitado a Dezembro)
-    idx_limite = min(mes_hoje_idx, 11) 
-    colunas_visiveis = ["MESES"] + meses_pt[:idx_limite + 1]
 
 # ==========================================
 # 6. INICIALIZAÇÃO
@@ -143,7 +151,6 @@ styled_df_p = df_p_display.style.set_properties(subset=[mes_atual_nome], **{'bac
 df_p_edit_str = st.data_editor(styled_df_p, hide_index=True, column_config=col_cfg, use_container_width=True, height=295)
 
 if not df_p_edit_str.equals(df_p_display):
-    # Atualiza o DF original com as mudanças da tela
     for m in [c for c in colunas_visiveis if c != "MESES"]:
         st.session_state.df_p.loc[:, m] = df_p_edit_str[m].apply(parse_br_currency)
     save_to_supabase('patrimonio', st.session_state.df_p, ano_selecionado)
@@ -156,15 +163,22 @@ pat_tot = pat_liq + df_n.loc['IMÓVEIS'] + df_n.loc['VEÍCULOS']
 var_abs = pat_tot.diff().fillna(0)
 var_pct = (pat_tot.pct_change().fillna(0) * 100).round(2)
 
-# Trava do futuro
+# TRAVA DO FUTURO INTELIGENTE (Só bloqueia se for no ano atual ou futuro)
 for i, m in enumerate(meses_pt):
-    if i > mes_hoje_idx - 1: var_abs[m] = 0; var_pct[m] = 0
+    is_future = False
+    if ano_selecionado > ano_atual:
+        is_future = True
+    elif ano_selecionado == ano_atual and i > mes_hoje_idx - 1:
+        is_future = True
+        
+    if is_future:
+        var_abs[m] = 0
+        var_pct[m] = 0
 
 df_res_p = pd.DataFrame({'MESES': ['PATRIMÔNIO LÍQUIDO', 'PATRIMÔNIO TOTAL', 'VARIAÇÃO MENSAL ($)', 'VARIAÇÃO MENSAL (%)']})
 for m in meses_pt: df_res_p[m] = [pat_liq[m], pat_tot[m], var_abs[m], f"{var_pct[m]:.2f}%"]
 
-# Render Tabela 2
-styled_res_p = df_res_p[colunas_visiveis].style.apply(lambda row: [f'background-color: {"#FF9900" if row["MESES"] == "PATRIMÔNIO TOTAL" else "#FFF2CC" if "LÍQUIDO" in row["MESES"] else "white"}; font-weight: bold; border-left: {"3px solid #4A90E2" if col == mes_atual_nome else "none"}' for col in colunas_visiveis], axis=1)
+styled_res_p = df_res_p[colunas_visiveis].style.apply(lambda row: [f'background-color: {"#FF9900" if row["MESES"] == "PATRIMÔNIO TOTAL" else "#FFF2CC" if "LÍQUIDO" in row["MESES"] else "white"}; font-weight: bold; border-left: {"3px solid #4A90E2" if col == mes_atual_nome and ano_selecionado == ano_atual else "none"}' for col in colunas_visiveis], axis=1)
 st.dataframe(styled_res_p.format(lambda x: to_br_currency(x) if isinstance(x, (int, float, np.integer, np.floating)) else x), hide_index=True, column_config=col_cfg, use_container_width=True, height=175)
 
 # --- TABELA 3: ENTRADAS ---
@@ -181,65 +195,81 @@ if not df_e_edit_str.equals(df_e_display):
     save_to_supabase('entradas', st.session_state.df_e, ano_selecionado)
     st.toast("💾 Salvo!", icon="✅"); st.rerun()
 
-tot_ent = st.session_state.df_e.set_index('MESES').sum()
+df_e_n = st.session_state.df_e.set_index('MESES')
+tot_ent = df_e_n.sum()
+
 df_res_e = pd.DataFrame({'MESES': ['TOTAL RECEBIMENTOS:']})
 for m in meses_pt: df_res_e[m] = [tot_ent[m]]
 
-# Render Tabela 4
-styled_res_e = df_res_e[colunas_visiveis].style.apply(lambda row: [f'background-color: #9BC2E6; font-weight: bold; border-left: {"3px solid #4A90E2" if col == mes_atual_nome else "none"}' for col in colunas_visiveis], axis=1)
+styled_res_e = df_res_e[colunas_visiveis].style.apply(lambda row: [f'background-color: #9BC2E6; font-weight: bold; border-left: {"3px solid #4A90E2" if col == mes_atual_nome and ano_selecionado == ano_atual else "none"}' for col in colunas_visiveis], axis=1)
 st.dataframe(styled_res_e.format(lambda x: to_br_currency(x) if isinstance(x, (int, float, np.integer, np.floating)) else x), hide_index=True, column_config=col_cfg, use_container_width=True, height=75)
 
 # --- TABELA 5: RENDIMENTOS ---
 st.markdown("#### 📈 Rendimento Mensal (Investimentos)")
-xp_val = df_n.loc['INVESTIMENTO XP']; inter_val = df_n.loc['CONTA INTER']
-xp_var = xp_val.diff().fillna(0); inter_var = inter_val.diff().fillna(0); rend_total = xp_var + inter_var
+xp_val = df_n.loc['INVESTIMENTO XP']
+inter_val = df_n.loc['CONTA INTER']
+xp_var = xp_val.diff().fillna(0)
+inter_var = inter_val.diff().fillna(0)
+rend_total = xp_var + inter_var
 prev_bal = (xp_val + inter_val).shift(1).fillna(0)
 
 df_rend = pd.DataFrame({'MESES': ['VARIAÇÃO INVESTIMENTO XP', 'VARIAÇÃO CONTA INTER', 'RENDIMENTO TOTAL', '% RETORNO MÊS', 'SALÁRIO + RENDIMENTO MÊS']})
 for i, m in enumerate(meses_pt):
-    if i > mes_hoje_idx - 1: df_rend[m] = [0, 0, 0, "0,00%", 0]
+    # Mesma lógica do futuro
+    is_future = False
+    if ano_selecionado > ano_atual:
+        is_future = True
+    elif ano_selecionado == ano_atual and i > mes_hoje_idx - 1:
+        is_future = True
+
+    if is_future: 
+        df_rend[m] = [0, 0, 0, "0,00%", 0]
     else:
         rt = rend_total[m]; pb = prev_bal[m]
         pct_val = (rt / pb * 100) if pb > 0 else 0
         df_rend[m] = [xp_var[m], inter_var[m], rt, f"{pct_val:.2f}%".replace(".", ","), tot_ent[m] + rt]
 
-# Render Tabela 5
-styled_rend = df_rend[colunas_visiveis].style.apply(lambda row: [f'background-color: {"#FF9900" if row["MESES"] == "RENDIMENTO TOTAL" else "#FFF2CC" if "%" in row["MESES"] else "#9BC2E6" if "SALÁRIO" in row["MESES"] else "white"}; font-weight: bold; border-left: {"3px solid #4A90E2" if col == mes_atual_nome else "none"}' for col in colunas_visiveis], axis=1)
+styled_rend = df_rend[colunas_visiveis].style.apply(lambda row: [f'background-color: {"#FF9900" if row["MESES"] == "RENDIMENTO TOTAL" else "#FFF2CC" if "%" in row["MESES"] else "#9BC2E6" if "SALÁRIO" in row["MESES"] else "white"}; font-weight: bold; border-left: {"3px solid #4A90E2" if col == mes_atual_nome and ano_selecionado == ano_atual else "none"}' for col in colunas_visiveis], axis=1)
 st.dataframe(styled_rend.format(lambda x: to_br_currency(x) if isinstance(x, (int, float, np.integer, np.floating)) else x), hide_index=True, column_config=col_cfg, use_container_width=True, height=215)
 st.markdown('</div>', unsafe_allow_html=True)
 
 # ==========================================
-# 9. MÉTRICAS E GRÁFICOS
+# 9. MÉTRICAS E GRÁFICOS (ANO COMPLETO)
 # ==========================================
 st.markdown("<br>", unsafe_allow_html=True)
 c1, c2, c3, c4 = st.columns(4)
 
-# Médias baseadas apenas no que passou até hoje
-meses_passados = meses_pt[:mes_hoje_idx]
-media_entradas = tot_ent[meses_passados].mean()
-media_rend_r = rend_total[meses_passados].mean()
-media_rend_p = (rend_total[meses_passados] / prev_bal[meses_passados].replace(0, np.nan)).mean() * 100
+# Define meses de cálculo para as médias (Para não distorcer a média dividindo por 12 se estivermos em Maio)
+meses_calculo = meses_pt if ano_selecionado < ano_atual else meses_pt[:mes_hoje_idx]
+
+media_entradas = tot_ent[meses_calculo].mean()
+media_rend_r = rend_total[meses_calculo].mean()
+media_rend_p = (rend_total[meses_calculo] / prev_bal[meses_calculo].replace(0, np.nan)).mean() * 100
+
+# Se for ano passado, pega o valor de Dezembro, senão pega o do mês atual
+idx_ref = 11 if ano_selecionado < ano_atual else (mes_hoje_idx - 1 if mes_hoje_idx > 0 else 0)
 
 c1.metric("💰 MÉDIA ENTRADAS FIXAS", to_br_currency(media_entradas))
-c2.metric("🎯 LIMITE DE GASTO (MÉDIA REND.)", to_br_currency(media_rend_r), help="Média do rendimento dos investimentos em R$. Este é o valor que você 'vive de renda'.")
+c2.metric("🎯 LIMITE DE GASTO (MÉDIA REND.)", to_br_currency(media_rend_r), help="Média de rendimento da XP e Inter. Use como teto de gastos.")
 c3.metric("📈 MÉDIA RETORNO (%)", f"{media_rend_p:.2f}%".replace(".", ","))
-c4.metric("🏛️ PATRIMÔNIO ATUAL", to_br_currency(pat_tot.iloc[mes_hoje_idx-1]))
+c4.metric("🏛️ PATRIMÔNIO ATUAL", to_br_currency(pat_tot.iloc[idx_ref]))
 
 st.write("---")
-# Gráficos em colunas
+# Gráficos Anuais Fixos (Mostram todos os 12 meses do ano selecionado)
 g1, g2 = st.columns(2)
 with g1:
     st.subheader("Aumento de Patrimônio Total")
-    st.line_chart(pat_tot[meses_passados])
+    st.line_chart(pat_tot[meses_pt])
     
     st.subheader("Rendimento Mensal (R$)")
-    st.bar_chart(rend_total[meses_passados])
+    st.bar_chart(rend_total[meses_pt])
 
 with g2:
     st.subheader("Salário + Rendimento Mensal")
-    sal_rend_data = tot_ent[meses_passados] + rend_total[meses_passados]
+    sal_rend_data = tot_ent[meses_pt] + rend_total[meses_pt]
     st.area_chart(sal_rend_data)
 
     st.subheader("Faturamento Ecoclim")
-    ecoclim_data = df_n.loc['ECOCLIM'][meses_passados]
+    # Agora puxando do dataframe de entradas corretamente!
+    ecoclim_data = df_e_n.loc['ECOCLIM'][meses_pt]
     st.line_chart(ecoclim_data)
