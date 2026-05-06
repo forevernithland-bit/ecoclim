@@ -101,28 +101,29 @@ def save_to_supabase(table_name, df_int, ano_escolhido):
     supabase.table(table_name).insert(data).execute()
 
 # ==========================================
-# 5. MENU LATERAL E LINHA DO TEMPO (SLIDER)
+# 5. MENU LATERAL E LINHA DO TEMPO (SLIDER DUPLO)
 # ==========================================
 with st.sidebar:
     st.title("📈 Consorbens Wealth")
     ano_selecionado = st.selectbox("Ano Fiscal", options=[2025, 2026, 2027, 2028], index=1)
     
     st.write("---")
-    st.markdown("### 👁️ Linha do Tempo das Tabelas")
+    st.markdown("### 👁️ Visão da Tabela")
     
-    # Se for 2025 (já passou), o botão já vem em Dezembro. Se for o ano atual, vem no mês atual.
-    mes_padrao = meses_pt[-1] if ano_selecionado < ano_atual else meses_pt[mes_hoje_idx - 1]
+    # Se for 2025, o fim padrão é Dezembro. Se for o ano atual, é o mês atual.
+    mes_fim_padrao = meses_pt[-1] if ano_selecionado < ano_atual else meses_pt[mes_hoje_idx - 1]
     
-    # O SLIDER QUE VOCÊ PEDIU: Deslize para frente ou para trás!
-    mes_limite = st.select_slider(
-        "Arraste para controlar quais meses aparecem nas tabelas:", 
+    # SLIDER COM INTERVALO (Duas pontas)
+    mes_inicio, mes_fim = st.select_slider(
+        "Selecione o período visível:", 
         options=meses_pt, 
-        value=mes_padrao
+        value=("JANEIRO", mes_fim_padrao) # Passando uma tupla cria as duas bolinhas
     )
     
-    # Calcula quais colunas vão aparecer na tela
-    idx_limite = meses_pt.index(mes_limite)
-    colunas_visiveis = ["MESES"] + meses_pt[:idx_limite + 1]
+    # Calcula as colunas que vão aparecer entre o início e o fim escolhidos
+    idx_inicio = meses_pt.index(mes_inicio)
+    idx_fim = meses_pt.index(mes_fim)
+    colunas_visiveis = ["MESES"] + meses_pt[idx_inicio:idx_fim + 1]
 
     if st.button("🔄 Recarregar Dados"):
         st.session_state.clear(); st.rerun()
@@ -146,7 +147,7 @@ df_p_display = st.session_state.df_p[colunas_visiveis].copy()
 for m in [c for c in colunas_visiveis if c != "MESES"]: 
     df_p_display[m] = df_p_display[m].apply(to_br_currency)
 
-styled_df_p = df_p_display.style.set_properties(subset=[mes_atual_nome], **{'background-color': '#e0f0ff', 'font-weight': 'bold'})
+styled_df_p = df_p_display.style.set_properties(subset=[mes_atual_nome] if mes_atual_nome in colunas_visiveis else [], **{'background-color': '#e0f0ff', 'font-weight': 'bold'})
 df_p_edit_str = st.data_editor(styled_df_p, hide_index=True, column_config=col_cfg, use_container_width=True, height=295)
 
 if not df_p_edit_str.equals(df_p_display):
@@ -155,14 +156,13 @@ if not df_p_edit_str.equals(df_p_display):
     save_to_supabase('patrimonio', st.session_state.df_p, ano_selecionado)
     st.toast("💾 Salvo!", icon="✅"); st.rerun()
 
-# --- CÁLCULOS PATRIMÔNIO ---
+# --- CÁLCULOS PATRIMÔNIO (Sempre baseados no ano inteiro) ---
 df_n = st.session_state.df_p.set_index('MESES')
 pat_liq = df_n.loc[['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS']].sum()
 pat_tot = pat_liq + df_n.loc['IMÓVEIS'] + df_n.loc['VEÍCULOS']
 var_abs = pat_tot.diff().fillna(0)
 var_pct = (pat_tot.pct_change().fillna(0) * 100).round(2)
 
-# Lógica de bloqueio: só zera os meses se eles realmente forem do futuro (e não de 2025)
 for i, m in enumerate(meses_pt):
     is_future = False
     if ano_selecionado > ano_atual:
@@ -185,7 +185,7 @@ df_e_display = st.session_state.df_e[colunas_visiveis].copy()
 for m in [c for c in colunas_visiveis if c != "MESES"]: 
     df_e_display[m] = df_e_display[m].apply(to_br_currency)
 
-styled_df_e = df_e_display.style.set_properties(subset=[mes_atual_nome], **{'background-color': '#e0f0ff', 'font-weight': 'bold'})
+styled_df_e = df_e_display.style.set_properties(subset=[mes_atual_nome] if mes_atual_nome in colunas_visiveis else [], **{'background-color': '#e0f0ff', 'font-weight': 'bold'})
 df_e_edit_str = st.data_editor(styled_df_e, hide_index=True, column_config=col_cfg, use_container_width=True, height=190)
 
 if not df_e_edit_str.equals(df_e_display):
@@ -237,13 +237,10 @@ st.markdown('</div>', unsafe_allow_html=True)
 st.markdown("<br>", unsafe_allow_html=True)
 c1, c2, c3, c4 = st.columns(4)
 
-# Para não distorcer a média, divide apenas pelos meses que já passaram (ou os 12 se for um ano passado)
 meses_calculo = meses_pt if ano_selecionado < ano_atual else meses_pt[:mes_hoje_idx]
-
 media_entradas = tot_ent[meses_calculo].mean()
 media_rend_r = rend_total[meses_calculo].mean()
 media_rend_p = (rend_total[meses_calculo] / prev_bal[meses_calculo].replace(0, np.nan)).mean() * 100
-
 idx_ref = 11 if ano_selecionado < ano_atual else (mes_hoje_idx - 1 if mes_hoje_idx > 0 else 0)
 
 c1.metric("💰 MÉDIA ENTRADAS FIXAS", to_br_currency(media_entradas))
@@ -252,7 +249,6 @@ c3.metric("📈 MÉDIA RETORNO (%)", f"{media_rend_p:.2f}%".replace(".", ","))
 c4.metric("🏛️ PATRIMÔNIO ATUAL", to_br_currency(pat_tot.iloc[idx_ref]))
 
 st.write("---")
-# Os gráficos sempre mostram os 12 meses, independentemente da tabela!
 g1, g2 = st.columns(2)
 with g1:
     st.subheader("Aumento de Patrimônio Total")
