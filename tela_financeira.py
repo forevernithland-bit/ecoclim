@@ -59,14 +59,26 @@ def renderizar():
         if (ano_selecionado > utils.ano_atual) or (ano_selecionado == utils.ano_atual and i > utils.mes_hoje_idx - 1):
             var_abs[m] = 0; var_pct[m] = 0
 
-    df_res_p = pd.DataFrame({'MESES': ['PATRIMÔNIO LÍQUIDO', 'PATRIMÔNIO TOTAL', 'VARIAÇÃO MENSAL ($)', 'VARIAÇÃO MENSAL (%)']})
+    # LINHAS DE RESUMO DO PATRIMÔNIO NOMEADAS
+    df_res_p = pd.DataFrame({'MESES': ['PATRIMÔNIO LÍQUIDO', 'PATRIMÔNIO TOTAL', 'VAR MENSAL (R$)', 'VAR MENSAL (%)']})
     for m in utils.meses_pt: df_res_p[m] = [pat_liq[m], pat_tot[m], var_abs[m], f"{var_pct[m]:.2f}%"]
     styled_res_p = df_res_p[colunas_visiveis].style.apply(lambda row: [f'background-color: {"#FF9900" if row["MESES"] == "PATRIMÔNIO TOTAL" else "#FFF2CC" if "LÍQUIDO" in row["MESES"] else "white"}; font-weight: bold; color: black; border-left: {"3px solid #4A90E2" if col == utils.mes_atual_nome and ano_selecionado == utils.ano_atual else "none"}' for col in colunas_visiveis], axis=1)
     st.dataframe(styled_res_p.format(lambda x: x if isinstance(x, str) and "%" in x else utils.to_br_currency(x, False)), hide_index=True, column_config=col_cfg, use_container_width=True, height=175)
 
     # --------------------------
-    # 9.2 ENTRADAS
+    # 9.2 ENTRADAS (E AUTO-SYNC DA ECOCLIM)
     # --------------------------
+    # Puxa o Lucro Estimado de Serviços Ativos e joga na linha ECOCLIM (Mês Atual)
+    if ano_selecionado == utils.ano_atual:
+        try:
+            res_servicos = st.session_state.supabase.table('servicos_andamento').select('lucro_estimado, status_projeto').execute()
+            df_serv = pd.DataFrame(res_servicos.data)
+            if not df_serv.empty:
+                lucro_ativo = df_serv[df_serv['status_projeto'].isin(['Em Andamento', 'Concluído PIX', 'Concluído CARTÃO'])]['lucro_estimado'].sum()
+                idx_ecoclim = st.session_state.df_e.index[st.session_state.df_e['MESES'] == 'ECOCLIM'].tolist()[0]
+                st.session_state.df_e.at[idx_ecoclim, utils.mes_atual_nome] = float(lucro_ativo)
+        except: pass
+
     df_e_display = st.session_state.df_e[colunas_visiveis].copy()
     for m in [c for c in colunas_visiveis if c != "MESES"]: df_e_display[m] = df_e_display[m].apply(lambda x: utils.to_br_currency(x, False))
     styled_df_e = df_e_display.style.set_properties(subset=[utils.mes_atual_nome] if utils.mes_atual_nome in colunas_visiveis and ano_selecionado == utils.ano_atual else [], **{'background-color': '#e0f0ff', 'font-weight': 'bold'})
@@ -88,7 +100,10 @@ def renderizar():
     st.markdown("#### 📈 Rendimento Mensal (Investimentos)")
     xp_val = df_n.loc['INVESTIMENTO XP']; inter_val = df_n.loc['CONTA INTER']
     xp_var = xp_val.diff().fillna(0); inter_var = inter_val.diff().fillna(0); rend_total = xp_var + inter_var; prev_bal = (xp_val + inter_val).shift(1).fillna(0)
-    df_rend = pd.DataFrame({'MESES': ['VARIAÇÃO INVESTIMENTO XP', 'VARIAÇÃO CONTA INTER', 'RENDIMENTO TOTAL', '% RETORNO MÊS', 'SALÁRIO + RENDIMENTO MÊS']})
+    
+    # LINHAS DE RENDIMENTO NOMEADAS
+    df_rend = pd.DataFrame({'MESES': ['RESULTADO XP', 'RESULTADO INTER', 'RENDIMENTO TOTAL', '% RETORNO MÊS', 'SALÁRIO + RENDIMENTO MÊS']})
+    
     for i, m in enumerate(utils.meses_pt):
         if (ano_selecionado > utils.ano_atual) or (ano_selecionado == utils.ano_atual and i > utils.mes_hoje_idx - 1): df_rend[m] = [0, 0, 0, "0,00%", 0]
         else:
