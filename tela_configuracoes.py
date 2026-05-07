@@ -7,31 +7,43 @@ def renderizar():
     
     tabs = st.tabs(["🛒 Produtos", "🛠️ Serviços", "🤝 Outros / Terceiros", "📊 Taxas"])
     
-    # FUNÇÃO INTELIGENTE DE IMPORTAÇÃO (COM FILTRO DE ESPAÇOS)
     def processar_upload(uploaded_file):
         df = pd.read_excel(uploaded_file)
         
-        # A MÁGICA: Remove os espaços em branco escondidos dos títulos!
+        # Garante que vai ler os nomes das colunas exatamente como estão na sua nova planilha
         df.columns = df.columns.str.strip().str.upper()
         
         new_df = pd.DataFrame()
         
-        # Mapeamento Flexível
-        if "PRODUTO" in df.columns: new_df["Item"] = df["PRODUTO"]
-        elif "ITEM" in df.columns: new_df["Item"] = df["ITEM"]
-        else: new_df["Item"] = "Sem Nome"
+        # Puxa a coluna PRODUTO
+        if "PRODUTO" in df.columns: 
+            new_df["Item"] = df["PRODUTO"]
+        elif "ITEM" in df.columns: 
+            new_df["Item"] = df["ITEM"]
+        else: 
+            new_df["Item"] = "Sem Nome"
         
-        if "CUSTO" in df.columns: new_df["Custo (R$)"] = pd.to_numeric(df["CUSTO"], errors='coerce').fillna(0.0)
-        elif "VALOR" in df.columns: new_df["Custo (R$)"] = pd.to_numeric(df["VALOR"], errors='coerce').fillna(0.0)
-        else: new_df["Custo (R$)"] = 0.0
+        # Puxa a coluna CUSTO
+        if "CUSTO" in df.columns: 
+            new_df["Custo (R$)"] = pd.to_numeric(df["CUSTO"], errors='coerce').fillna(0.0)
+        elif "VALOR" in df.columns: 
+            new_df["Custo (R$)"] = pd.to_numeric(df["VALOR"], errors='coerce').fillna(0.0)
+        else: 
+            new_df["Custo (R$)"] = 0.0
         
-        if "DESCRIÇÃO" in df.columns: new_df["Descrição"] = df["DESCRIÇÃO"]
-        elif "DESCRICAO" in df.columns: new_df["Descrição"] = df["DESCRICAO"]
-        else: new_df["Descrição"] = ""
+        # Puxa a coluna DESCRIÇÃO perfeitamente
+        if "DESCRIÇÃO" in df.columns: 
+            new_df["Descrição"] = df["DESCRIÇÃO"].fillna("")
+        elif "DESCRICAO" in df.columns: 
+            new_df["Descrição"] = df["DESCRICAO"].fillna("")
+        else: 
+            new_df["Descrição"] = ""
         
+        # Preenche os campos de cálculo financeiro
         new_df["Margem (%)"] = 0.0
         new_df["Lucro (R$)"] = 0.0
         new_df["Venda (R$)"] = new_df["Custo (R$)"]
+        
         return new_df
 
     def exibir_aba(table_name, titulo):
@@ -42,10 +54,10 @@ def renderizar():
             if st.button(f"Processar Planilha - {titulo}"):
                 df_novo = processar_upload(upl)
                 
-                # Junta o que já tinha no banco com o novo da planilha, e remove duplicados
+                # Junta o banco atual com a planilha nova
                 df = pd.concat([df, df_novo], ignore_index=True).drop_duplicates(subset=['Item'], keep='last')
                 st.session_state[f'df_tmp_{table_name}'] = df
-                st.success("✅ Planilha carregada com sucesso! Verifique a tabela abaixo e clique em 'Gravar Alterações'.")
+                st.success("✅ Planilha processada! Verifique a tabela abaixo e clique em 'Gravar Alterações'.")
         
         if f'df_tmp_{table_name}' in st.session_state:
             df = st.session_state[f'df_tmp_{table_name}']
@@ -61,7 +73,7 @@ def renderizar():
         
         df_edit = st.data_editor(df, column_config=cfg, num_rows="dynamic", use_container_width=True, key=f"ed_{table_name}")
         
-        # Lógica de cálculo automático de Margem
+        # Matemática da Tabela
         df_edit['Custo (R$)'] = pd.to_numeric(df_edit['Custo (R$)'], errors='coerce').fillna(0.0)
         df_edit['Margem (%)'] = pd.to_numeric(df_edit['Margem (%)'], errors='coerce').fillna(0.0)
         df_edit['Venda (R$)'] = pd.to_numeric(df_edit['Venda (R$)'], errors='coerce').fillna(0.0)
@@ -83,8 +95,8 @@ def renderizar():
             if f'df_tmp_{table_name}' in st.session_state:
                 del st.session_state[f'df_tmp_{table_name}']
             
-            # Força o sistema a "esquecer" o catálogo velho para puxar o novo na tela de orçamentos
-            for key in ['db_produtos', 'db_servicos', 'db_outros']:
+            # Limpa o cache da tela de orçamentos para ele buscar a nova descrição na hora!
+            for key in ['db_produtos', 'db_servicos', 'db_outros', 'df_orc', 'df_orc_prev']:
                 if key in st.session_state:
                     del st.session_state[key]
                     
