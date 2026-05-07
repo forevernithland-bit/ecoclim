@@ -71,41 +71,36 @@ def renderizar():
     with st.container(border=True):
         st.subheader("🛠️ 2. Serviços / Diversos")
         
-        # 2.1 Serviço Principal
         lista_s = st.session_state.db_servicos['Item'].tolist() if not st.session_state.db_servicos.empty else []
         s_sel = st.selectbox("Selecionar Serviço Principal:", [""] + lista_s + ["Manual"])
         
         if s_sel != st.session_state.get('last_s_sel'):
-            if s_sel == "Manual":
-                st.session_state.d_s_val, st.session_state.v_s_val = "", 0.0
+            if s_sel == "Manual": st.session_state.d_s_val, st.session_state.v_s_val = "", 0.0
             elif s_sel != "":
                 row = st.session_state.db_servicos.loc[st.session_state.db_servicos['Item']==s_sel]
                 desc_db = str(row['Descrição'].values[0]) if 'Descrição' in row.columns and str(row['Descrição'].values[0]) != 'nan' else ""
                 st.session_state.d_s_val = f"{s_sel}\n{desc_db}".strip()
                 st.session_state.v_s_val = float(row['Venda (R$)'].values[0])
-            else: st.session_state.d_s_val, st.session_state.v_s_val = "", 0.0
             st.session_state.last_s_sel = s_sel
 
         d_s = st.text_area("Descrição do Serviço:", value=st.session_state.get('d_s_val', ""), height=100)
-        v_s = st.number_input("Valor do Serviço (R$):", value=float(st.session_state.get('v_s_val', 0.0)), format="%.2f")
+        v_s = st.number_input("Valor do Serviço:", value=float(st.session_state.get('v_s_val', 0.0)), format="%.2f")
+        st.write(f"**Valor Formatado:** :green[{utils.to_br_currency(v_s)}]") # Confirmação visual
         
-        # 2.2 Outros
         lista_o = st.session_state.db_outros['Item'].tolist() if not st.session_state.db_outros.empty else []
         o_sel = st.selectbox("Adicionar Outros/Diversos:", [""] + lista_o + ["Manual"])
         
         if o_sel != st.session_state.get('last_o_sel'):
-            if o_sel == "Manual":
-                st.session_state.d_o_val, st.session_state.v_o_val = "", 0.0
+            if o_sel == "Manual": st.session_state.d_o_val, st.session_state.v_o_val = "", 0.0
             elif o_sel != "":
                 row = st.session_state.db_outros.loc[st.session_state.db_outros['Item']==o_sel]
                 desc_db = str(row['Descrição'].values[0]) if 'Descrição' in row.columns and str(row['Descrição'].values[0]) != 'nan' else ""
                 st.session_state.d_o_val = f"{o_sel}\n{desc_db}".strip()
                 st.session_state.v_o_val = float(row['Venda (R$)'].values[0])
-            else: st.session_state.d_o_val, st.session_state.v_o_val = "", 0.0
             st.session_state.last_o_sel = o_sel
 
         d_o = st.text_area("Descrição Diversos:", value=st.session_state.get('d_o_val', ""), height=80)
-        v_o = st.number_input("Valor Adicional (R$):", value=float(st.session_state.get('v_o_val', 0.0)), format="%.2f")
+        v_o = st.number_input("Valor Adicional:", value=float(st.session_state.get('v_o_val', 0.0)), format="%.2f")
 
     total_geral = total_equip + v_s + v_o
     st.markdown(f"<h3 style='color:#004488;'>💰 INVESTIMENTO TOTAL: {utils.to_br_currency(total_geral)}</h3>", unsafe_allow_html=True)
@@ -127,12 +122,11 @@ def renderizar():
             st.download_button("📥 BAIXAR RASCUNHO", data=st.session_state['pdf_previa'], file_name=f"RASCUNHO_{nome_c}.pdf", mime="application/pdf", use_container_width=True)
 
     with c_s:
-        if st.button("SALVAR ORÇAMENTO", type="primary", use_container_width=True):
+        if st.button("SALVAR ORÇAMENTO NO SISTEMA", type="primary", use_container_width=True):
             if nome_c:
                 num_orc = f"ORC-{datetime.datetime.now().strftime('%y%m%d-%H%M')}"
                 try:
                     tel_f = formatar_whatsapp(tel_c)
-                    # Snapshot para o banco
                     snapshot = []
                     for _, r in df_ed.iterrows():
                         if r['Quantidade'] > 0: snapshot.append({"Item": r['Produto da Base'] or r['Produto Manual'], "Qtd": r['Quantidade'], "Venda Un.": r['Venda (R$)'], "Descrição": r['Descrição']})
