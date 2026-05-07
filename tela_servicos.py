@@ -13,22 +13,17 @@ def renderizar():
         res = supabase.table('servicos_andamento').select("*").order("id", desc=True).execute()
         df_orcamentos = pd.DataFrame(res.data)
     except Exception as e:
-        st.error(f"Erro ao carregar serviços do banco de dados: {e}")
+        st.error(f"Erro ao carregar serviços: {e}")
         return
 
     if df_orcamentos.empty:
-        st.info("Nenhum orçamento ou serviço encontrado no banco de dados. Crie um novo orçamento para começar.")
+        st.info("Nenhum orçamento encontrado.")
         return
 
-    # 2. EXIBIÇÃO DA TABELA PRINCIPAL
-    st.markdown("### 📊 Lista de Projetos e Orçamentos")
-    
-    colunas_exibicao = ['id', 'numero_orcamento', 'nome_cliente', 'telefone_cliente', 'status_projeto', 'valor_venda_total', 'data_conclusao']
-    colunas_existentes = [c for c in colunas_exibicao if c in df_orcamentos.columns]
-    
-    df_display = df_orcamentos[colunas_existentes].copy()
-    
-    st.info("Selecione uma linha abaixo para ver e editar os detalhes do projeto.")
+    # 2. TABELA PRINCIPAL
+    st.markdown("### 📊 Lista de Projetos")
+    colunas_exibicao = ['id', 'numero_orcamento', 'nome_cliente', 'status_projeto', 'valor_venda_total', 'data_conclusao']
+    df_display = df_orcamentos[[c for c in colunas_exibicao if c in df_orcamentos.columns]].copy()
     
     sel_orc = st.dataframe(
         df_display,
@@ -38,124 +33,106 @@ def renderizar():
         hide_index=True
     )
 
-    # 3. DETALHAMENTO DO PROJETO SELECIONADO
+    # 3. DETALHAMENTO E SIMULADOR FINANCEIRO
     def exibir_detalhes_avancados(row, supabase):
         st.markdown("---")
-        st.markdown(f"### 🔍 Detalhes do Projeto: {row.get('nome_cliente', 'Sem Nome')}")
+        st.markdown(f"### 🔍 Projeto: {row.get('nome_cliente', 'Sem Nome')}")
         
-        c1, c2, c3 = st.columns(3)
-        
-        # Gestão de Status
+        # --- BLOCO DE STATUS E DATA ---
+        c1, c2 = st.columns(2)
         status_atual = row.get('status_projeto', 'Orçamento Enviado')
         opcoes_status = ["Orçamento Enviado", "Em Andamento", "Aguardando Peças", "Concluído PIX", "Concluído CARTÃO", "Cancelado"]
-        if status_atual not in opcoes_status:
-            opcoes_status.append(status_atual)
-            
-        novo_status = c1.selectbox("Status do Projeto", opcoes_status, index=opcoes_status.index(status_atual))
+        novo_status = c1.selectbox("Status Atual", opcoes_status, index=opcoes_status.index(status_atual) if status_atual in opcoes_status else 0)
         
-        # Gestão de Data
-        data_conc = row.get('data_conclusao', None)
-        if pd.isna(data_conc) or not data_conc:
-            data_padrao = datetime.date.today()
-        else:
-            try:
-                data_padrao = datetime.datetime.strptime(str(data_conc), '%Y-%m-%d').date()
-            except:
-                data_padrao = datetime.date.today()
-                
-        nova_data = c2.date_input("Data de Conclusão / Previsão", value=data_padrao)
-        
-        # ==========================================
-        # TABELA DE ITENS (BLINDADA CONTRA ERROS DE COLUNA)
-        # ==========================================
+        data_conc = row.get('data_conclusao')
+        data_padrao = datetime.datetime.strptime(str(data_conc), '%Y-%m-%d').date() if data_conc else datetime.date.today()
+        nova_data = c2.date_input("Previsão/Conclusão", value=data_padrao)
+
+        # --- TABELA DE ITENS (BLINDADA) ---
         itens_json = row.get('detalhamento_itens', [])
-        if isinstance(itens_json, list) and len(itens_json) > 0:
-            df_edit = pd.DataFrame(itens_json)
-        else:
-            df_edit = pd.DataFrame(columns=['Item', 'Qtd', 'Venda Un.', 'Custo Un.', 'Descrição'])
+        df_itens = pd.DataFrame(itens_json) if (isinstance(itens_json, list) and len(itens_json) > 0) else pd.DataFrame(columns=['Item', 'Qtd', 'Venda Un.', 'Custo Un.', 'Descrição'])
+        
+        # Garantia de colunas para não dar KeyError
+        for col in ['Custo Un.', 'Qtd', 'Venda Un.', 'Item', 'Descrição']:
+            if col not in df_itens.columns:
+                df_itens[col] = 0.0 if 'Un.' in col or 'Qtd' in col else ""
+
+        df_itens['Custo Un.'] = pd.to_numeric(df_itens['Custo Un.'], errors='coerce').fillna(0.0)
+        df_itens['Qtd'] = pd.to_numeric(df_itens['Qtd'], errors='coerce').fillna(0)
+        
+        st.markdown("#### 🛒 Itens do Orçamento")
+        df_edit_itens = st.data_editor(df_itens, use_container_width=True, key=f"edit_itens_{row['id']}")
+        custo_materiais_base = (df_edit_itens['Custo Un.'] * df_edit_itens['Qtd']).sum()
+
+        # --- SIMULADOR FINANCEIRO DE FECHAMENTO ---
+        st.markdown("#### 🧮 Simulador de Fechamento e Custos Reais")
+        
+        with st.container(border=True):
+            col_f1, col_f2, col_f3 = st.columns(3)
             
-        # FORÇANDO A CRIAÇÃO DA COLUNA DE FORMA SEGURA (Evita o KeyError)
-        colunas_faltantes = {}
-        if 'Custo Un.' not in df_edit.columns: colunas_faltantes['Custo Un.'] = 0.0
-        if 'Qtd' not in df_edit.columns: colunas_faltantes['Qtd'] = 0
-        if 'Venda Un.' not in df_edit.columns: colunas_faltantes['Venda Un.'] = 0.0
-        if 'Item' not in df_edit.columns: colunas_faltantes['Item'] = ""
-        if 'Descrição' not in df_edit.columns: colunas_faltantes['Descrição'] = ""
-        
-        # Adiciona as colunas usando assign, que é 100% à prova de falhas no pandas
-        if colunas_faltantes:
-            df_edit = df_edit.assign(**colunas_faltantes)
+            # 1. Valor da Venda
+            venda_final = col_f1.number_input("Valor Total da Venda (R$)", value=float(row.get('valor_venda_total', 0.0)), format="%.2f")
+            
+            # 2. Impostos (Nota Fiscal)
+            tem_nf = col_f2.radio("Emitir Nota Fiscal?", ["Não", "Sim"], index=1 if float(row.get('custo_impostos', 0.0)) > 0 else 0)
+            taxa_nf_padrao = 6.0 # 6% de imposto padrão
+            valor_imposto = (venda_final * (taxa_nf_padrao / 100)) if tem_nf == "Sim" else 0.0
+            col_f2.caption(f"Imposto Est. (6%): {utils.to_br_currency(valor_imposto)}")
 
-        # Conversão numérica protegida
-        df_edit['Custo Un.'] = pd.to_numeric(df_edit['Custo Un.'], errors='coerce').fillna(0.0)
-        df_edit['Venda Un.'] = pd.to_numeric(df_edit['Venda Un.'], errors='coerce').fillna(0.0)
-        df_edit['Qtd'] = pd.to_numeric(df_edit['Qtd'], errors='coerce').fillna(0)
+            # 3. Forma de Pagamento e Taxas de Cartão
+            forma_pagto = col_f3.selectbox("Forma de Recebimento", ["PIX / Dinheiro", "Cartão de Crédito"])
+            custo_cartao = 0.0
+            if forma_pagto == "Cartão de Crédito":
+                parcelas = col_f3.slider("Quantidade de Parcelas", 1, 12, value=1)
+                # Tabela de taxas estimadas (ajuste conforme sua maquininha)
+                taxas_cartao = {1: 3.5, 2: 4.8, 3: 5.5, 4: 6.2, 5: 6.9, 6: 7.5, 7: 8.2, 8: 8.9, 9: 9.5, 10: 10.2, 11: 10.8, 12: 11.5}
+                percentual_taxa = taxas_cartao.get(parcelas, 12.0)
+                custo_cartao = venda_final * (percentual_taxa / 100)
+                col_f3.caption(f"Taxa Cartão ({percentual_taxa}%): {utils.to_br_currency(custo_cartao)}")
+            else:
+                col_f3.caption("Taxa PIX: R$ 0,00")
 
-        st.markdown("#### 🛒 Detalhamento de Equipamentos")
-        config_itens = {
-            "Item": st.column_config.TextColumn("Item", width="medium"),
-            "Descrição": st.column_config.TextColumn("Descrição", width="large"),
-            "Qtd": st.column_config.NumberColumn("Qtd", min_value=0),
-            "Custo Un.": st.column_config.NumberColumn("Custo Un. (R$)", format="R$ %.2f"),
-            "Venda Un.": st.column_config.NumberColumn("Venda Un. (R$)", format="R$ %.2f")
-        }
-        
-        df_edit = st.data_editor(df_edit, column_config=config_itens, num_rows="dynamic", use_container_width=True, key=f"ed_itens_{row['id']}")
-        
-        # Sugestão de custo dos materiais (Soma da tabela)
-        custo_materiais_tabela = (df_edit['Custo Un.'] * df_edit['Qtd']).sum()
-        
-        # ==========================================
-        # PAINEL DE CUSTOS REAIS
-        # ==========================================
-        st.markdown("#### 🧮 Custos e Fechamento")
-        
-        col_c1, col_c2 = st.columns(2)
-        
-        custo_mat_db = float(row.get('custo_adicional_materiais', 0.0))
-        if custo_mat_db == 0.0 and custo_materiais_tabela > 0:
-            custo_mat_db = custo_materiais_tabela
+            st.markdown("---")
+            col_f4, col_f5, col_f6 = st.columns(3)
+            
+            # 4. Outros Custos
+            custo_materiais_real = col_f4.number_input("Custo Materiais (Real)", value=float(row.get('custo_adicional_materiais', custo_materiais_base)), format="%.2f")
+            custo_terceiros = col_f5.number_input("Mão de Obra / Terceiros", value=float(row.get('custo_terceirizados', 0.0)), format="%.2f")
+            comissao = col_f6.number_input("Comissão (R$)", value=float(row.get('custo_comissao', 0.0)), format="%.2f")
 
-        custo_materiais = col_c1.number_input("Custo com Materiais", value=custo_mat_db, format="%.2f")
-        custo_terc = col_c2.number_input("Custo com Terceirizados / Instaladores", value=float(row.get('custo_terceirizados', 0.0)), format="%.2f")
-        
-        col_c3, col_c4 = st.columns(2)
-        comissao = col_c3.number_input("Comissões e Representantes", value=float(row.get('custo_comissao', 0.0)), format="%.2f")
-        impostos = col_c4.number_input("Custos c/ Nota Fiscal e Impostos", value=float(row.get('custo_impostos', 0.0)), format="%.2f")
-        
-        col_c5, col_c6 = st.columns(2)
-        taxa_cartao = col_c5.number_input("Custos c/ Máquina de Cartão", value=float(row.get('custo_cartao', 0.0)), format="%.2f")
-        venda_final = col_c6.number_input("Valor Final Fechado com o Cliente (R$)", value=float(row.get('valor_venda_total', 0.0)), format="%.2f")
-        
-        lucro_estimado = venda_final - custo_materiais - custo_terc - comissao - impostos - taxa_cartao
-        
-        st.info(f"**Lucro Líquido Estimado:** {utils.to_br_currency(lucro_estimado)}")
-        
-        notas = st.text_area("Notas e Observações Internas", value=str(row.get('notas_internas', '')))
-        
-        # BOTÃO DE SALVAR
-        if st.button("💾 SALVAR ALTERAÇÕES DO PROJETO", type="primary", use_container_width=True):
-            dados_atualizados = {
+            # --- RESULTADO FINAL ---
+            lucro_liquido = venda_final - valor_imposto - custo_cartao - custo_mater_real - custo_terceiros - comissao
+            
+            c_res1, c_res2 = st.columns(2)
+            c_res1.metric("Custo Total do Projeto", utils.to_br_currency(valor_imposto + custo_cartao + custo_mater_real + custo_terceiros + comissao))
+            
+            cor_lucro = "normal" if lucro_liquido > 0 else "inverse"
+            c_res2.metric("LUCRO LÍQUIDO FINAL", utils.to_br_currency(lucro_liquido), delta=f"{((lucro_liquido/venda_final)*100 if venda_final > 0 else 0):.1f}% Margem", delta_color=cor_lucro)
+
+        notas = st.text_area("Notas Internas", value=str(row.get('notas_internas', '')))
+
+        # --- BOTÃO DE SALVAMENTO ---
+        if st.button("💾 ATUALIZAR E SALVAR PROJETO", type="primary", use_container_width=True):
+            dados = {
                 "status_projeto": novo_status,
                 "data_conclusao": nova_data.strftime('%Y-%m-%d'),
-                "detalhamento_itens": df_edit.to_dict('records'),
-                "custo_adicional_materiais": custo_materiais,
-                "custo_terceirizados": custo_terc,
+                "detalhamento_itens": df_edit_itens.to_dict('records'),
+                "custo_adicional_materiais": custo_materiais_real,
+                "custo_terceirizados": custo_terceiros,
                 "custo_comissao": comissao,
-                "custo_impostos": impostos,
-                "custo_cartao": taxa_cartao,
+                "custo_impostos": valor_imposto,
+                "custo_cartao": custo_cartao,
                 "valor_venda_total": venda_final,
-                "lucro_estimado": lucro_estimado,
+                "lucro_estimado": lucro_liquido,
                 "notas_internas": notas
             }
-            
             try:
-                supabase.table('servicos_andamento').update(dados_atualizados).eq('id', row['id']).execute()
-                st.success("✅ Projeto atualizado com sucesso! (Lembre-se: se o status for Concluído PIX/CARTÃO, o lucro será somado no Controle Financeiro).")
+                supabase.table('servicos_andamento').update(dados).eq('id', row['id']).execute()
+                st.success("✅ Projeto atualizado! O lucro foi recalculado com as taxas.")
                 st.rerun()
             except Exception as e:
-                st.error(f"Erro ao atualizar projeto: {e}")
+                st.error(f"Erro ao salvar: {e}")
 
-    # GATILHO DE EXIBIÇÃO DA TABELA DETALHADA
-    if sel_orc.selection.rows: 
+    # Gatilho de seleção
+    if sel_orc.selection.rows:
         exibir_detalhes_avancados(df_orcamentos.iloc[sel_orc.selection.rows[0]], supabase)
