@@ -12,29 +12,20 @@ def renderizar():
         ano_selecionado = st.selectbox("Ano Fiscal", options=[2025, 2026, 2027, 2028], index=1)
         st.write("---")
         st.markdown("### 👁️ Linha do Tempo")
-        
         pref_inicio, pref_fim = utils.load_user_settings()
         mes_inicio, mes_fim = st.select_slider("Período Visível:", options=utils.meses_pt, value=(pref_inicio, pref_fim))
-            
-        idx_inicio = utils.meses_pt.index(mes_inicio)
-        idx_fim = utils.meses_pt.index(mes_fim)
+        idx_inicio = utils.meses_pt.index(mes_inicio); idx_fim = utils.meses_pt.index(mes_fim)
         colunas_visiveis = ["MESES"] + utils.meses_pt[idx_inicio:idx_fim + 1]
+        if st.button("🔄 Recarregar Dados"): st.session_state.pop('ano_dados_atual', None); st.rerun()
 
-        if st.button("🔄 Recarregar Dados"): 
-            st.session_state.pop('ano_dados_atual', None)
-            st.rerun()
-
-    # DEFINIÇÃO DAS CONTAS (IGUAL AO SEU PRINT)
     contas_p = ['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS', 'IMÓVEIS', 'VEÍCULOS']
     contas_e = ['ECOCLIM', 'AIRNB', 'CONS INVESTIMENTOS', 'MAGGI CONSORCIOS']
     
-    # CARREGAMENTO (Das tabelas 'patrimonio' e 'entradas')
     if 'ano_dados_atual' not in st.session_state or st.session_state.ano_dados_atual != ano_selecionado:
         st.session_state.df_p = utils.load_year_data('patrimonio', contas_p, ano_selecionado)
         st.session_state.df_e = utils.load_year_data('entradas', contas_e, ano_selecionado)
         st.session_state.ano_dados_atual = ano_selecionado
 
-    # GARANTE QUE OS NOMES DAS LINHAS APAREÇAM (CURA)
     def garantir_linhas(df, lista_contas):
         for c in lista_contas:
             if c not in df['MESES'].values:
@@ -45,44 +36,26 @@ def renderizar():
 
     st.session_state.df_p = garantir_linhas(st.session_state.df_p, contas_p)
     st.session_state.df_e = garantir_linhas(st.session_state.df_e, contas_e)
-
-    # CONFIGURAÇÃO DE COLUNAS (R$ AUTOMÁTICO)
     col_cfg = {"MESES": st.column_config.TextColumn("CATEGORIA / CONTA", width=220, disabled=True)}
-    for m in utils.meses_pt: 
-        col_cfg[m] = st.column_config.NumberColumn(m, width=100, format="R$ %,.2f") 
+    for m in utils.meses_pt: col_cfg[m] = st.column_config.NumberColumn(m, width=100, format="R$ %,.2f") 
 
     st.markdown('<div class="container-tabelas">', unsafe_allow_html=True)
-    
-    # --------------------------
-    # 9.1 PATRIMÔNIO
-    # --------------------------
     st.markdown("#### 🏛️ Posição Patrimonial e Investimentos")
     df_p_edit = st.data_editor(st.session_state.df_p[colunas_visiveis], hide_index=True, column_config=col_cfg, use_container_width=True, height=295, key="ed_p")
-
     if not df_p_edit.equals(st.session_state.df_p[colunas_visiveis]):
         for m in [c for c in colunas_visiveis if c != "MESES"]: st.session_state.df_p.loc[:, m] = df_p_edit[m]
-        utils.save_to_supabase('patrimonio', st.session_state.df_p, ano_selecionado)
-        st.rerun()
+        utils.save_to_supabase('patrimonio', st.session_state.df_p, ano_selecionado); st.rerun()
 
-    # Cálculos de Resumo (Seguros)
     df_n = st.session_state.df_p.set_index('MESES')
     pat_liq = df_n[df_n.index.isin(['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS'])].sum()
     pat_tot = pat_liq + df_n[df_n.index == 'IMÓVEIS'].sum() + df_n[df_n.index == 'VEÍCULOS'].sum()
-    var_abs = pat_tot.diff().fillna(0)
-    var_pct = (pat_tot.pct_change().fillna(0) * 100).round(2)
-
+    var_abs = pat_tot.diff().fillna(0); var_pct = (pat_tot.pct_change().fillna(0) * 100).round(2)
     df_res_p = pd.DataFrame({'MESES': ['PATRIMÔNIO LÍQUIDO', 'PATRIMÔNIO TOTAL', 'VAR MENSAL (R$)', 'VAR MENSAL (%)']})
     for m in utils.meses_pt: df_res_p[m] = [pat_liq.get(m, 0), pat_tot.get(m, 0), var_abs.get(m, 0), f"{var_pct.get(m, 0):.2f}%"]
-    
     styled_res_p = df_res_p[colunas_visiveis].style.apply(lambda row: [f'background-color: {"#FF9900" if row["MESES"] == "PATRIMÔNIO TOTAL" else "#FFF2CC" if "LÍQUIDO" in row["MESES"] else "white"}; font-weight: bold; color: black' for _ in colunas_visiveis], axis=1)
     st.dataframe(styled_res_p.format(lambda x: x if isinstance(x, str) else utils.to_br_currency(x, False)), hide_index=True, column_config=col_cfg, use_container_width=True, height=175)
 
-    # --------------------------
-    # 9.2 ENTRADAS
-    # --------------------------
     st.markdown("#### 💰 Recebimentos e Pró-labore")
-    
-    # Auto-Sync Ecoclim
     if ano_selecionado == utils.ano_atual:
         try:
             res_servicos = st.session_state.supabase.table('servicos_andamento').select('lucro_estimado, status_projeto').execute()
@@ -94,11 +67,9 @@ def renderizar():
         except: pass
 
     df_e_edit = st.data_editor(st.session_state.df_e[colunas_visiveis], hide_index=True, column_config=col_cfg, use_container_width=True, height=190, key="ed_e")
-
     if not df_e_edit.equals(st.session_state.df_e[colunas_visiveis]):
         for m in [c for c in colunas_visiveis if c != "MESES"]: st.session_state.df_e.loc[:, m] = df_e_edit[m]
-        utils.save_to_supabase('entradas', st.session_state.df_e, ano_selecionado)
-        st.rerun()
+        utils.save_to_supabase('entradas', st.session_state.df_e, ano_selecionado); st.rerun()
 
     tot_ent = st.session_state.df_e.set_index('MESES').sum()
     df_res_e = pd.DataFrame({'MESES': ['TOTAL RECEBIMENTOS:']})
@@ -106,20 +77,14 @@ def renderizar():
     styled_res_e = df_res_e[colunas_visiveis].style.apply(lambda row: [f'background-color: #9BC2E6; font-weight: bold; color: black' for _ in colunas_visiveis], axis=1)
     st.dataframe(styled_res_e.format(lambda x: x if isinstance(x, str) else utils.to_br_currency(x, False)), hide_index=True, column_config=col_cfg, use_container_width=True, height=75)
 
-    # --------------------------
-    # 9.3 RENDIMENTOS
-    # --------------------------
     st.markdown("#### 📈 Rendimento Mensal (Investimentos)")
     xp_val = df_n[df_n.index == 'INVESTIMENTO XP'].sum(); inter_val = df_n[df_n.index == 'CONTA INTER'].sum()
-    xp_var = xp_val.diff().fillna(0); inter_var = inter_val.diff().fillna(0); rend_total = xp_var + inter_var
-    prev_bal = (xp_val + inter_val).shift(1).fillna(0)
-    
+    xp_var = xp_val.diff().fillna(0); inter_var = inter_val.diff().fillna(0); rend_total = xp_var + inter_var; prev_bal = (xp_val + inter_val).shift(1).fillna(0)
     df_rend = pd.DataFrame({'MESES': ['RESULTADO XP', 'RESULTADO INTER', 'RENDIMENTO TOTAL', '% RETORNO MÊS', 'SALÁRIO + RENDIMENTO MÊS']})
     for i, m in enumerate(utils.meses_pt):
         if (ano_selecionado > utils.ano_atual) or (ano_selecionado == utils.ano_atual and i > utils.mes_hoje_idx - 1): df_rend[m] = [0, 0, 0, "0,00%", 0]
         else:
             rt = rend_total.get(m, 0); pb = prev_bal.get(m, 0); pct = (rt/pb*100) if pb>0 else 0
             df_rend[m] = [xp_var.get(m, 0), inter_var.get(m, 0), rt, f"{pct:.2f}%", tot_ent.get(m, 0) + rt]
-            
     styled_rend = df_rend[colunas_visiveis].style.apply(lambda row: [f'background-color: {"#FF9900" if row["MESES"] == "RENDIMENTO TOTAL" else "#FFF2CC" if "%" in row["MESES"] else "#9BC2E6" if "SALÁRIO" in row["MESES"] else "white"}; font-weight: bold; color: black' for _ in colunas_visiveis], axis=1)
     st.dataframe(styled_rend.format(lambda x: x if isinstance(x, str) else utils.to_br_currency(x, False)), hide_index=True, column_config=col_cfg, use_container_width=True, height=215)
