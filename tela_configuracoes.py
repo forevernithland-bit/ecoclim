@@ -15,26 +15,30 @@ def renderizar():
         
         new_df = pd.DataFrame()
         
-        # Mapeia colunas da sua planilha (Sheet1)
+        # Mapeia colunas da sua planilha
         if "PRODUTO" in df.columns: new_df["Item"] = df["PRODUTO"]
         elif "ITEM" in df.columns: new_df["Item"] = df["ITEM"]
+        else: new_df["Item"] = ""
         
         if "CUSTO" in df.columns: new_df["Custo (R$)"] = pd.to_numeric(df["CUSTO"], errors='coerce').fillna(0.0)
+        else: new_df["Custo (R$)"] = 0.0
         
         if "DESCRIÇÃO" in df.columns: new_df["Descrição"] = df["DESCRIÇÃO"].fillna("")
         elif "DESCRICAO" in df.columns: new_df["Descrição"] = df["DESCRICAO"].fillna("")
+        else: new_df["Descrição"] = ""
         
         new_df["Margem (%)"] = 0.0
         new_df["Lucro (R$)"] = 0.0
-        new_df["Venda (R$)"] = new_df["Custo (R$)"] if "Custo (R$)" in new_df.columns else 0.0
+        new_df["Venda (R$)"] = new_df["Custo (R$)"]
         
         return new_df
 
     def exibir_aba(table_name, titulo):
         df = utils.load_catalog(table_name)
         
-        # RESTAURADO: CAMPO DE IMPORTAÇÃO
-        upl = st.file_uploader(f"Importar Planilha de {titulo} (.xlsx)", type=["xlsx"], key=f"upl_{table_name}")
+        # 1. ÁREA DE IMPORTAÇÃO
+        st.markdown(f"#### 📥 Importar Planilha de {titulo}")
+        upl = st.file_uploader(f"Selecione o arquivo Excel (.xlsx)", type=["xlsx"], key=f"upl_{table_name}")
         if upl:
             if st.button(f"Processar Arquivo - {titulo}"):
                 df_importado = processar_upload(upl)
@@ -46,6 +50,28 @@ def renderizar():
         if f'df_tmp_{table_name}' in st.session_state:
             df = st.session_state[f'df_tmp_{table_name}']
 
+        st.markdown("---")
+        
+        # 2. FERRAMENTA DE MARGEM AUTOMÁTICA EM MASSA
+        st.markdown("#### ⚡ Ações Rápidas: Margem Automática")
+        c1, c2 = st.columns([1, 3])
+        with c1:
+            margem_global = st.number_input("Definir Margem (%)", min_value=0.0, format="%.2f", key=f"mg_{table_name}")
+        with c2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button(f"Aplicar {margem_global}% a todos os itens da tabela", key=f"btn_mg_{table_name}"):
+                df['Margem (%)'] = margem_global
+                # Faz o cálculo na hora para atualizar o quadro visual
+                for i in range(len(df)):
+                    c = float(df.at[i, 'Custo (R$)'] or 0)
+                    m = float(df.at[i, 'Margem (%)'] or 0)
+                    df.at[i, 'Venda (R$)'] = c * (1 + (m/100))
+                    df.at[i, 'Lucro (R$)'] = df.at[i, 'Venda (R$)'] - c
+                st.session_state[f'df_tmp_{table_name}'] = df
+                st.rerun()
+
+        st.markdown("#### 📋 Catálogo Atual")
+        
         cfg = {
             "Item": st.column_config.TextColumn("Item", width="medium"),
             "Descrição": st.column_config.TextColumn("Descrição / Detalhes", width="large"),
@@ -55,10 +81,10 @@ def renderizar():
             "Venda (R$)": st.column_config.NumberColumn("Venda (Final)", format="R$ %,.2f")
         }
         
-        # RESTAURADO: EDITOR COM CÁLCULO DE MARGEM
+        # O Editor da Tabela
         df_edit = st.data_editor(df, column_config=cfg, num_rows="dynamic", use_container_width=True, key=f"ed_{table_name}")
         
-        # Lógica matemática da Margem
+        # Lógica matemática linha a linha no background
         for i in range(len(df_edit)):
             custo = float(df_edit.at[i, 'Custo (R$)'] or 0)
             margem = float(df_edit.at[i, 'Margem (%)'] or 0)
@@ -71,11 +97,18 @@ def renderizar():
             else:
                 df_edit.at[i, 'Lucro (R$)'] = venda_atual - custo
 
-        if st.button(f"💾 Gravar Alterações em {titulo}", type="primary", key=f"btn_{table_name}"):
-            utils.save_catalog(table_name, df_edit)
-            if f'df_tmp_{table_name}' in st.session_state: del st.session_state[f'df_tmp_{table_name}']
-            st.success(f"Catálogo de {titulo} atualizado com sucesso!")
-            st.rerun()
+        st.markdown("<br>", unsafe_allow_html=True)
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🧮 ATUALIZAR CÁLCULOS NA TELA", use_container_width=True, key=f"atualizar_{table_name}"):
+                st.session_state[f'df_tmp_{table_name}'] = df_edit
+                st.rerun()
+        with col2:
+            if st.button(f"💾 GRAVAR ALTERAÇÕES", type="primary", use_container_width=True, key=f"btn_save_{table_name}"):
+                utils.save_catalog(table_name, df_edit)
+                if f'df_tmp_{table_name}' in st.session_state: del st.session_state[f'df_tmp_{table_name}']
+                st.success(f"Catálogo de {titulo} atualizado com sucesso!")
+                st.rerun()
 
     with tabs[0]: exibir_aba('catalogo_produtos', 'Produtos')
     with tabs[1]: exibir_aba('catalogo_servicos', 'Serviços')
