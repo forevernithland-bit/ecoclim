@@ -63,8 +63,18 @@ def renderizar():
         st.rerun()
 
     df_n = st.session_state.df_p.set_index('MESES')
-    pat_liq = df_n.loc[['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS']].sum()
-    pat_tot = pat_liq + df_n.loc['IMÓVEIS'] + df_n.loc['VEÍCULOS']
+    
+    # ==========================================
+    # CORREÇÃO: CÁLCULO SEGURO SEM KEYERROR
+    # ==========================================
+    contas_liq = ['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS']
+    # Soma de forma segura, ignorando o que não existe no banco ainda
+    pat_liq = df_n[df_n.index.isin(contas_liq)].sum()
+    
+    imoveis = df_n[df_n.index == 'IMÓVEIS'].sum()
+    veiculos = df_n[df_n.index == 'VEÍCULOS'].sum()
+    
+    pat_tot = pat_liq + imoveis + veiculos
     var_abs = pat_tot.diff().fillna(0)
     var_pct = (pat_tot.pct_change().fillna(0) * 100).round(2)
 
@@ -75,7 +85,7 @@ def renderizar():
 
     # LINHAS DE RESUMO DO PATRIMÔNIO NOMEADAS
     df_res_p = pd.DataFrame({'MESES': ['PATRIMÔNIO LÍQUIDO', 'PATRIMÔNIO TOTAL', 'VAR MENSAL (R$)', 'VAR MENSAL (%)']})
-    for m in utils.meses_pt: df_res_p[m] = [pat_liq[m], pat_tot[m], var_abs[m], f"{var_pct[m]:.2f}%"]
+    for m in utils.meses_pt: df_res_p[m] = [pat_liq.get(m, 0), pat_tot.get(m, 0), var_abs.get(m, 0), f"{var_pct.get(m, 0):.2f}%"]
     
     styled_res_p = df_res_p[colunas_visiveis].style.apply(lambda row: [f'background-color: {"#FF9900" if row["MESES"] == "PATRIMÔNIO TOTAL" else "#FFF2CC" if "LÍQUIDO" in row["MESES"] else "white"}; font-weight: bold; color: black; border-left: {"3px solid #4A90E2" if col == utils.mes_atual_nome and ano_selecionado == utils.ano_atual else "none"}' for col in colunas_visiveis], axis=1)
     
@@ -91,14 +101,15 @@ def renderizar():
     # Puxa o Lucro Estimado de Serviços Ativos e joga na linha ECOCLIM (Mês Atual)
     if ano_selecionado == utils.ano_atual:
         try:
-            res_servicos = st.session_state.supabase.table('servicos_andamento').select('lucro_estimado, status_projeto, data_conclusao').execute()
+            res_servicos = st.session_state.supabase.table('servicos_andamento').select('lucro_estimado, status_projeto').execute()
             df_serv = pd.DataFrame(res_servicos.data)
             if not df_serv.empty:
-                # Puxa os que estão em andamento ou que foram concluídos esse mês
                 lucro_ativo = df_serv[df_serv['status_projeto'].isin(['Em Andamento', 'Concluído PIX', 'Concluído CARTÃO'])]['lucro_estimado'].sum()
                 
-                idx_ecoclim = st.session_state.df_e.index[st.session_state.df_e['MESES'] == 'ECOCLIM'].tolist()[0]
-                st.session_state.df_e.at[idx_ecoclim, utils.mes_atual_nome] = float(lucro_ativo)
+                # Procura a linha ECOCLIM de forma segura
+                idx_ecoclim_list = st.session_state.df_e.index[st.session_state.df_e['MESES'] == 'ECOCLIM'].tolist()
+                if idx_ecoclim_list:
+                    st.session_state.df_e.at[idx_ecoclim_list[0], utils.mes_atual_nome] = float(lucro_ativo)
         except Exception as e: 
             pass
 
@@ -123,7 +134,7 @@ def renderizar():
     df_e_n = st.session_state.df_e.set_index('MESES')
     tot_ent = df_e_n.sum()
     df_res_e = pd.DataFrame({'MESES': ['TOTAL RECEBIMENTOS:']})
-    for m in utils.meses_pt: df_res_e[m] = [tot_ent[m]]
+    for m in utils.meses_pt: df_res_e[m] = [tot_ent.get(m, 0)]
     
     styled_res_e = df_res_e[colunas_visiveis].style.apply(lambda row: [f'background-color: #9BC2E6; font-weight: bold; color: black; border-left: {"3px solid #4A90E2" if col == utils.mes_atual_nome and ano_selecionado == utils.ano_atual else "none"}' for col in colunas_visiveis], axis=1)
     
@@ -135,8 +146,11 @@ def renderizar():
     # 9.3 RENDIMENTOS
     # --------------------------
     st.markdown("#### 📈 Rendimento Mensal (Investimentos)")
-    xp_val = df_n.loc['INVESTIMENTO XP']
-    inter_val = df_n.loc['CONTA INTER']
+    
+    # Busca XP e Inter de forma segura
+    xp_val = df_n[df_n.index == 'INVESTIMENTO XP'].sum()
+    inter_val = df_n[df_n.index == 'CONTA INTER'].sum()
+    
     xp_var = xp_val.diff().fillna(0)
     inter_var = inter_val.diff().fillna(0)
     rend_total = xp_var + inter_var
@@ -149,10 +163,10 @@ def renderizar():
         if (ano_selecionado > utils.ano_atual) or (ano_selecionado == utils.ano_atual and i > utils.mes_hoje_idx - 1): 
             df_rend[m] = [0, 0, 0, "0,00%", 0]
         else:
-            rt = rend_total[m]
-            pb = prev_bal[m]
+            rt = rend_total.get(m, 0)
+            pb = prev_bal.get(m, 0)
             pct_val = (rt / pb * 100) if pb > 0 else 0
-            df_rend[m] = [xp_var[m], inter_var[m], rt, f"{pct_val:.2f}%".replace(".", ","), tot_ent[m] + rt]
+            df_rend[m] = [xp_var.get(m, 0), inter_var.get(m, 0), rt, f"{pct_val:.2f}%".replace(".", ","), tot_ent.get(m, 0) + rt]
             
     styled_rend = df_rend[colunas_visiveis].style.apply(lambda row: [f'background-color: {"#FF9900" if row["MESES"] == "RENDIMENTO TOTAL" else "#FFF2CC" if "%" in row["MESES"] else "#9BC2E6" if "SALÁRIO" in row["MESES"] else "white"}; font-weight: bold; color: black; border-left: {"3px solid #4A90E2" if col == utils.mes_atual_nome and ano_selecionado == utils.ano_atual else "none"}' for col in colunas_visiveis], axis=1)
     
@@ -166,15 +180,22 @@ def renderizar():
     c1, c2, c3, c4 = st.columns(4)
     
     meses_calculo = utils.meses_pt if ano_selecionado < utils.ano_atual else utils.meses_pt[:utils.mes_hoje_idx]
-    media_entradas = tot_ent[meses_calculo].mean()
-    media_rend_r = rend_total[meses_calculo].mean()
-    media_rend_p = (rend_total[meses_calculo] / prev_bal[meses_calculo].replace(0, np.nan)).mean() * 100
+    media_entradas = tot_ent[meses_calculo].mean() if not tot_ent.empty else 0
+    media_rend_r = rend_total[meses_calculo].mean() if not rend_total.empty else 0
+    
+    pb_safe = prev_bal[meses_calculo].replace(0, np.nan)
+    if not pb_safe.isna().all():
+        media_rend_p = (rend_total[meses_calculo] / pb_safe).mean() * 100
+    else:
+        media_rend_p = 0
+        
     idx_ref = 11 if ano_selecionado < utils.ano_atual else (utils.mes_hoje_idx - 1 if utils.mes_hoje_idx > 0 else 0)
+    pat_atual_val = pat_tot.iloc[idx_ref] if len(pat_tot) > idx_ref else 0
 
     c1.metric("💰 MÉDIA ENTRADAS FIXAS", utils.to_br_currency(media_entradas))
     c2.metric("🎯 LIMITE DE GASTO (MÉDIA REND.)", utils.to_br_currency(media_rend_r))
     c3.metric("📈 MÉDIA RETORNO (%)", f"{media_rend_p:.2f}%".replace(".", ","))
-    c4.metric("🏛️ PATRIMÔNIO ATUAL", utils.to_br_currency(pat_tot.iloc[idx_ref]))
+    c4.metric("🏛️ PATRIMÔNIO ATUAL", utils.to_br_currency(pat_atual_val))
 
     st.write("---")
     g1, g2 = st.columns(2)
@@ -189,4 +210,6 @@ def renderizar():
         st.area_chart(tot_ent[utils.meses_pt] + rend_total[utils.meses_pt])
         
         st.subheader("Faturamento Ecoclim")
-        st.line_chart(df_e_n.loc['ECOCLIM'][utils.meses_pt])
+        # Gráfico seguro para a linha ECOCLIM
+        ecoclim_series = df_e_n[df_e_n.index == 'ECOCLIM'].sum()
+        st.line_chart(ecoclim_series[utils.meses_pt])
