@@ -29,7 +29,6 @@ def renderizar():
         st.subheader("⚙️ 1. Equipamentos")
         mostrar_pdf = st.checkbox("Mostrar Preços Unitários no PDF?", value=False)
         
-        # AQUI FOI CORRIGIDO O ATTRIBUTE ERROR: Assegurando que a cópia sempre existe
         if 'df_orc' not in st.session_state:
             st.session_state.df_orc = pd.DataFrame([{"Produto da Base": "", "Produto Manual": "", "Descrição": "", "Quantidade": 0, "Venda (R$)": 0.0, "Venda Total": 0.0} for _ in range(5)])
         if 'df_orc_prev' not in st.session_state:
@@ -54,6 +53,7 @@ def renderizar():
             if p != p_prev and p in lista_p:
                 match = cat_p[cat_p['Item'] == p]
                 if not match.empty:
+                    # Garantia de estar pegando VENDA da sua base
                     df_ed.at[i, 'Venda (R$)'] = float(match['Venda (R$)'].values[0])
                     df_ed.at[i, 'Descrição'] = str(match['Descrição'].values[0]) if 'Descrição' in match.columns and str(match['Descrição'].values[0]) != 'nan' else ""
                     if df_ed.at[i, 'Quantidade'] == 0: df_ed.at[i, 'Quantidade'] = 1
@@ -72,8 +72,6 @@ def renderizar():
 
     with st.container(border=True):
         st.subheader("🛠️ 2. Serviços / Diversos")
-        
-        # DESCRIÇÃO DE SERVIÇOS ROBUSTA RESTAURADA
         lista_s = st.session_state.db_servicos['Item'].tolist() if not st.session_state.db_servicos.empty else []
         if 's_sel_atual' not in st.session_state: st.session_state.s_sel_atual = ""
         s_sel = st.selectbox("Selecionar Serviço Principal:", [""] + lista_s + ["Manual"])
