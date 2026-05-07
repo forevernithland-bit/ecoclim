@@ -28,8 +28,9 @@ def renderizar():
             st.session_state.pop('ano_dados_atual', None)
             st.rerun()
 
-    contas_p = ['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS', 'IMÓVEIS', 'VEÍCULOS']
-    contas_e = ['ECOCLIM', 'AIRNB', 'CONS INVESTIMENTOS', 'MAGGI CONSORCIOS']
+    # NOMES EXATOS COMO ESTÃO NO SUPABASE (SEM ACENTOS, AIRBNB CORRETO)
+    contas_p = ['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS', 'IMOVEIS', 'VEICULOS']
+    contas_e = ['ECOCLIM', 'AIRBNB', 'CONS INVESTIMENTOS', 'MAGGI CONSORCIOS']
     
     if 'ano_dados_atual' not in st.session_state or st.session_state.ano_dados_atual != ano_selecionado:
         st.session_state.df_p = utils.load_year_data('patrimonio', contas_p, ano_selecionado)
@@ -66,7 +67,7 @@ def renderizar():
 
     df_n = st.session_state.df_p.set_index('MESES')
     pat_liq = df_n[df_n.index.isin(['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS'])].sum()
-    pat_tot = pat_liq + df_n[df_n.index == 'IMÓVEIS'].sum() + df_n[df_n.index == 'VEÍCULOS'].sum()
+    pat_tot = pat_liq + df_n[df_n.index == 'IMOVEIS'].sum() + df_n[df_n.index == 'VEICULOS'].sum()
     var_abs = pat_tot.diff().fillna(0)
     var_pct = (pat_tot.pct_change().fillna(0) * 100).round(2)
 
