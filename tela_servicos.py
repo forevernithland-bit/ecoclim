@@ -42,7 +42,6 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                 for _, prod_row in df_produtos.iterrows():
                     nome_catalogo = str(prod_row.get('Item', '')).strip().upper()
                     if nome_procurado == nome_catalogo:
-                        # Pega o custo independentemente do formato
                         c_val = prod_row.get('Custo', 0)
                         if pd.isna(c_val) or c_val == 0: 
                             c_val = prod_row.get('Custo (R$)', 0)
@@ -62,7 +61,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
     df_itens_final['Qtd'] = pd.to_numeric(df_itens_final['Qtd'], errors='coerce').fillna(0)
     custo_total_produtos = (df_itens_final['Custo Un.'] * df_itens_final['Qtd']).sum()
 
-    # --- 2. SIMULADOR DE TAXAS (BUSCA IMPLACÁVEL) ---
+    # --- 2. SIMULADOR DE TAXAS ---
     st.markdown("#### 🧮 Simulador de Custos e Impostos")
     
     with st.container(border=True):
@@ -73,13 +72,12 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         tem_nota = f_col2.radio("Emitir Nota Fiscal?", ["Não", "Sim"], index=1 if float(projeto_selecionado.get('custo_impostos', 0.0)) > 0 else 0, key=f"nf_{prefix_key}")
         valor_nf = 0.0
         if tem_nota == "Sim":
-            taxa_nf_pct = 6.0
-            # Busca super segura por NF
+            taxa_nf_pct = 0.0
             if not df_taxas_config.empty:
                 for _, t_row in df_taxas_config.iterrows():
-                    n_taxa = str(t_row.get('Item', '')).strip().upper()
-                    if n_taxa in ["NOTA FISCAL", "NF", "IMPOSTO"]:
-                        taxa_nf_pct = float(t_row.get('Taxa (%)', 6.0))
+                    n_taxa = str(t_row.get('Item', '')).strip().lower()
+                    if "nota fiscal" in n_taxa or "nf" in n_taxa or "imposto" in n_taxa:
+                        taxa_nf_pct = float(t_row.get('Taxa (%)', 0.0))
                         break
             valor_nf = valor_venda_fechado * (taxa_nf_pct / 100)
             f_col2.caption(f"Imposto ({taxa_nf_pct}%): - {utils.to_br_currency(valor_nf)}")
@@ -90,12 +88,13 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             parcelas_selecionadas = f_col3.selectbox("Número de Parcelas", [i for i in range(1, 13)], format_func=lambda x: f"{x}x", key=f"parc_{prefix_key}")
             taxa_cartao_pct = 0.0
             
-            # BUSCA IMPECÁVEL PARA O CARTÃO: ignora floats ("1.0") e espaços
+            # AGORA SIM! A busca é exatamente pelo termo correto: "cartão 1x", "cartão 2x", etc.
+            termo_busca = f"cartão {parcelas_selecionadas}x"
+            
             if not df_taxas_config.empty:
                 for _, t_row in df_taxas_config.iterrows():
-                    n_taxa = str(t_row.get('Item', '')).strip()
-                    if n_taxa.endswith('.0'): n_taxa = n_taxa[:-2] # Limpa "1.0" para "1"
-                    if n_taxa == str(parcelas_selecionadas):
+                    n_taxa = str(t_row.get('Item', '')).strip().lower()
+                    if n_taxa == termo_busca:
                         taxa_cartao_pct = float(t_row.get('Taxa (%)', 0.0))
                         break
 
@@ -120,7 +119,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         
         st.markdown("<br>", unsafe_allow_html=True)
         res1, res2 = st.columns(2)
-        res1.metric("Custo Total Operacional (Produtos + Taxas)", utils.to_br_currency(custo_total_produtos + abatimentos_totais))
+        res1.metric("Custo Operacional Total (Produtos + Taxas)", utils.to_br_currency(custo_total_produtos + abatimentos_totais))
         
         margem_real = (lucro_final / valor_venda_fechado * 100) if valor_venda_fechado > 0 else 0
         res2.metric("LUCRO LÍQUIDO REAL", utils.to_br_currency(lucro_final), delta=f"{margem_real:.1f}% de Margem Líquida")
