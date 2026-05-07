@@ -42,13 +42,17 @@ def renderizar():
         if upl:
             if st.button(f"Processar Arquivo - {titulo}"):
                 df_importado = processar_upload(upl)
-                # Mescla com o que já existe no banco para não perder nada
+                # Mescla e zera o índice para evitar KeyError
                 df = pd.concat([df, df_importado], ignore_index=True).drop_duplicates(subset=['Item'], keep='last')
+                df = df.reset_index(drop=True)
                 st.session_state[f'df_tmp_{table_name}'] = df
                 st.success("✅ Planilha carregada! Verifique os dados abaixo e clique em Gravar.")
 
         if f'df_tmp_{table_name}' in st.session_state:
             df = st.session_state[f'df_tmp_{table_name}']
+
+        # GARANTIA FINAL CONTRA KEYERROR
+        df = df.reset_index(drop=True)
 
         st.markdown("---")
         
@@ -60,13 +64,13 @@ def renderizar():
         with c2:
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button(f"Aplicar {margem_global}% a todos os itens da tabela", key=f"btn_mg_{table_name}"):
+                # Matemática Vetorizada ultra segura e rápida
                 df['Margem (%)'] = margem_global
-                # Faz o cálculo na hora para atualizar o quadro visual
-                for i in range(len(df)):
-                    c = float(df.at[i, 'Custo (R$)'] or 0)
-                    m = float(df.at[i, 'Margem (%)'] or 0)
-                    df.at[i, 'Venda (R$)'] = c * (1 + (m/100))
-                    df.at[i, 'Lucro (R$)'] = df.at[i, 'Venda (R$)'] - c
+                df['Custo (R$)'] = pd.to_numeric(df['Custo (R$)'], errors='coerce').fillna(0.0)
+                df['Margem (%)'] = pd.to_numeric(df['Margem (%)'], errors='coerce').fillna(0.0)
+                df['Venda (R$)'] = df['Custo (R$)'] * (1 + (df['Margem (%)']/100))
+                df['Lucro (R$)'] = df['Venda (R$)'] - df['Custo (R$)']
+                
                 st.session_state[f'df_tmp_{table_name}'] = df
                 st.rerun()
 
@@ -84,18 +88,18 @@ def renderizar():
         # O Editor da Tabela
         df_edit = st.data_editor(df, column_config=cfg, num_rows="dynamic", use_container_width=True, key=f"ed_{table_name}")
         
-        # Lógica matemática linha a linha no background
-        for i in range(len(df_edit)):
-            custo = float(df_edit.at[i, 'Custo (R$)'] or 0)
-            margem = float(df_edit.at[i, 'Margem (%)'] or 0)
-            venda_atual = float(df_edit.at[i, 'Venda (R$)'] or 0)
-            
-            if margem > 0:
-                venda_calc = custo * (1 + (margem/100))
-                df_edit.at[i, 'Venda (R$)'] = venda_calc
-                df_edit.at[i, 'Lucro (R$)'] = venda_calc - custo
-            else:
-                df_edit.at[i, 'Lucro (R$)'] = venda_atual - custo
+        # Resetando índice do editor para blindar totalmente
+        df_edit = df_edit.reset_index(drop=True)
+        
+        # Matemática protegida em tempo real
+        df_edit['Custo (R$)'] = pd.to_numeric(df_edit['Custo (R$)'], errors='coerce').fillna(0.0)
+        df_edit['Margem (%)'] = pd.to_numeric(df_edit['Margem (%)'], errors='coerce').fillna(0.0)
+        df_edit['Venda (R$)'] = pd.to_numeric(df_edit['Venda (R$)'], errors='coerce').fillna(0.0)
+        
+        # Aplica Venda e Lucro onde a margem é maior que zero
+        mask = df_edit['Margem (%)'] > 0
+        df_edit.loc[mask, 'Venda (R$)'] = df_edit.loc[mask, 'Custo (R$)'] * (1 + (df_edit.loc[mask, 'Margem (%)'] / 100))
+        df_edit['Lucro (R$)'] = df_edit['Venda (R$)'] - df_edit['Custo (R$)']
 
         st.markdown("<br>", unsafe_allow_html=True)
         col1, col2 = st.columns(2)
