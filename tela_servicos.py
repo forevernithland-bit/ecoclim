@@ -40,7 +40,14 @@ def renderizar():
     # 3. DETALHAMENTO E SIMULADOR FINANCEIRO
     def exibir_painel_detalhado(linha_selecionada):
         st.markdown("---")
-        st.markdown(f"### 🔍 Gerenciar Projeto: {linha_selecionada.get('nome_cliente', 'Sem Nome')}")
+        
+        # --- CABEÇALHO COM BOTÃO DE VOLTAR ---
+        col_titulo, col_botao_voltar = st.columns([3, 1])
+        col_titulo.markdown(f"### 🔍 Gerenciar Projeto: {linha_selecionada.get('nome_cliente', 'Sem Nome')}")
+        
+        if col_botao_voltar.button("⬅️ Criar Novo Orçamento", use_container_width=True):
+            # Hack simples para recarregar a página forçando a aba de orçamentos (ajuste conforme seu app.py)
+            st.info("Por favor, selecione 'Orçamentos' no menu lateral esquerdo.")
         
         # --- STATUS E DATA ---
         col1, col2 = st.columns(2)
@@ -52,28 +59,31 @@ def renderizar():
         data_inicial = datetime.datetime.strptime(str(data_banco), '%Y-%m-%d').date() if data_banco else datetime.date.today()
         nova_data = col2.date_input("Previsão/Conclusão", value=data_inicial)
 
-        # --- ITENS E EQUIPAMENTOS (CÁLCULO CORRIGIDO) ---
+        # --- SERVIÇO / INSTALAÇÃO DO ORÇAMENTO ---
+        # Exibe o que foi fechado no orçamento original para não esquecer
+        servico_original = str(linha_selecionada.get('servicos_adquiridos', ''))
+        if servico_original and servico_original != 'None':
+            st.markdown("#### 🛠️ Serviço / Instalação Fechada no Orçamento")
+            st.text_area("Descrição do Serviço Fechado (Apenas Leitura)", value=servico_original, height=80, disabled=True)
+
+        # --- ITENS E EQUIPAMENTOS ---
         itens_json = linha_selecionada.get('detalhamento_itens', [])
         df_itens = pd.DataFrame(itens_json) if (isinstance(itens_json, list) and len(itens_json) > 0) else pd.DataFrame(columns=['Item', 'Qtd', 'Venda Un.', 'Custo Un.', 'Descrição'])
             
-        # Proteção e Criação de colunas necessárias
         for col in ['Custo Un.', 'Qtd', 'Venda Un.', 'Item', 'Descrição']:
             if col not in df_itens.columns:
                 df_itens[col] = 0.0 if 'Un.' in col or 'Qtd' in col else ""
 
         # INTELIGÊNCIA: Buscar o Custo Un. no catálogo se estiver R$ 0.00
         for idx in df_itens.index:
-            try:
-                custo_atual = float(df_itens.at[idx, 'Custo Un.'])
-            except:
-                custo_atual = 0.0
+            try: custo_atual = float(df_itens.at[idx, 'Custo Un.'])
+            except: custo_atual = 0.0
                 
             if custo_atual == 0.0 and df_itens.at[idx, 'Item']:
                 match = df_produtos_catalogo[df_produtos_catalogo['Item'] == df_itens.at[idx, 'Item']]
                 if not match.empty:
                     df_itens.at[idx, 'Custo Un.'] = float(match['Custo (R$)'].values[0])
 
-        # Conversão de segurança para cálculos
         df_itens['Custo Un.'] = pd.to_numeric(df_itens['Custo Un.'], errors='coerce').fillna(0.0)
         df_itens['Qtd'] = pd.to_numeric(df_itens['Qtd'], errors='coerce').fillna(0)
         
@@ -90,11 +100,9 @@ def renderizar():
         
         df_itens_editado = st.data_editor(df_itens, column_config=config_tabela, num_rows="dynamic", use_container_width=True, key=f"ed_itens_{linha_selecionada['id']}")
         
-        # Garante que as mudanças de digitação não deem erro
         df_itens_editado['Custo Un.'] = pd.to_numeric(df_itens_editado['Custo Un.'], errors='coerce').fillna(0.0)
         df_itens_editado['Qtd'] = pd.to_numeric(df_itens_editado['Qtd'], errors='coerce').fillna(0)
         
-        # CÁLCULO MESTRE: Soma todos os produtos (Quantidade * Preço de Custo)
         custo_equipamentos_base = (df_itens_editado['Custo Un.'] * df_itens_editado['Qtd']).sum()
 
         # ==========================================
@@ -118,7 +126,7 @@ def renderizar():
             valor_imposto = venda_final * (taxa_nf / 100)
             f2.caption(f"Custo Imposto ({taxa_nf}%): {utils.to_br_currency(valor_imposto)}")
 
-            # 3. FORMA DE PAGAMENTO (INTEGRADO ÀS CONFIGURAÇÕES)
+            # 3. FORMA DE PAGAMENTO
             lista_pagamentos = ["PIX / Dinheiro (Sem Taxa)"]
             if not df_taxas.empty:
                 lista_pagamentos.extend(df_taxas['Item'].tolist())
@@ -155,7 +163,6 @@ def renderizar():
             st.markdown("<br>", unsafe_allow_html=True)
             m1, m2 = st.columns(2)
             
-            # Custo Operacional Explicado
             m1.metric("Custo Total Operacional (Real)", utils.to_br_currency(custos_operacionais), delta=f"Desse total, {utils.to_br_currency(custo_equipamentos_base)} são os Equipamentos Base", delta_color="off")
             
             margem = ((lucro_liquido_real / venda_final) * 100) if venda_final > 0 else 0
