@@ -262,7 +262,6 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
             p.drawRightString(largura - 2.3*cm, y, to_br_currency(row.get('Venda Total', 0)))
             y -= 0.4*cm
             
-            # 💡 PEGA A DESCRIÇÃO DIRETO DA TABELA QUE O USUÁRIO VÊ NA TELA!
             desc = str(row.get('Descrição', "")).strip()
             
             if desc and desc != "nan":
@@ -273,17 +272,18 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
                     if linha.strip():
                         linha_up = linha.upper()
                         prefix = ""
-                        # Só adiciona "Detalhes:" se a linha não começar com essas palavras:
                         if linha == linhas_desc[0] and not (linha_up.startswith("DETALHES") or linha_up.startswith("QUANTIDADE") or linha_up.startswith("GARANTIA") or linha_up.startswith("-")):
                             prefix = "Detalhes: "
                         p.drawString(2.3*cm, y, prefix + linha.strip())
                         y -= 0.35*cm
                 p.setFillColor(colors.black)
+                # ESPAÇO EXTRA APÓS DESCRIÇÃO PARA NÃO ENCAVALAR
+                y -= 0.2*cm
             else:
                 y -= 0.1*cm
 
-    # 5. SERVIÇOS E DIVERSOS
-    y -= 0.3*cm
+    # 5. SERVIÇOS E DIVERSOS (MAIS ABAIXO)
+    y -= 0.6*cm # Adicionado gordura extra
     p.setFillColor(colors.HexColor("#004488"))
     p.rect(2*cm, y, largura - 4*cm, 0.7*cm, fill=1, stroke=0)
     p.setFillColor(colors.white)
@@ -315,7 +315,7 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
     p.drawString(2.3*cm, y + 0.3*cm, "INVESTIMENTO TOTAL")
     p.drawRightString(largura - 2.3*cm, y + 0.3*cm, to_br_currency(total))
 
-    # 7. OBSERVAÇÕES
+    # 7. OBSERVAÇÕES E MARCA D'ÁGUA
     y -= 1.5*cm
     p.setFillColor(colors.red)
     p.setFont("Helvetica-Bold", 10)
@@ -323,6 +323,10 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
     p.setFont("Helvetica", 9)
     p.setFillColor(colors.black)
     p.drawString(2*cm, y - 0.5*cm, str(obs)[:100])
+    
+    p.setFont("Helvetica", 6)
+    p.setFillColor(colors.lightgrey)
+    p.drawString(2*cm, 1*cm, "v.2.2")
 
     p.save()
     buffer.seek(0)
