@@ -61,7 +61,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
     df_itens_final['Qtd'] = pd.to_numeric(df_itens_final['Qtd'], errors='coerce').fillna(0)
     custo_total_produtos = (df_itens_final['Custo Un.'] * df_itens_final['Qtd']).sum()
 
-    # --- 2. SIMULADOR DE TAXAS ---
+    # --- 2. SIMULADOR DE TAXAS (BUSCA IMPLACÁVEL) ---
     st.markdown("#### 🧮 Simulador de Custos e Impostos")
     
     with st.container(border=True):
@@ -77,7 +77,8 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                 for _, t_row in df_taxas_config.iterrows():
                     n_taxa = str(t_row.get('Item', '')).strip().lower()
                     if "nota fiscal" in n_taxa or "nf" in n_taxa or "imposto" in n_taxa:
-                        taxa_nf_pct = float(t_row.get('Taxa (%)', 0.0))
+                        try: taxa_nf_pct = float(t_row.get('Taxa (%)', 0.0))
+                        except: taxa_nf_pct = 0.0
                         break
             valor_nf = valor_venda_fechado * (taxa_nf_pct / 100)
             f_col2.caption(f"Imposto ({taxa_nf_pct}%): - {utils.to_br_currency(valor_nf)}")
@@ -88,14 +89,18 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             parcelas_selecionadas = f_col3.selectbox("Número de Parcelas", [i for i in range(1, 13)], format_func=lambda x: f"{x}x", key=f"parc_{prefix_key}")
             taxa_cartao_pct = 0.0
             
-            # AGORA SIM! A busca é exatamente pelo termo correto: "cartão 1x", "cartão 2x", etc.
-            termo_busca = f"cartão {parcelas_selecionadas}x"
+            # BUSCA IMPECÁVEL PARA O CARTÃO: Procura "cart" e o número de parcelas (ex: "3x")
+            termo_parcelas = f"{parcelas_selecionadas}x"
             
             if not df_taxas_config.empty:
                 for _, t_row in df_taxas_config.iterrows():
                     n_taxa = str(t_row.get('Item', '')).strip().lower()
-                    if n_taxa == termo_busca:
-                        taxa_cartao_pct = float(t_row.get('Taxa (%)', 0.0))
+                    # Substitui acentos para evitar falhas ("cartão" vs "cartao")
+                    n_taxa = n_taxa.replace('ã', 'a').replace('á', 'a')
+                    
+                    if "cart" in n_taxa and termo_parcelas in n_taxa:
+                        try: taxa_cartao_pct = float(t_row.get('Taxa (%)', 0.0))
+                        except: taxa_cartao_pct = 0.0
                         break
 
             valor_cartao_taxa = valor_venda_fechado * (taxa_cartao_pct / 100)
@@ -119,7 +124,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         
         st.markdown("<br>", unsafe_allow_html=True)
         res1, res2 = st.columns(2)
-        res1.metric("Custo Operacional Total (Produtos + Taxas)", utils.to_br_currency(custo_total_produtos + abatimentos_totais))
+        res1.metric("Custo Total Operacional (Produtos + Taxas)", utils.to_br_currency(custo_total_produtos + abatimentos_totais))
         
         margem_real = (lucro_final / valor_venda_fechado * 100) if valor_venda_fechado > 0 else 0
         res2.metric("LUCRO LÍQUIDO REAL", utils.to_br_currency(lucro_final), delta=f"{margem_real:.1f}% de Margem Líquida")
@@ -185,7 +190,6 @@ def renderizar():
         key="grid_ativos"
     )
     
-    # O PAINEL ABRE IMEDIATAMENTE AQUI SE CLICAR NA TABELA ACIMA
     if selecao_ativo.selection.rows:
         projeto_selecionado = df_servicos_ativos.iloc[selecao_ativo.selection.rows[0]]
         exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_produtos, prefix_key=f"ativo_{projeto_selecionado['id']}")
@@ -203,7 +207,6 @@ def renderizar():
         key="grid_orcamentos"
     )
 
-    # O PAINEL ABRE IMEDIATAMENTE AQUI SE CLICAR NA TABELA ACIMA
     if selecao_orcamento.selection.rows and not selecao_ativo.selection.rows:
         projeto_selecionado = df_orcamentos_pendentes.iloc[selecao_orcamento.selection.rows[0]]
         exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_produtos, prefix_key=f"orc_{projeto_selecionado['id']}")
