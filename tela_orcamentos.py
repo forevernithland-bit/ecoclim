@@ -6,7 +6,6 @@ import utils
 def renderizar():
     st.markdown("## 📝 Novo Orçamento")
     
-    # Carrega dados
     st.session_state.db_produtos = utils.load_catalog('catalogo_produtos')
     st.session_state.db_servicos = utils.load_catalog('catalogo_servicos')
     st.session_state.db_outros = utils.load_catalog('catalogo_outros')
@@ -20,7 +19,7 @@ def renderizar():
         nome_c = c1.text_input("Nome do Cliente", key="nome_cliente_orc")
         tel_c = c2.text_input("WhatsApp", key="tel_cliente_orc")
         
-        # PRÉ-SELECIONADO A OPÇÃO 1 (AQUECEDOR SOLAR A VÁCUO ACOPLADO)
+        # PRÉ-SELECIONADO O VÁCUO ACOPLADO
         capa = st.selectbox("Modelo para Capa", [
             "AQUECEDOR SOLAR TRADICIONAL", 
             "AQUECEDOR SOLAR A VÁCUO ACOPLADO", 
@@ -35,16 +34,19 @@ def renderizar():
         # DESMARCADO POR PADRÃO
         mostrar_pdf = st.checkbox("Mostrar Preços Unitários no PDF?", value=False)
         
-        # INICIANDO COM QUANTIDADE ZERO
+        # COLUNA DE DESCRIÇÃO ADICIONADA E QUANTIDADE ZERADA
         if 'df_orc' not in st.session_state:
-            st.session_state.df_orc = pd.DataFrame([{"Produto da Base": "", "Produto Manual": "", "Quantidade": 0, "Venda (R$)": 0.0, "Venda Total": 0.0} for _ in range(5)])
+            st.session_state.df_orc = pd.DataFrame([{"Produto da Base": "", "Produto Manual": "", "Descrição": "", "Quantidade": 0, "Venda (R$)": 0.0, "Venda Total": 0.0} for _ in range(5)])
         else:
             if "Venda Total" not in st.session_state.df_orc.columns:
                 st.session_state.df_orc["Venda Total"] = 0.0
+            if "Descrição" not in st.session_state.df_orc.columns:
+                st.session_state.df_orc["Descrição"] = ""
         
         cfg = {
-            "Produto da Base": st.column_config.SelectboxColumn("Produto", options=[""] + lista_p + ["OUTRO"], width="large"), 
+            "Produto da Base": st.column_config.SelectboxColumn("Produto", options=[""] + lista_p + ["OUTRO"], width="medium"), 
             "Produto Manual": st.column_config.TextColumn("Produto Manual", width="medium"),
+            "Descrição": st.column_config.TextColumn("Detalhes / Garantia", width="large"),
             "Quantidade": st.column_config.NumberColumn("Qtd", min_value=0, step=1),
             "Venda (R$)": st.column_config.NumberColumn("Preço Un. (R$)", format="R$ %,.2f"),
             "Venda Total": st.column_config.NumberColumn("Venda Total (R$)", format="R$ %,.2f", disabled=True)
@@ -58,18 +60,25 @@ def renderizar():
         
         if "Venda Total" not in df_ed.columns:
             df_ed["Venda Total"] = 0.0
+        if "Descrição" not in df_ed.columns:
+            df_ed["Descrição"] = ""
 
         precisa_atualizar = False
         for i in range(len(df_ed)):
             p = df_ed.at[i, 'Produto da Base']
-            if p in lista_p and df_ed.at[i, 'Venda (R$)'] == 0:
+            if p in lista_p:
                 match = cat_p[cat_p['Item'] == p]
                 if not match.empty:
-                    df_ed.at[i, 'Venda (R$)'] = float(match['Venda (R$)'].values[0])
-                    # Se puxou da base e a quantidade for 0, altera pra 1 para facilitar
-                    if df_ed.at[i, 'Quantidade'] == 0:
-                        df_ed.at[i, 'Quantidade'] = 1
-                    precisa_atualizar = True
+                    if df_ed.at[i, 'Venda (R$)'] == 0:
+                        df_ed.at[i, 'Venda (R$)'] = float(match['Venda (R$)'].values[0])
+                        precisa_atualizar = True
+                    
+                    # Puxa a descrição da base e joga na tabela na hora
+                    if str(df_ed.at[i, 'Descrição']).strip() == "" and 'Descrição' in match.columns:
+                        desc_bd = str(match['Descrição'].values[0])
+                        if desc_bd != "nan" and desc_bd.strip() != "":
+                            df_ed.at[i, 'Descrição'] = desc_bd
+                            precisa_atualizar = True
                 
         nova_venda_total = df_ed['Venda (R$)'] * df_ed['Quantidade']
         if not df_ed['Venda Total'].equals(nova_venda_total):
@@ -148,6 +157,7 @@ def renderizar():
                     desc_m = row['Produto Manual']
                     qtd = int(row['Quantidade'])
                     venda_un = float(row['Venda (R$)'])
+                    desc_prod = str(row.get('Descrição', ""))
                     
                     if qtd <= 0 or (nome_p == "" and desc_m.strip() == ""): continue
                     
@@ -155,10 +165,10 @@ def renderizar():
                         c_un = float(cat_p.loc[cat_p['Item'] == nome_p, 'Custo (R$)'].values[0])
                         custo_real_equip += (c_un * qtd)
                         resumo_produtos.append(f"{qtd}x {nome_p}")
-                        detalhamento_snapshot.append({"Item": nome_p, "Descrição Manual": "", "Qtd": qtd, "Custo Un.": c_un, "Venda Un.": venda_un})
+                        detalhamento_snapshot.append({"Item": nome_p, "Descrição Manual": desc_prod, "Qtd": qtd, "Custo Un.": c_un, "Venda Un.": venda_un})
                     elif desc_m.strip() != "":
                         resumo_produtos.append(f"{qtd}x {desc_m}")
-                        detalhamento_snapshot.append({"Item": "OUTRO / MANUAL", "Descrição Manual": desc_m, "Qtd": qtd, "Custo Un.": 0.0, "Venda Un.": venda_un})
+                        detalhamento_snapshot.append({"Item": "OUTRO / MANUAL", "Descrição Manual": desc_prod if desc_prod else desc_m, "Qtd": qtd, "Custo Un.": 0.0, "Venda Un.": venda_un})
 
                 if s_sel != "":
                     if s_sel == "Manual":
