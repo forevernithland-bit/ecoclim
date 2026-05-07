@@ -19,6 +19,8 @@ def renderizar():
         c1, c2 = st.columns(2)
         nome_c = c1.text_input("Nome do Cliente", key="nome_cliente_orc")
         tel_c = c2.text_input("WhatsApp", key="tel_cliente_orc")
+        
+        # PRÉ-SELECIONADO A OPÇÃO 1 (AQUECEDOR SOLAR A VÁCUO ACOPLADO)
         capa = st.selectbox("Modelo para Capa", [
             "AQUECEDOR SOLAR TRADICIONAL", 
             "AQUECEDOR SOLAR A VÁCUO ACOPLADO", 
@@ -26,14 +28,16 @@ def renderizar():
             "AQUECEDOR DE PISCINA - TRADICIONAL", 
             "AQUECEDOR DE PISCINA - TROCADOR DE CALOR", 
             "SISTEMAS DE PRESSURIZAÇÃO"
-        ])
+        ], index=1)
 
     with st.container(border=True):
         st.subheader("⚙️ 1. Equipamentos")
-        mostrar_pdf = st.checkbox("Mostrar Preços Unitários no PDF?", value=True)
+        # DESMARCADO POR PADRÃO
+        mostrar_pdf = st.checkbox("Mostrar Preços Unitários no PDF?", value=False)
         
+        # INICIANDO COM QUANTIDADE ZERO
         if 'df_orc' not in st.session_state:
-            st.session_state.df_orc = pd.DataFrame([{"Produto da Base": "", "Produto Manual": "", "Quantidade": 1, "Venda (R$)": 0.0, "Venda Total": 0.0} for _ in range(5)])
+            st.session_state.df_orc = pd.DataFrame([{"Produto da Base": "", "Produto Manual": "", "Quantidade": 0, "Venda (R$)": 0.0, "Venda Total": 0.0} for _ in range(5)])
         else:
             if "Venda Total" not in st.session_state.df_orc.columns:
                 st.session_state.df_orc["Venda Total"] = 0.0
@@ -41,7 +45,7 @@ def renderizar():
         cfg = {
             "Produto da Base": st.column_config.SelectboxColumn("Produto", options=[""] + lista_p + ["OUTRO"], width="large"), 
             "Produto Manual": st.column_config.TextColumn("Produto Manual", width="medium"),
-            "Quantidade": st.column_config.NumberColumn("Qtd", min_value=1, step=1),
+            "Quantidade": st.column_config.NumberColumn("Qtd", min_value=0, step=1),
             "Venda (R$)": st.column_config.NumberColumn("Preço Un. (R$)", format="R$ %,.2f"),
             "Venda Total": st.column_config.NumberColumn("Venda Total (R$)", format="R$ %,.2f", disabled=True)
         }
@@ -49,7 +53,7 @@ def renderizar():
         df_ed = st.data_editor(st.session_state.df_orc, column_config=cfg, num_rows="dynamic", use_container_width=True)
         df_ed = df_ed.reset_index(drop=True)
         
-        df_ed['Quantidade'] = pd.to_numeric(df_ed['Quantidade'], errors='coerce').fillna(1).astype(int)
+        df_ed['Quantidade'] = pd.to_numeric(df_ed['Quantidade'], errors='coerce').fillna(0).astype(int)
         df_ed['Venda (R$)'] = pd.to_numeric(df_ed['Venda (R$)'], errors='coerce').fillna(0.0).astype(float)
         
         if "Venda Total" not in df_ed.columns:
@@ -62,6 +66,9 @@ def renderizar():
                 match = cat_p[cat_p['Item'] == p]
                 if not match.empty:
                     df_ed.at[i, 'Venda (R$)'] = float(match['Venda (R$)'].values[0])
+                    # Se puxou da base e a quantidade for 0, altera pra 1 para facilitar
+                    if df_ed.at[i, 'Quantidade'] == 0:
+                        df_ed.at[i, 'Quantidade'] = 1
                     precisa_atualizar = True
                 
         nova_venda_total = df_ed['Venda (R$)'] * df_ed['Quantidade']
@@ -112,12 +119,8 @@ def renderizar():
     st.markdown("---")
     st.subheader("🚀 Finalização")
 
-    # Divisão em duas colunas para o Novo Layout de Salvamento
     col_prev, col_salvar = st.columns(2)
 
-    # ==========================================
-    # PASSO 1: PRÉ-VISUALIZAÇÃO (NÃO SALVA)
-    # ==========================================
     with col_prev:
         st.info("👁️ **Passo 1: Conferência**\nGere um PDF de rascunho para verificar dados e formatação antes de registrá-lo.")
         if st.button("GERAR PRÉVIA DO PDF", use_container_width=True):
@@ -130,9 +133,6 @@ def renderizar():
         if 'pdf_previa' in st.session_state and st.session_state.get('nome_previa') == nome_c:
             st.download_button("📥 BAIXAR RASCUNHO (Conferir)", data=st.session_state['pdf_previa'], file_name=f"RASCUNHO_{nome_c}.pdf", mime="application/pdf", use_container_width=True)
 
-    # ==========================================
-    # PASSO 2: SALVAR OFICIAL
-    # ==========================================
     with col_salvar:
         st.warning("💾 **Passo 2: Salvar Oficial**\nRegistra no sistema, cria número oficial e congela os preços atuais da base.")
         if st.button("SALVAR ORÇAMENTO NO SISTEMA", type="primary", use_container_width=True):
@@ -198,7 +198,6 @@ def renderizar():
                 except Exception as e:
                     st.error(f"Erro ao salvar no banco: {e}")
 
-        # Se o orçamento foi salvo com sucesso, exibe o botão de download oficial e a opção de limpar a tela
         if 'pdf_oficial' in st.session_state and 'msg_sucesso' in st.session_state:
             st.success(st.session_state['msg_sucesso'])
             st.download_button("📥 BAIXAR ORÇAMENTO OFICIAL", data=st.session_state['pdf_oficial'], file_name=st.session_state['oficial_filename'], mime="application/pdf", type="primary", use_container_width=True)
