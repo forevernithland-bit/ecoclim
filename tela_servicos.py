@@ -44,7 +44,6 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         if coluna not in df_itens.columns:
             df_itens[coluna] = 0.0 if 'Un.' in coluna or 'Qtd' in coluna else ""
 
-    # Puxa o custo automaticamente do catálogo, se estiver zerado
     if not df_produtos.empty:
         for idx, row in df_itens.iterrows():
             custo_atual = 0.0
@@ -103,17 +102,20 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         valor_cartao_taxa = 0.0
         
         if metodo_pgto == "Cartão de Crédito":
-            # Descobre a % salva anteriormente para carregar de volta
             custo_cartao_bd = float(projeto_selecionado.get('custo_cartao', 0.0))
             taxa_bd_padrao = (custo_cartao_bd / valor_venda_fechado * 100) if valor_venda_fechado > 0 else 0.0
             
+            # Campo manual para a taxa do cartão
             taxa_cartao_pct = f_col3.number_input("Digite a Taxa do Cartão (%)", value=float(taxa_bd_padrao), format="%.2f", key=f"tx_cart_manual_{prefix_key}")
             valor_cartao_taxa = valor_venda_fechado * (taxa_cartao_pct / 100)
             f_col3.caption(f"Valor a descontar: - {utils.to_br_currency(valor_cartao_taxa)}")
             
-            # Aba expansível para colar os valores sem precisar sair da tela
+            # Aba expansível para a "colinha" sem precisar sair da tela
             with f_col3.expander("📋 Ver Tabela de Taxas"):
-                st.dataframe(df_taxas_config[['Item', 'Taxa (%)']], hide_index=True)
+                if not df_taxas_config.empty:
+                    st.dataframe(df_taxas_config[['Item', 'Taxa (%)']], hide_index=True, use_container_width=True)
+                else:
+                    st.info("Nenhuma taxa cadastrada em Configurações.")
         else:
             f_col3.caption("Taxa PIX: Isento")
 
@@ -181,7 +183,6 @@ def renderizar():
     df_taxas_config = utils.load_taxas()
     df_produtos = utils.load_catalog('catalogo_produtos')
 
-    # APLICA A LÓGICA DO MÊS PARA SEPARAR OS FINALIZADOS
     df_projetos['ir_para_finalizados'] = df_projetos.apply(lambda x: deve_ir_para_finalizados(x['status_projeto'], x['data_conclusao']), axis=1)
 
     lista_status_ativos = ["Em Andamento", "Aguardando Peças", "Concluído PIX", "Concluído CARTÃO"]
@@ -196,7 +197,6 @@ def renderizar():
 
     colunas_grid = ['id', 'numero_orcamento', 'nome_cliente', 'status_projeto', 'valor_venda_total', 'data_conclusao']
 
-    # --- CRIAÇÃO DAS ABAS ---
     aba1, aba2, aba3 = st.tabs(["🚀 Em Andamento", "📝 Orçamentos", "✅ Finalizados"])
 
     with aba1:
