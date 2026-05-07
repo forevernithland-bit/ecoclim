@@ -30,7 +30,6 @@ def renderizar():
     
     st.info("Selecione uma linha abaixo para ver e editar os detalhes do projeto.")
     
-    # CORREÇÃO DO ERRO AQUI: "single-row" com traço, não underline!
     sel_orc = st.dataframe(
         df_display,
         use_container_width=True,
@@ -67,7 +66,7 @@ def renderizar():
         nova_data = c2.date_input("Data de Conclusão / Previsão", value=data_padrao)
         
         # ==========================================
-        # BLINDAGEM DOS ITENS
+        # TABELA DE ITENS (BLINDADA CONTRA ERROS)
         # ==========================================
         itens_json = row.get('detalhamento_itens', [])
         if isinstance(itens_json, list) and len(itens_json) > 0:
@@ -75,13 +74,11 @@ def renderizar():
         else:
             df_edit = pd.DataFrame(columns=['Item', 'Qtd', 'Venda Un.', 'Custo Un.', 'Descrição'])
             
-        # Garante que as colunas matemáticas existam
         colunas_obrigatorias = {'Custo Un.': 0.0, 'Qtd': 0, 'Venda Un.': 0.0, 'Item': '', 'Descrição': ''}
         for col, default_val in colunas_obrigatorias.items():
             if col not in df_edit.columns:
                 df_edit[col] = default_val
 
-        # Converte tudo para número para evitar erros matemáticos
         df_edit['Custo Un.'] = pd.to_numeric(df_edit['Custo Un.'], errors='coerce').fillna(0.0)
         df_edit['Venda Un.'] = pd.to_numeric(df_edit['Venda Un.'], errors='coerce').fillna(0.0)
         df_edit['Qtd'] = pd.to_numeric(df_edit['Qtd'], errors='coerce').fillna(0)
@@ -97,21 +94,36 @@ def renderizar():
         
         df_edit = st.data_editor(df_edit, column_config=config_itens, num_rows="dynamic", use_container_width=True, key=f"ed_itens_{row['id']}")
         
-        # Matemática segura do custo dos materiais
-        custo_materiais = (df_edit['Custo Un.'] * df_edit['Qtd']).sum()
+        # Sugestão de custo dos materiais (Soma da tabela)
+        custo_materiais_tabela = (df_edit['Custo Un.'] * df_edit['Qtd']).sum()
         
-        st.markdown("#### 🧮 Custos Adicionais e Fechamento")
-        col_custo1, col_custo2 = st.columns(2)
-        custo_extra_mat = col_custo1.number_input("Custos Adicionais (Materiais de instalação extras)", value=float(row.get('custo_adicional_materiais', 0.0)), format="%.2f")
-        custo_terc = col_custo2.number_input("Custo com Terceirizados / Instaladores", value=float(row.get('custo_terceirizados', 0.0)), format="%.2f")
+        # ==========================================
+        # PAINEL DE CUSTOS REAIS (RESTAURADO!)
+        # ==========================================
+        st.markdown("#### 🧮 Custos e Fechamento")
         
-        venda_final = st.number_input("Valor Final Fechado com Cliente (R$)", value=float(row.get('valor_venda_total', 0.0)), format="%.2f")
+        col_c1, col_c2 = st.columns(2)
         
-        lucro_estimado = venda_final - custo_materiais - custo_extra_mat - custo_terc
+        custo_mat_db = float(row.get('custo_adicional_materiais', 0.0))
+        if custo_mat_db == 0.0 and custo_materiais_tabela > 0:
+            custo_mat_db = custo_materiais_tabela
+
+        custo_materiais = col_c1.number_input("Custo com Materiais", value=custo_mat_db, format="%.2f")
+        custo_terc = col_c2.number_input("Custo com Terceirizados / Instaladores", value=float(row.get('custo_terceirizados', 0.0)), format="%.2f")
         
-        st.info(f"**Custo Operacional Total do Projeto:** {utils.to_br_currency(custo_materiais + custo_extra_mat + custo_terc)}  |  **Lucro Líquido Estimado:** {utils.to_br_currency(lucro_estimado)}")
+        col_c3, col_c4 = st.columns(2)
+        comissao = col_c3.number_input("Comissões e Representantes", value=float(row.get('custo_comissao', 0.0)), format="%.2f")
+        impostos = col_c4.number_input("Custos c/ Nota Fiscal e Impostos", value=float(row.get('custo_impostos', 0.0)), format="%.2f")
         
-        notas = st.text_area("Notas e Observações Internas (Para a equipe)", value=str(row.get('notas_internas', '')))
+        col_c5, col_c6 = st.columns(2)
+        taxa_cartao = col_c5.number_input("Custos c/ Máquina de Cartão", value=float(row.get('custo_cartao', 0.0)), format="%.2f")
+        venda_final = col_c6.number_input("Valor Final Fechado com o Cliente (R$)", value=float(row.get('valor_venda_total', 0.0)), format="%.2f")
+        
+        lucro_estimado = venda_final - custo_materiais - custo_terc - comissao - impostos - taxa_cartao
+        
+        st.info(f"**Lucro Líquido Estimado:** {utils.to_br_currency(lucro_estimado)}")
+        
+        notas = st.text_area("Notas e Observações Internas", value=str(row.get('notas_internas', '')))
         
         # BOTÃO DE SALVAR
         if st.button("💾 SALVAR ALTERAÇÕES DO PROJETO", type="primary", use_container_width=True):
@@ -119,8 +131,11 @@ def renderizar():
                 "status_projeto": novo_status,
                 "data_conclusao": nova_data.strftime('%Y-%m-%d'),
                 "detalhamento_itens": df_edit.to_dict('records'),
-                "custo_adicional_materiais": custo_extra_mat,
+                "custo_adicional_materiais": custo_materiais,
                 "custo_terceirizados": custo_terc,
+                "custo_comissao": comissao,
+                "custo_impostos": impostos,
+                "custo_cartao": taxa_cartao,
                 "valor_venda_total": venda_final,
                 "lucro_estimado": lucro_estimado,
                 "notas_internas": notas
@@ -128,7 +143,7 @@ def renderizar():
             
             try:
                 supabase.table('servicos_andamento').update(dados_atualizados).eq('id', row['id']).execute()
-                st.success("✅ Projeto atualizado com sucesso! (Lembre-se: se o status for Concluído PIX/CARTÃO, o lucro já será somado no Controle Financeiro).")
+                st.success("✅ Projeto atualizado com sucesso! (Lembre-se: se o status for Concluído PIX/CARTÃO, o lucro será somado no Controle Financeiro).")
                 st.rerun()
             except Exception as e:
                 st.error(f"Erro ao atualizar projeto: {e}")
