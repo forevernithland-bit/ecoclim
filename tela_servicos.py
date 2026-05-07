@@ -5,14 +5,14 @@ import utils
 
 def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_produtos, prefix_key):
     st.markdown("---")
-    st.markdown(f"### ⚙️ Detalhes e Fechamento Financeiro: **{projeto_selecionado.get('nome_cliente', 'Sem Nome')}**")
+    st.markdown(f"### ⚙️ Detalhes e Fechamento: **{projeto_selecionado.get('nome_cliente', 'Sem Nome')}**")
     
-    # --- CAMPOS DE STATUS E DATA ---
+    # --- STATUS E DATA ---
     col_esq, col_dir = st.columns(2)
     status_atual = projeto_selecionado.get('status_projeto', 'Orçamento Enviado')
     todas_opcoes = ["Orçamento Enviado", "Em Andamento", "Aguardando Peças", "Concluído PIX", "Concluído CARTÃO", "Cancelado"]
     
-    novo_status = col_esq.selectbox("Alterar Status (Move o projeto de tabela)", todas_opcoes, index=todas_opcoes.index(status_atual) if status_atual in todas_opcoes else 0, key=f"status_{prefix_key}")
+    novo_status = col_esq.selectbox("Alterar Status", todas_opcoes, index=todas_opcoes.index(status_atual) if status_atual in todas_opcoes else 0, key=f"status_{prefix_key}")
     
     data_bruta = projeto_selecionado.get('data_conclusao')
     data_default = datetime.date.today()
@@ -21,30 +21,33 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         except: pass
     nova_data = col_dir.date_input("Previsão de Conclusão", value=data_default, key=f"data_{prefix_key}")
 
-    # --- 1. PRODUTOS DO ORÇAMENTO (EDITÁVEIS) ---
+    # --- 1. PRODUTOS DO ORÇAMENTO (BUSCA DE CUSTO BLINDADA) ---
     st.markdown("#### 🛒 Produtos Adquiridos (Ajuste Quantidades e Custos)")
     itens_json = projeto_selecionado.get('detalhamento_itens', [])
     df_itens = pd.DataFrame(itens_json) if (isinstance(itens_json, list) and len(itens_json) > 0) else pd.DataFrame(columns=['Item', 'Qtd', 'Custo Un.', 'Venda Un.'])
     
-    # Garante que as colunas existem
     for coluna in ['Item', 'Qtd', 'Custo Un.', 'Venda Un.']:
         if coluna not in df_itens.columns:
             df_itens[coluna] = 0.0 if 'Un.' in coluna or 'Qtd' in coluna else ""
 
-    # PULO DO GATO: Busca Exata do Custo na Base de Dados (Se estiver zero)
+    # MOTOR DE BUSCA DO CUSTO 100% BLINDADO
     if not df_produtos.empty:
         for idx, row in df_itens.iterrows():
+            custo_atual = 0.0
             try: custo_atual = float(row.get('Custo Un.', 0))
-            except: custo_atual = 0.0
+            except: pass
                 
             if custo_atual == 0.0:
-                item_nome = str(row.get('Item', '')).strip().lower()
-                # Procura o produto exato
-                match = df_produtos[df_produtos['Item'].astype(str).str.strip().str.lower() == item_nome]
-                if not match.empty:
-                    # Tenta puxar o Custo (vê as duas formas possíveis que o utils.py retorna)
-                    c_val = match.iloc[0].get('Custo', match.iloc[0].get('Custo (R$)', 0))
-                    df_itens.at[idx, 'Custo Un.'] = float(c_val)
+                nome_procurado = str(row.get('Item', '')).strip().upper()
+                for _, prod_row in df_produtos.iterrows():
+                    nome_catalogo = str(prod_row.get('Item', '')).strip().upper()
+                    if nome_procurado == nome_catalogo:
+                        # Pega o custo independentemente do formato
+                        c_val = prod_row.get('Custo', 0)
+                        if pd.isna(c_val) or c_val == 0: 
+                            c_val = prod_row.get('Custo (R$)', 0)
+                        df_itens.at[idx, 'Custo Un.'] = float(c_val)
+                        break
 
     config_colunas_itens = {
         "Item": st.column_config.TextColumn("Produto", width="medium"),
@@ -55,46 +58,47 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
     
     df_itens_final = st.data_editor(df_itens, column_config=config_colunas_itens, num_rows="dynamic", use_container_width=True, key=f"edit_itens_{prefix_key}")
     
-    # Cálculo Seguro do Custo Total dos Produtos
     df_itens_final['Custo Un.'] = pd.to_numeric(df_itens_final['Custo Un.'], errors='coerce').fillna(0.0)
     df_itens_final['Qtd'] = pd.to_numeric(df_itens_final['Qtd'], errors='coerce').fillna(0)
     custo_total_produtos = (df_itens_final['Custo Un.'] * df_itens_final['Qtd']).sum()
 
-    # --- 2. SIMULADOR DE TAXAS E IMPOSTOS ---
+    # --- 2. SIMULADOR DE TAXAS (BUSCA IMPLACÁVEL) ---
     st.markdown("#### 🧮 Simulador de Custos e Impostos")
     
     with st.container(border=True):
         f_col1, f_col2, f_col3 = st.columns(3)
         
-        # Valor da Venda Fechado
         valor_venda_fechado = f_col1.number_input("Valor Final da Venda (R$)", value=float(projeto_selecionado.get('valor_venda_total', 0.0)), format="%.2f", key=f"venda_{prefix_key}")
         
-        # Nota Fiscal (Busca pelo nome exato NOTA FISCAL no banco)
         tem_nota = f_col2.radio("Emitir Nota Fiscal?", ["Não", "Sim"], index=1 if float(projeto_selecionado.get('custo_impostos', 0.0)) > 0 else 0, key=f"nf_{prefix_key}")
         valor_nf = 0.0
         if tem_nota == "Sim":
-            taxa_nf_pct = 0.0
+            taxa_nf_pct = 6.0
+            # Busca super segura por NF
             if not df_taxas_config.empty:
-                match_nf = df_taxas_config[df_taxas_config['Item'].astype(str).str.upper().str.strip() == "NOTA FISCAL"]
-                if not match_nf.empty:
-                    taxa_nf_pct = float(match_nf.iloc[0].get('Taxa (%)', 0.0))
-                    
+                for _, t_row in df_taxas_config.iterrows():
+                    n_taxa = str(t_row.get('Item', '')).strip().upper()
+                    if n_taxa in ["NOTA FISCAL", "NF", "IMPOSTO"]:
+                        taxa_nf_pct = float(t_row.get('Taxa (%)', 6.0))
+                        break
             valor_nf = valor_venda_fechado * (taxa_nf_pct / 100)
             f_col2.caption(f"Imposto ({taxa_nf_pct}%): - {utils.to_br_currency(valor_nf)}")
         
-        # Cartão de Crédito (BUSCA O NÚMERO EXATO NA BASE: "1", "2", "3")
         metodo_pgto = f_col3.selectbox("Forma de Pagamento", ["PIX / Dinheiro", "Cartão de Crédito"], key=f"pgto_{prefix_key}")
         valor_cartao_taxa = 0.0
         if metodo_pgto == "Cartão de Crédito":
             parcelas_selecionadas = f_col3.selectbox("Número de Parcelas", [i for i in range(1, 13)], format_func=lambda x: f"{x}x", key=f"parc_{prefix_key}")
-            
             taxa_cartao_pct = 0.0
+            
+            # BUSCA IMPECÁVEL PARA O CARTÃO: ignora floats ("1.0") e espaços
             if not df_taxas_config.empty:
-                # O item na sua base é apenas "1", "2", "3"... Então procuro exatamente esse número!
-                match_cartao = df_taxas_config[df_taxas_config['Item'].astype(str).str.strip() == str(parcelas_selecionadas)]
-                if not match_cartao.empty:
-                    taxa_cartao_pct = float(match_cartao.iloc[0].get('Taxa (%)', 0.0))
-                    
+                for _, t_row in df_taxas_config.iterrows():
+                    n_taxa = str(t_row.get('Item', '')).strip()
+                    if n_taxa.endswith('.0'): n_taxa = n_taxa[:-2] # Limpa "1.0" para "1"
+                    if n_taxa == str(parcelas_selecionadas):
+                        taxa_cartao_pct = float(t_row.get('Taxa (%)', 0.0))
+                        break
+
             valor_cartao_taxa = valor_venda_fechado * (taxa_cartao_pct / 100)
             f_col3.caption(f"Taxa ({taxa_cartao_pct}%): - {utils.to_br_currency(valor_cartao_taxa)}")
         else:
@@ -103,7 +107,6 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         st.markdown("---")
         f_col4, f_col5, f_col6 = st.columns(3)
         
-        # Comissão, Materiais Extras e Mão de Obra
         comissao_percentual = f_col4.number_input("Comissão do Vendedor (%)", value=0.0, format="%.1f", key=f"com_{prefix_key}")
         valor_comissao = valor_venda_fechado * (comissao_percentual / 100)
         f_col4.caption(f"Valor Pago: - {utils.to_br_currency(valor_comissao)}")
@@ -111,7 +114,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         custo_mat_extra = f_col5.number_input("Materiais Extras (R$)", value=float(projeto_selecionado.get('custo_adicional_materiais', 0.0)), format="%.2f", key=f"mat_{prefix_key}")
         custo_mao_obra = f_col6.number_input("Mão de Obra / Terceiros (R$)", value=float(projeto_selecionado.get('custo_terceirizados', 0.0)), format="%.2f", key=f"mao_{prefix_key}")
 
-        # === CÁLCULO DO LUCRO LÍQUIDO FINAL ===
+        # === CÁLCULO FINAL ===
         abatimentos_totais = valor_nf + valor_cartao_taxa + valor_comissao + custo_mat_extra + custo_mao_obra
         lucro_final = valor_venda_fechado - custo_total_produtos - abatimentos_totais
         
@@ -120,11 +123,10 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         res1.metric("Custo Total Operacional (Produtos + Taxas)", utils.to_br_currency(custo_total_produtos + abatimentos_totais))
         
         margem_real = (lucro_final / valor_venda_fechado * 100) if valor_venda_fechado > 0 else 0
-        res2.metric("LUCRO LÍQUIDO REAL", utils.to_br_currency(lucro_final), delta=f"{margem_real:.1f}% de Margem Líquida", delta_color="normal" if lucro_final > 0 else "inverse")
+        res2.metric("LUCRO LÍQUIDO REAL", utils.to_br_currency(lucro_final), delta=f"{margem_real:.1f}% de Margem Líquida")
 
-    notas_internas = st.text_area("Notas e Observações do Projeto", value=str(projeto_selecionado.get('notas_internas', '')), key=f"notas_{prefix_key}")
+    notas_internas = st.text_area("Notas e Observações", value=str(projeto_selecionado.get('notas_internas', '')), key=f"notas_{prefix_key}")
 
-    # === BOTÃO DE GRAVAR ===
     if st.button("💾 GUARDAR ALTERAÇÕES DO PROJETO", type="primary", use_container_width=True, key=f"save_{prefix_key}"):
         dados_para_atualizar = {
             "status_projeto": novo_status,
@@ -141,10 +143,11 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         }
         try:
             supabase.table('servicos_andamento').update(dados_para_atualizar).eq('id', int(projeto_selecionado['id'])).execute()
-            st.success("✅ Alterações guardadas! O lucro foi recalculado e o status atualizado.")
+            st.success("✅ Alterações guardadas com sucesso!")
             st.rerun()
         except Exception as e:
             st.error(f"Erro ao guardar: {e}")
+
 
 def renderizar():
     st.markdown("## 📋 Gestão de Serviços (CRM)")
@@ -162,7 +165,6 @@ def renderizar():
         st.info("Nenhum registo encontrado.")
         return
 
-    # Carrega taxas e produtos para popular a inteligência da tela
     df_taxas_config = utils.load_taxas()
     df_produtos = utils.load_catalog('catalogo_produtos')
 
@@ -184,7 +186,7 @@ def renderizar():
         key="grid_ativos"
     )
     
-    # Detalhes aparecem LOGO AQUI embaixo dos ativos!
+    # O PAINEL ABRE IMEDIATAMENTE AQUI SE CLICAR NA TABELA ACIMA
     if selecao_ativo.selection.rows:
         projeto_selecionado = df_servicos_ativos.iloc[selecao_ativo.selection.rows[0]]
         exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_produtos, prefix_key=f"ativo_{projeto_selecionado['id']}")
@@ -202,7 +204,7 @@ def renderizar():
         key="grid_orcamentos"
     )
 
-    # Detalhes aparecem LOGO AQUI embaixo dos orçamentos!
+    # O PAINEL ABRE IMEDIATAMENTE AQUI SE CLICAR NA TABELA ACIMA
     if selecao_orcamento.selection.rows and not selecao_ativo.selection.rows:
         projeto_selecionado = df_orcamentos_pendentes.iloc[selecao_orcamento.selection.rows[0]]
         exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_produtos, prefix_key=f"orc_{projeto_selecionado['id']}")
