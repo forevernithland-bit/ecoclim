@@ -6,9 +6,17 @@ import utils
 def renderizar():
     st.markdown("## 📝 Novo Orçamento")
     
-    st.session_state.db_produtos = utils.load_catalog('catalogo_produtos')
-    st.session_state.db_servicos = utils.load_catalog('catalogo_servicos')
-    st.session_state.db_outros = utils.load_catalog('catalogo_outros')
+    # --- BOTÃO PARA FORÇAR LIMPEZA DE CACHE E ATUALIZAR PRODUTOS ---
+    if st.button("🔄 ATUALIZAR DADOS DO BANCO", help="Clique aqui se os produtos ou descrições não estiverem atualizados"):
+        for key in ['db_produtos', 'db_servicos', 'db_outros', 'df_orc', 'df_orc_prev']:
+            if key in st.session_state:
+                del st.session_state[key]
+        st.rerun()
+
+    # Carregamento seguro
+    if 'db_produtos' not in st.session_state: st.session_state.db_produtos = utils.load_catalog('catalogo_produtos')
+    if 'db_servicos' not in st.session_state: st.session_state.db_servicos = utils.load_catalog('catalogo_servicos')
+    if 'db_outros' not in st.session_state: st.session_state.db_outros = utils.load_catalog('catalogo_outros')
 
     cat_p = st.session_state.db_produtos
     lista_p = cat_p['Item'].tolist() if not cat_p.empty else []
@@ -17,9 +25,8 @@ def renderizar():
         st.subheader("👤 Dados do Cliente")
         c1, c2 = st.columns(2)
         nome_c = c1.text_input("Nome do Cliente", key="nome_cliente_orc")
-        tel_c = c2.text_input("WhatsApp", key="tel_cliente_orc")
+        tel_c = c2.text_input("WhatsApp", placeholder="(31) 99715-1596", key="tel_cliente_orc")
         
-        # PRÉ-SELECIONADO O VÁCUO ACOPLADO
         capa = st.selectbox("Modelo para Capa", [
             "AQUECEDOR SOLAR TRADICIONAL", 
             "AQUECEDOR SOLAR A VÁCUO ACOPLADO", 
@@ -31,17 +38,18 @@ def renderizar():
 
     with st.container(border=True):
         st.subheader("⚙️ 1. Equipamentos")
-        # DESMARCADO POR PADRÃO
         mostrar_pdf = st.checkbox("Mostrar Preços Unitários no PDF?", value=False)
         
-        # COLUNA DE DESCRIÇÃO ADICIONADA E QUANTIDADE ZERADA
         if 'df_orc' not in st.session_state:
             st.session_state.df_orc = pd.DataFrame([{"Produto da Base": "", "Produto Manual": "", "Descrição": "", "Quantidade": 0, "Venda (R$)": 0.0, "Venda Total": 0.0} for _ in range(5)])
+            st.session_state.df_orc_prev = st.session_state.df_orc.copy()
         else:
             if "Venda Total" not in st.session_state.df_orc.columns:
                 st.session_state.df_orc["Venda Total"] = 0.0
             if "Descrição" not in st.session_state.df_orc.columns:
                 st.session_state.df_orc["Descrição"] = ""
+            if 'df_orc_prev' not in st.session_state:
+                st.session_state.df_orc_prev = st.session_state.df_orc.copy()
         
         cfg = {
             "Produto da Base": st.column_config.SelectboxColumn("Produto", options=[""] + lista_p + ["OUTRO"], width="medium"), 
@@ -58,27 +66,28 @@ def renderizar():
         df_ed['Quantidade'] = pd.to_numeric(df_ed['Quantidade'], errors='coerce').fillna(0).astype(int)
         df_ed['Venda (R$)'] = pd.to_numeric(df_ed['Venda (R$)'], errors='coerce').fillna(0.0).astype(float)
         
-        if "Venda Total" not in df_ed.columns:
-            df_ed["Venda Total"] = 0.0
-        if "Descrição" not in df_ed.columns:
-            df_ed["Descrição"] = ""
+        if "Venda Total" not in df_ed.columns: df_ed["Venda Total"] = 0.0
+        if "Descrição" not in df_ed.columns: df_ed["Descrição"] = ""
 
         precisa_atualizar = False
+        
+        # SENSOR DE MUDANÇA (Compara com o estado anterior)
         for i in range(len(df_ed)):
             p = df_ed.at[i, 'Produto da Base']
-            if p in lista_p:
+            p_prev = st.session_state.df_orc_prev.at[i, 'Produto da Base'] if i < len(st.session_state.df_orc_prev) else ""
+            
+            if p != p_prev and p in lista_p:
                 match = cat_p[cat_p['Item'] == p]
                 if not match.empty:
-                    if df_ed.at[i, 'Venda (R$)'] == 0:
-                        df_ed.at[i, 'Venda (R$)'] = float(match['Venda (R$)'].values[0])
-                        precisa_atualizar = True
-                    
-                    # Puxa a descrição da base e joga na tabela na hora
-                    if str(df_ed.at[i, 'Descrição']).strip() == "" and 'Descrição' in match.columns:
+                    df_ed.at[i, 'Venda (R$)'] = float(match['Venda (R$)'].values[0])
+                    if 'Descrição' in match.columns:
                         desc_bd = str(match['Descrição'].values[0])
-                        if desc_bd != "nan" and desc_bd.strip() != "":
-                            df_ed.at[i, 'Descrição'] = desc_bd
-                            precisa_atualizar = True
+                        df_ed.at[i, 'Descrição'] = desc_bd if desc_bd != "nan" else ""
+                    else:
+                        df_ed.at[i, 'Descrição'] = ""
+                    
+                    if df_ed.at[i, 'Quantidade'] == 0: df_ed.at[i, 'Quantidade'] = 1
+                    precisa_atualizar = True
                 
         nova_venda_total = df_ed['Venda (R$)'] * df_ed['Quantidade']
         if not df_ed['Venda Total'].equals(nova_venda_total):
@@ -87,9 +96,12 @@ def renderizar():
         
         if precisa_atualizar:
             st.session_state.df_orc = df_ed
+            st.session_state.df_orc_prev = df_ed.copy()
             st.rerun()
             
         st.session_state.df_orc = df_ed
+        st.session_state.df_orc_prev = df_ed.copy()
+        
         total_equip = df_ed['Venda Total'].sum()
         st.markdown(f"**Subtotal Equipamentos:** :blue[{utils.to_br_currency(total_equip)}]")
 
@@ -121,12 +133,19 @@ def renderizar():
             d_o, v_o = "", 0.0
 
     total_geral = total_equip + v_s + v_o
-    
     st.markdown(f"<h3 style='color:#004488;'>💰 INVESTIMENTO TOTAL: {utils.to_br_currency(total_geral)}</h3>", unsafe_allow_html=True)
     obs = st.text_area("Observações no PDF:", value="Material Hidráulico não incluído na proposta")
 
     st.markdown("---")
     st.subheader("🚀 Finalização")
+
+    def formatar_whatsapp(tel):
+        digits = ''.join(filter(str.isdigit, tel))
+        if len(digits) == 11:
+            return f"({digits[:2]}) {digits[2:7]}-{digits[7:]}"
+        elif len(digits) == 10:
+            return f"({digits[:2]}) {digits[2:6]}-{digits[6:]}"
+        return tel
 
     col_prev, col_salvar = st.columns(2)
 
@@ -136,7 +155,8 @@ def renderizar():
             if not nome_c:
                 st.warning("Preencha o nome do cliente!")
             else:
-                st.session_state['pdf_previa'] = utils.gerar_pdf_orcamento(nome_c, tel_c, capa, df_ed, d_s, v_s, d_o, v_o, total_geral, obs, mostrar_pdf)
+                tel_formatado = formatar_whatsapp(tel_c)
+                st.session_state['pdf_previa'] = utils.gerar_pdf_orcamento(nome_c, tel_formatado, capa, df_ed, d_s, v_s, d_o, v_o, total_geral, obs, mostrar_pdf)
                 st.session_state['nome_previa'] = nome_c
         
         if 'pdf_previa' in st.session_state and st.session_state.get('nome_previa') == nome_c:
@@ -189,10 +209,11 @@ def renderizar():
                 num_orc = f"ORC-{datetime.datetime.now().strftime('%y%m%d-%H%M')}"
                 
                 try:
+                    tel_formatado = formatar_whatsapp(tel_c)
                     st.session_state.supabase.table("servicos_andamento").insert({
                         "numero_orcamento": num_orc,
                         "nome_cliente": nome_c, 
-                        "telefone_cliente": tel_c, 
+                        "telefone_cliente": tel_formatado, 
                         "produtos_adquiridos": ", ".join(resumo_produtos),
                         "servicos_adquiridos": d_s,
                         "valor_venda_total": total_geral,
@@ -202,7 +223,7 @@ def renderizar():
                         "detalhamento_itens": detalhamento_snapshot
                     }).execute()
                     
-                    st.session_state['pdf_oficial'] = utils.gerar_pdf_orcamento(nome_c, tel_c, capa, df_ed, d_s, v_s, d_o, v_o, total_geral, obs, mostrar_pdf)
+                    st.session_state['pdf_oficial'] = utils.gerar_pdf_orcamento(nome_c, tel_formatado, capa, df_ed, d_s, v_s, d_o, v_o, total_geral, obs, mostrar_pdf)
                     st.session_state['oficial_filename'] = f"{num_orc}_{nome_c}.pdf"
                     st.session_state['msg_sucesso'] = f"✅ Orçamento {num_orc} salvo com sucesso!"
                 except Exception as e:
@@ -213,6 +234,6 @@ def renderizar():
             st.download_button("📥 BAIXAR ORÇAMENTO OFICIAL", data=st.session_state['pdf_oficial'], file_name=st.session_state['oficial_filename'], mime="application/pdf", type="primary", use_container_width=True)
             
             if st.button("🔄 Criar Novo Orçamento", use_container_width=True):
-                for key in ['pdf_previa', 'pdf_oficial', 'msg_sucesso', 'df_orc', 'nome_previa']:
+                for key in ['pdf_previa', 'pdf_oficial', 'msg_sucesso', 'df_orc', 'nome_previa', 'df_orc_prev']:
                     st.session_state.pop(key, None)
                 st.rerun()
