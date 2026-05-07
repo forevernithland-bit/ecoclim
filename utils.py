@@ -181,7 +181,7 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
     p = canvas.Canvas(buffer, pagesize=A4)
     largura, altura = A4
 
-    # 1. LOGO E CABEÇALHO
+    # 1. LOGO E CABEÇALHO (COM CONTATOS)
     try:
         p.drawImage("logo.png", 2*cm, altura - 3.5*cm, width=4*cm, preserveAspectRatio=True, mask='auto')
     except Exception:
@@ -262,23 +262,20 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
             p.drawRightString(largura - 2.3*cm, y, to_br_currency(row.get('Venda Total', 0)))
             y -= 0.4*cm
             
-            # Busca a descrição no banco para colocar abaixo do item
-            desc = ""
-            try:
-                cat = st.session_state.db_produtos
-                match = cat[cat['Item'] == item_nome]
-                if not match.empty and 'Descrição' in match.columns:
-                    desc = match['Descrição'].values[0]
-            except: pass
+            # 💡 PEGA A DESCRIÇÃO DIRETO DA TABELA QUE O USUÁRIO VÊ NA TELA!
+            desc = str(row.get('Descrição', "")).strip()
             
-            if desc and str(desc).strip() != "" and str(desc) != "nan":
+            if desc and desc != "nan":
                 p.setFont("Helvetica", 8)
-                p.setFillColor(colors.HexColor("#555555")) # Cor cinza escuro para diferenciar
-                linhas_desc = str(desc).split('\n')
+                p.setFillColor(colors.HexColor("#555555")) 
+                linhas_desc = desc.split('\n')
                 for linha in linhas_desc:
                     if linha.strip():
-                        # Adiciona a palavra "Detalhes: " automaticamente na primeira linha se não tiver
-                        prefix = "Detalhes: " if linha == linhas_desc[0] and not linha.upper().startswith("DETALHES") else ""
+                        linha_up = linha.upper()
+                        prefix = ""
+                        # Só adiciona "Detalhes:" se a linha não começar com essas palavras:
+                        if linha == linhas_desc[0] and not (linha_up.startswith("DETALHES") or linha_up.startswith("QUANTIDADE") or linha_up.startswith("GARANTIA") or linha_up.startswith("-")):
+                            prefix = "Detalhes: "
                         p.drawString(2.3*cm, y, prefix + linha.strip())
                         y -= 0.35*cm
                 p.setFillColor(colors.black)
