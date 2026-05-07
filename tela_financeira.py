@@ -11,12 +11,18 @@ def renderizar():
         st.image("logo.png", width=150)
         ano_selecionado = st.selectbox("Ano Fiscal", options=[2025, 2026, 2027, 2028], index=1)
         st.write("---")
+        st.markdown("### 👁️ Linha do Tempo")
+        
         pref_inicio, pref_fim = utils.load_user_settings()
-        mes_inicio, mes_fim = st.select_slider("Linha do Tempo:", options=utils.meses_pt, value=(pref_inicio, pref_fim))
+        mes_inicio, mes_fim = st.select_slider("Período Visível na Tela:", options=utils.meses_pt, value=(pref_inicio, pref_fim))
+            
         colunas_visiveis = ["MESES"] + utils.meses_pt[utils.meses_pt.index(mes_inicio):utils.meses_pt.index(mes_fim) + 1]
-        if st.button("🔄 Recarregar Dados do Banco"): st.session_state.pop('ano_dados_atual', None); st.rerun()
 
-    # NOMES IDÊNTICOS AOS SEUS PRINTS
+        if st.button("🔄 Recarregar Dados do Banco"): 
+            st.session_state.pop('ano_dados_atual', None)
+            st.rerun()
+
+    # NOMES EXATOS DO SEU SUPABASE (CONFORME SEUS ÚLTIMOS PRINTS!)
     contas_p = ['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS', 'IMÓVEIS', 'VEÍCULOS']
     contas_e = ['ECOCLIM', 'AIRNB', 'CONS INVESTIMENTOS', 'MAGGI CONSORCIOS']
     
@@ -25,27 +31,35 @@ def renderizar():
         st.session_state.df_e = utils.load_year_data('entradas', contas_e, ano_selecionado)
         st.session_state.ano_dados_atual = ano_selecionado
 
-    def garantir_linhas(df, lista):
+    def garantir_linhas(df, lista_contas):
         if df.empty or 'MESES' not in df.columns:
-            return pd.DataFrame({"MESES": lista, **{m: 0.0 for m in utils.meses_pt}})
-        for c in lista:
+            return pd.DataFrame({"MESES": lista_contas, **{m: 0.0 for m in utils.meses_pt}})
+        for c in lista_contas:
             if c not in df['MESES'].values:
-                df = pd.concat([df, pd.DataFrame([{"MESES": c, **{m: 0.0 for m in utils.meses_pt}}])], ignore_index=True)
+                nova_linha = {"MESES": c, **{m: 0.0 for m in utils.meses_pt}}
+                df = pd.concat([df, pd.DataFrame([nova_linha])], ignore_index=True)
         return df
 
     st.session_state.df_p = garantir_linhas(st.session_state.df_p, contas_p)
     st.session_state.df_e = garantir_linhas(st.session_state.df_e, contas_e)
 
     col_cfg = {"MESES": st.column_config.TextColumn("CONTA", width=220, disabled=True)}
-    for m in utils.meses_pt: col_cfg[m] = st.column_config.NumberColumn(m, width=100, format="R$ %,.2f") 
+    for m in utils.meses_pt: 
+        col_cfg[m] = st.column_config.NumberColumn(m, width=100, format="R$ %,.2f") 
 
     st.markdown('<div class="container-tabelas">', unsafe_allow_html=True)
+    
+    # --------------------------
+    # 9.1 PATRIMÔNIO
+    # --------------------------
     st.markdown("#### 🏛️ Posição Patrimonial e Investimentos")
-    df_p_edit = st.data_editor(st.session_state.df_p[colunas_visiveis], hide_index=True, column_config=col_cfg, use_container_width=True, height=295, key="ed_p")
+    df_p_editado = st.data_editor(st.session_state.df_p[colunas_visiveis], hide_index=True, column_config=col_cfg, use_container_width=True, height=295, key="editor_p")
 
-    if not df_p_edit.equals(st.session_state.df_p[colunas_visiveis]):
-        for m in [c for c in colunas_visiveis if c != "MESES"]: st.session_state.df_p.loc[:, m] = df_p_edit[m]
-        utils.save_to_supabase('patrimonio', st.session_state.df_p, ano_selecionado); st.rerun()
+    if not df_p_editado.equals(st.session_state.df_p[colunas_visiveis]):
+        for m in [c for c in colunas_visiveis if c != "MESES"]: 
+            st.session_state.df_p.loc[:, m] = df_p_editado[m]
+        utils.save_to_supabase('patrimonio', st.session_state.df_p, ano_selecionado)
+        st.rerun()
 
     df_n = st.session_state.df_p.set_index('MESES')
     pat_liq = df_n[df_n.index.isin(['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS'])].sum()
