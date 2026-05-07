@@ -103,6 +103,51 @@ def save_taxas(df):
         st.error(f"Erro ao salvar taxas: {e}")
 
 # ==========================================
+# FUNÇÕES FINANCEIRAS (RECUPERADAS!)
+# ==========================================
+def load_user_settings():
+    return "JANEIRO", mes_atual_nome
+
+def save_user_settings(inicio, fim):
+    pass 
+
+def load_year_data(table, default_accounts, year):
+    supabase = st.session_state.supabase
+    try:
+        res = supabase.table(table).select("*").eq("ano", year).execute()
+        df = pd.DataFrame(res.data)
+        if df.empty:
+            df = pd.DataFrame({"MESES": default_accounts})
+            for m in meses_pt:
+                df[m] = 0.0
+            return df
+        
+        cols = ["MESES"] + meses_pt
+        for c in cols:
+            if c not in df.columns:
+                df[c] = 0.0 if c != "MESES" else ""
+        return df[cols]
+    except Exception:
+        df = pd.DataFrame({"MESES": default_accounts})
+        for m in meses_pt:
+            df[m] = 0.0
+        return df
+
+def save_to_supabase(table, df, year):
+    supabase = st.session_state.supabase
+    data = []
+    for _, row in df.iterrows():
+        record = {"ano": year, "MESES": row["MESES"]}
+        for m in meses_pt:
+            record[m] = float(row[m]) if pd.notna(row[m]) else 0.0
+        data.append(record)
+    try:
+        supabase.table(table).delete().eq("ano", year).execute()
+        supabase.table(table).insert(data).execute()
+    except Exception as e:
+        st.error(f"Erro ao salvar: {e}")
+
+# ==========================================
 # UTILITÁRIOS DE FORMATAÇÃO E EXCEL
 # ==========================================
 def to_br_currency(value, symbol=True):
@@ -260,9 +305,6 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
         y -= 0.6*cm
 
     # 6. INVESTIMENTO TOTAL
-    # ====================================================================
-    # CORREÇÃO DO LAYOUT (LINHA 147): POSIÇÃO DINÂMICA
-    # ====================================================================
     y -= 0.5*cm # Espaço dinâmico garantido
     p.setFillColor(colors.HexColor("#f0f0f0"))
     # O rect desenha PARA CIMA a partir de Y, então subtraímos 0.2cm para criar uma "gordura" de segurança
