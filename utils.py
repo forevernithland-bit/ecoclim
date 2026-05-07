@@ -24,7 +24,7 @@ def init_connection():
     return create_client(url, key)
 
 # ==========================================
-# FUNÇÕES FINANCEIRAS
+# FUNÇÕES FINANCEIRAS (TRADUTOR MARCO/MARÇO)
 # ==========================================
 def load_year_data(table, default_accounts, year):
     supabase = st.session_state.supabase
@@ -37,6 +37,7 @@ def load_year_data(table, default_accounts, year):
             for m in meses_pt: df[m] = 0.0
             return df
         
+        # Força colunas para maiúsculo e traduz MARCO -> MARÇO
         df_db.columns = df_db.columns.str.upper()
         if 'MARCO' in df_db.columns: df_db = df_db.rename(columns={'MARCO': 'MARÇO'})
             
@@ -65,7 +66,7 @@ def save_to_supabase(table, df, year):
     except Exception as e: st.error(f"Erro ao salvar: {e}")
 
 # ==========================================
-# CATÁLOGOS E UTILITÁRIOS
+# CATÁLOGOS E FORMATAÇÃO
 # ==========================================
 def load_catalog(table_name):
     supabase = st.session_state.supabase
@@ -91,28 +92,7 @@ def save_catalog(table_name, df):
                 data.append(record)
         supabase.table(table_name).delete().neq("item", "___vazio___").execute()
         if data: supabase.table(table_name).insert(data).execute()
-    except Exception as e: st.error(f"Erro ao salvar: {e}")
-
-def load_taxas():
-    supabase = st.session_state.supabase
-    try:
-        res = supabase.table('catalogo_taxas').select("*").order("item").execute()
-        df = pd.DataFrame(res.data)
-        if df.empty: return pd.DataFrame(columns=["Item", "Taxa (%)"])
-        df = df.rename(columns={"item": "Item", "taxa_percentual": "Taxa (%)"})
-        return df[["Item", "Taxa (%)"]]
-    except: return pd.DataFrame(columns=["Item", "Taxa (%)"])
-
-def save_taxas(df):
-    supabase = st.session_state.supabase
-    try:
-        data = [{"item": row['Item'], "taxa_percentual": float(row['Taxa (%)'])} for _, row in df.iterrows() if row['Item'] and str(row['Item']).strip() != ""]
-        supabase.table('catalogo_taxas').delete().neq("item", "___vazio___").execute()
-        if data: supabase.table('catalogo_taxas').insert(data).execute()
-    except: pass
-
-def load_user_settings(): return "JANEIRO", mes_atual_nome
-def save_user_settings(inicio, fim): pass 
+    except Exception as e: st.error(f"Erro ao salvar catálogo: {e}")
 
 def to_br_currency(value, symbol=True):
     if pd.isna(value) or value is None: value = 0.0
@@ -133,8 +113,26 @@ def to_excel(df):
     with pd.ExcelWriter(output, engine='openpyxl') as writer: df.to_excel(writer, index=False, sheet_name='Sheet1')
     return output.getvalue()
 
+def load_taxas():
+    supabase = st.session_state.supabase
+    try:
+        res = supabase.table('catalogo_taxas').select("*").order("item").execute()
+        df = pd.DataFrame(res.data)
+        if df.empty: return pd.DataFrame(columns=["Item", "Taxa (%)"])
+        df = df.rename(columns={"item": "Item", "taxa_percentual": "Taxa (%)"})
+        return df[["Item", "Taxa (%)"]]
+    except: return pd.DataFrame(columns=["Item", "Taxa (%)"])
+
+def save_taxas(df):
+    supabase = st.session_state.supabase
+    try:
+        data = [{"item": row['Item'], "taxa_percentual": float(row['Taxa (%)'])} for _, row in df.iterrows() if row['Item'] and str(row['Item']).strip() != ""]
+        supabase.table('catalogo_taxas').delete().neq("item", "___vazio___").execute()
+        if data: supabase.table('catalogo_taxas').insert(data).execute()
+    except: pass
+
 # ==========================================
-# GERAÇÃO DE PDF (COM CORREÇÃO DE SOBREPOSIÇÃO)
+# GERAÇÃO DE PDF (COM GORDURA EXTRA NA LINHA AZUL)
 # ==========================================
 def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v_out, total, obs, mostrar_un):
     buffer = BytesIO()
@@ -162,7 +160,6 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
     y -= 0.6*cm; p.setFillColor(colors.black); p.setFont("Helvetica-Bold", 9)
     p.drawString(2.3*cm, y - 0.3*cm, "Item"); p.drawString(12.5*cm, y - 0.3*cm, "Qtd"); p.drawRightString(largura - 2.3*cm, y - 0.3*cm, "Subtotal")
     p.setFont("Helvetica", 9); y -= 0.8*cm
-    
     for _, row in df_items.iterrows():
         if row['Quantidade'] > 0:
             item_nome = row['Produto da Base'] if row['Produto da Base'] != "OUTRO" else row['Produto Manual']
@@ -174,17 +171,15 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
             if desc and desc != "nan":
                 p.setFont("Helvetica", 8); p.setFillColor(colors.grey)
                 for linha in desc.split('\n'):
-                    if linha.strip():
-                        p.drawString(2.3*cm, y, linha.strip()[:95]); y -= 0.35*cm
+                    if linha.strip(): p.drawString(2.3*cm, y, linha.strip()[:95]); y -= 0.35*cm
                 p.setFillColor(colors.black)
-            y -= 0.2*cm # Gordura extra entre os itens
-
-    # CORREÇÃO CRÍTICA DO BLOCO 2 (Evitar Sobreposição)
-    y -= 1.2*cm # Afastamento garantido para a caixa desenhar para cima sem bater no texto
+            y -= 0.2*cm
+    
+    # AFSTAMENTO SEGURO PARA A LINHA AZUL 2
+    y -= 1.0*cm 
     p.setFillColor(colors.HexColor("#004488")); p.rect(2*cm, y, largura - 4*cm, 0.7*cm, fill=1, stroke=0)
     p.setFillColor(colors.white); p.setFont("Helvetica-Bold", 11); p.drawString(2.3*cm, y + 0.2*cm, "2. SERVIÇOS")
     y -= 0.8*cm; p.setFillColor(colors.black); p.setFont("Helvetica", 10)
-    
     if str(d_serv).strip() != "":
         p.drawRightString(largura - 2.3*cm, y, to_br_currency(v_serv))
         for linha in str(d_serv).split('\n'):
@@ -193,12 +188,8 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
         p.drawRightString(largura - 2.3*cm, y, to_br_currency(v_out))
         for linha in str(d_out).split('\n'):
             if linha.strip(): p.drawString(2.3*cm, y, linha.strip()[:85]); y -= 0.45*cm
-            
-    # CORREÇÃO CRÍTICA DO TOTAL (Evitar Sobreposição)
-    y -= 1.2*cm 
-    p.setFillColor(colors.HexColor("#f0f0f0")); p.rect(2*cm, y, largura - 4*cm, 1.0*cm, fill=1, stroke=0)
-    p.setFillColor(colors.black); p.setFont("Helvetica-Bold", 12); p.drawString(2.3*cm, y + 0.3*cm, "INVESTIMENTO TOTAL"); p.drawRightString(largura - 2.3*cm, y + 0.3*cm, to_br_currency(total))
-    
+    y -= 1.0*cm; p.setFillColor(colors.HexColor("#f0f0f0")); p.rect(2*cm, y - 0.2*cm, largura - 4*cm, 1.2*cm, fill=1, stroke=0)
+    p.setFillColor(colors.black); p.setFont("Helvetica-Bold", 12); p.drawString(2.3*cm, y + 0.2*cm, "INVESTIMENTO TOTAL"); p.drawRightString(largura - 2.3*cm, y + 0.2*cm, to_br_currency(total))
     y -= 1.8*cm; p.setFillColor(colors.red); p.setFont("Helvetica-Bold", 10); p.drawString(2*cm, y, "OBSERVAÇÕES:")
     p.setFont("Helvetica", 9); p.setFillColor(colors.black); p.drawString(2*cm, y - 0.5*cm, str(obs)[:100])
     p.save(); buffer.seek(0); return buffer
