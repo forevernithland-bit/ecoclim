@@ -36,6 +36,7 @@ def load_catalog(table_name):
         
         mapping = {
             "item": "Item", 
+            "descricao": "Descrição",
             "custo": "Custo (R$)", 
             "margem": "Margem (%)", 
             "lucro": "Lucro (R$)", 
@@ -43,19 +44,19 @@ def load_catalog(table_name):
         }
         
         if df.empty:
-            return pd.DataFrame(columns=list(mapping.values()))
+            return pd.DataFrame(columns=["Item", "Descrição", "Custo (R$)", "Margem (%)", "Lucro (R$)", "Venda (R$)"])
             
-        df = df.rename(columns=mapping)
+        df = df.rename(columns={k:v for k,v in mapping.items() if k in df.columns})
         
         for col_sistema in mapping.values():
             if col_sistema not in df.columns:
-                df[col_sistema] = 0.0
+                df[col_sistema] = "" if col_sistema == "Descrição" else 0.0
         
         return df[list(mapping.values())]
         
     except Exception as e:
         st.error(f"Erro ao carregar a tabela {table_name}: {e}")
-        return pd.DataFrame(columns=["Item", "Custo (R$)", "Margem (%)", "Lucro (R$)", "Venda (R$)"])
+        return pd.DataFrame(columns=["Item", "Descrição", "Custo (R$)", "Margem (%)", "Lucro (R$)", "Venda (R$)"])
 
 def save_catalog(table_name, df):
     supabase = st.session_state.supabase
@@ -63,22 +64,22 @@ def save_catalog(table_name, df):
         data = []
         for _, row in df.iterrows():
             if row['Item'] and str(row['Item']).strip() != "":
-                data.append({
+                record = {
                     "item": row['Item'],
                     "custo": float(row['Custo (R$)']),
                     "margem": float(row['Margem (%)']),
                     "lucro": float(row['Lucro (R$)']),
                     "venda": float(row['Venda (R$)'])
-                })
+                }
+                if 'Descrição' in row:
+                    record['descricao'] = str(row['Descrição'])
+                data.append(record)
         supabase.table(table_name).delete().neq("item", "___vazio___").execute()
         if data:
             supabase.table(table_name).insert(data).execute()
     except Exception as e:
         st.error(f"Erro ao salvar catálogo: {e}")
 
-# ==========================================
-# BANCO DE DADOS: TAXAS E IMPOSTOS
-# ==========================================
 def load_taxas():
     supabase = st.session_state.supabase
     try:
@@ -180,7 +181,7 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
     p = canvas.Canvas(buffer, pagesize=A4)
     largura, altura = A4
 
-    # 1. LOGO E CABEÇALHO (COM CONTATOS)
+    # 1. LOGO E CABEÇALHO
     try:
         p.drawImage("logo.png", 2*cm, altura - 3.5*cm, width=4*cm, preserveAspectRatio=True, mask='auto')
     except Exception:
@@ -213,7 +214,7 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
     p.drawString(2.3*cm, y - 0.5*cm, f"Nome: {nome}")
     p.drawString(2.3*cm, y - 1*cm, f"Telefone: {tel}")
 
-    # 3. IMAGEM DE APRESENTAÇÃO (USANDO ARQUIVOS LOCAIS)
+    # 3. IMAGEM DE APRESENTAÇÃO
     y -= 2.2*cm
     img_map = {
         "AQUECEDOR SOLAR TRADICIONAL": "aquecedor_tradicional.jpg",
@@ -229,7 +230,7 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
             img_path = img_map[capa_tipo]
             p.drawImage(img_path, 2*cm, y - 5.5*cm, width=largura - 4*cm, height=5.5*cm, preserveAspectRatio=True, mask='auto')
     except Exception:
-        pass # Se a imagem não for encontrada, ele simplesmente oculta o espaço
+        pass
     
     y -= 6.5*cm
 
@@ -247,18 +248,44 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
     p.drawString(12.5*cm, y - 0.3*cm, "Qtd")
     p.drawRightString(largura - 2.3*cm, y - 0.3*cm, "Subtotal")
     
-    p.setFont("Helvetica", 9)
     y -= 0.8*cm
     
     for _, row in df_items.iterrows():
         if row['Quantidade'] > 0:
             item_nome = row['Produto da Base'] if row['Produto da Base'] != "OUTRO" else row['Produto Manual']
+            
+            p.setFont("Helvetica-Bold", 9)
             p.drawString(2.3*cm, y, str(item_nome)[:60])
+            
+            p.setFont("Helvetica", 9)
             p.drawString(12.8*cm, y, str(int(row['Quantidade'])))
             p.drawRightString(largura - 2.3*cm, y, to_br_currency(row.get('Venda Total', 0)))
-            y -= 0.5*cm
+            y -= 0.4*cm
+            
+            # Busca a descrição no banco para colocar abaixo do item
+            desc = ""
+            try:
+                cat = st.session_state.db_produtos
+                match = cat[cat['Item'] == item_nome]
+                if not match.empty and 'Descrição' in match.columns:
+                    desc = match['Descrição'].values[0]
+            except: pass
+            
+            if desc and str(desc).strip() != "" and str(desc) != "nan":
+                p.setFont("Helvetica", 8)
+                p.setFillColor(colors.HexColor("#555555")) # Cor cinza escuro para diferenciar
+                linhas_desc = str(desc).split('\n')
+                for linha in linhas_desc:
+                    if linha.strip():
+                        # Adiciona a palavra "Detalhes: " automaticamente na primeira linha se não tiver
+                        prefix = "Detalhes: " if linha == linhas_desc[0] and not linha.upper().startswith("DETALHES") else ""
+                        p.drawString(2.3*cm, y, prefix + linha.strip())
+                        y -= 0.35*cm
+                p.setFillColor(colors.black)
+            else:
+                y -= 0.1*cm
 
-    # 5. SERVIÇOS E DIVERSOS (ALINHAMENTO CORRIGIDO)
+    # 5. SERVIÇOS E DIVERSOS
     y -= 0.3*cm
     p.setFillColor(colors.HexColor("#004488"))
     p.rect(2*cm, y, largura - 4*cm, 0.7*cm, fill=1, stroke=0)
@@ -291,7 +318,7 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
     p.drawString(2.3*cm, y + 0.3*cm, "INVESTIMENTO TOTAL")
     p.drawRightString(largura - 2.3*cm, y + 0.3*cm, to_br_currency(total))
 
-    # 7. OBSERVAÇÕES E MARCA D'ÁGUA
+    # 7. OBSERVAÇÕES
     y -= 1.5*cm
     p.setFillColor(colors.red)
     p.setFont("Helvetica-Bold", 10)
@@ -299,11 +326,6 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
     p.setFont("Helvetica", 9)
     p.setFillColor(colors.black)
     p.drawString(2*cm, y - 0.5*cm, str(obs)[:100])
-    
-    # Esta é a marca que vai provar que o código atualizou!
-    p.setFont("Helvetica", 6)
-    p.setFillColor(colors.lightgrey)
-    p.drawString(2*cm, 1*cm, "Versão Final")
 
     p.save()
     buffer.seek(0)
