@@ -14,11 +14,7 @@ def renderizar():
         st.markdown("### 👁️ Linha do Tempo")
         
         pref_inicio, pref_fim = utils.load_user_settings()
-        if pref_inicio not in utils.meses_pt: pref_inicio = "JANEIRO"
-        if pref_fim not in utils.meses_pt: pref_fim = utils.mes_atual_nome
-            
         mes_inicio, mes_fim = st.select_slider("Período Visível:", options=utils.meses_pt, value=(pref_inicio, pref_fim))
-        if (mes_inicio != pref_inicio) or (mes_fim != pref_fim): utils.save_user_settings(mes_inicio, mes_fim)
             
         idx_inicio = utils.meses_pt.index(mes_inicio)
         idx_fim = utils.meses_pt.index(mes_fim)
@@ -28,26 +24,29 @@ def renderizar():
             st.session_state.pop('ano_dados_atual', None)
             st.rerun()
 
-    # DEFINIÇÃO DAS CONTAS (EXATAMENTE COMO NA SUA PLANILHA DE REFERÊNCIA)
+    # DEFINIÇÃO DAS CONTAS (IGUAL AO SEU PRINT)
     contas_p = ['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS', 'IMÓVEIS', 'VEÍCULOS']
     contas_e = ['ECOCLIM', 'AIRNB', 'CONS INVESTIMENTOS', 'MAGGI CONSORCIOS']
     
-    # CARREGAMENTO DOS DADOS (VOLTANDO PARA AS TABELAS CORRETAS)
+    # CARREGAMENTO (Das tabelas 'patrimonio' e 'entradas')
     if 'ano_dados_atual' not in st.session_state or st.session_state.ano_dados_atual != ano_selecionado:
         st.session_state.df_p = utils.load_year_data('patrimonio', contas_p, ano_selecionado)
         st.session_state.df_e = utils.load_year_data('entradas', contas_e, ano_selecionado)
         st.session_state.ano_dados_atual = ano_selecionado
 
-    # GARANTE QUE OS NOMES DAS LINHAS EXISTAM (CURA PARA O PROBLEMA DE LINHAS EM BRANCO)
-    for c in contas_p:
-        if c not in st.session_state.df_p['MESES'].values:
-            st.session_state.df_p = pd.concat([st.session_state.df_p, pd.DataFrame([{"MESES": c, **{m: 0.0 for m in utils.meses_pt}}])], ignore_index=True)
-    
-    for c in contas_e:
-        if c not in st.session_state.df_e['MESES'].values:
-            st.session_state.df_e = pd.concat([st.session_state.df_e, pd.DataFrame([{"MESES": c, **{m: 0.0 for m in utils.meses_pt}}])], ignore_index=True)
+    # GARANTE QUE OS NOMES DAS LINHAS APAREÇAM (CURA)
+    def garantir_linhas(df, lista_contas):
+        for c in lista_contas:
+            if c not in df['MESES'].values:
+                nova_linha = {"MESES": c}
+                for m in utils.meses_pt: nova_linha[m] = 0.0
+                df = pd.concat([df, pd.DataFrame([nova_linha])], ignore_index=True)
+        return df
 
-    # CONFIGURAÇÃO DE COLUNAS COM R$ AUTOMÁTICO (MAIS SEGURO)
+    st.session_state.df_p = garantir_linhas(st.session_state.df_p, contas_p)
+    st.session_state.df_e = garantir_linhas(st.session_state.df_e, contas_e)
+
+    # CONFIGURAÇÃO DE COLUNAS (R$ AUTOMÁTICO)
     col_cfg = {"MESES": st.column_config.TextColumn("CATEGORIA / CONTA", width=220, disabled=True)}
     for m in utils.meses_pt: 
         col_cfg[m] = st.column_config.NumberColumn(m, width=100, format="R$ %,.2f") 
@@ -58,44 +57,25 @@ def renderizar():
     # 9.1 PATRIMÔNIO
     # --------------------------
     st.markdown("#### 🏛️ Posição Patrimonial e Investimentos")
-    
-    # Exibe o editor de dados (Direto com os números para não dar erro de string)
-    df_p_edit = st.data_editor(
-        st.session_state.df_p[colunas_visiveis], 
-        hide_index=True, 
-        column_config=col_cfg, 
-        use_container_width=True, 
-        height=295,
-        key="editor_patrimonio"
-    )
+    df_p_edit = st.data_editor(st.session_state.df_p[colunas_visiveis], hide_index=True, column_config=col_cfg, use_container_width=True, height=295, key="ed_p")
 
-    # Salvamento Automático se houver mudança
     if not df_p_edit.equals(st.session_state.df_p[colunas_visiveis]):
-        for m in [c for c in colunas_visiveis if c != "MESES"]:
-            st.session_state.df_p.loc[:, m] = df_p_edit[m]
+        for m in [c for c in colunas_visiveis if c != "MESES"]: st.session_state.df_p.loc[:, m] = df_p_edit[m]
         utils.save_to_supabase('patrimonio', st.session_state.df_p, ano_selecionado)
-        st.toast("Dados de Patrimônio salvos!", icon="✅")
         st.rerun()
 
-    # Cálculos de Resumo
+    # Cálculos de Resumo (Seguros)
     df_n = st.session_state.df_p.set_index('MESES')
-    contas_liq = ['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS']
-    pat_liq = df_n[df_n.index.isin(contas_liq)].sum()
-    imoveis = df_n[df_n.index == 'IMÓVEIS'].sum()
-    veiculos = df_n[df_n.index == 'VEÍCULOS'].sum()
-    pat_tot = pat_liq + imoveis + veiculos
+    pat_liq = df_n[df_n.index.isin(['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS'])].sum()
+    pat_tot = pat_liq + df_n[df_n.index == 'IMÓVEIS'].sum() + df_n[df_n.index == 'VEÍCULOS'].sum()
     var_abs = pat_tot.diff().fillna(0)
     var_pct = (pat_tot.pct_change().fillna(0) * 100).round(2)
 
     df_res_p = pd.DataFrame({'MESES': ['PATRIMÔNIO LÍQUIDO', 'PATRIMÔNIO TOTAL', 'VAR MENSAL (R$)', 'VAR MENSAL (%)']})
-    for m in utils.meses_pt: 
-        df_res_p[m] = [pat_liq.get(m, 0), pat_tot.get(m, 0), var_abs.get(m, 0), f"{var_pct.get(m, 0):.2f}%"]
+    for m in utils.meses_pt: df_res_p[m] = [pat_liq.get(m, 0), pat_tot.get(m, 0), var_abs.get(m, 0), f"{var_pct.get(m, 0):.2f}%"]
     
     styled_res_p = df_res_p[colunas_visiveis].style.apply(lambda row: [f'background-color: {"#FF9900" if row["MESES"] == "PATRIMÔNIO TOTAL" else "#FFF2CC" if "LÍQUIDO" in row["MESES"] else "white"}; font-weight: bold; color: black' for _ in colunas_visiveis], axis=1)
-    
     st.dataframe(styled_res_p.format(lambda x: x if isinstance(x, str) else utils.to_br_currency(x, False)), hide_index=True, column_config=col_cfg, use_container_width=True, height=175)
-
-    st.markdown("---")
 
     # --------------------------
     # 9.2 ENTRADAS
@@ -113,61 +93,33 @@ def renderizar():
                 if idx_ecoclim: st.session_state.df_e.at[idx_ecoclim[0], utils.mes_atual_nome] = float(lucro_ativo)
         except: pass
 
-    df_e_edit = st.data_editor(
-        st.session_state.df_e[colunas_visiveis], 
-        hide_index=True, 
-        column_config=col_cfg, 
-        use_container_width=True, 
-        height=190,
-        key="editor_entradas"
-    )
+    df_e_edit = st.data_editor(st.session_state.df_e[colunas_visiveis], hide_index=True, column_config=col_cfg, use_container_width=True, height=190, key="ed_e")
 
     if not df_e_edit.equals(st.session_state.df_e[colunas_visiveis]):
-        for m in [c for c in colunas_visiveis if c != "MESES"]:
-            st.session_state.df_e.loc[:, m] = df_e_edit[m]
+        for m in [c for c in colunas_visiveis if c != "MESES"]: st.session_state.df_e.loc[:, m] = df_e_edit[m]
         utils.save_to_supabase('entradas', st.session_state.df_e, ano_selecionado)
-        st.toast("Dados de Entradas salvos!", icon="✅")
         st.rerun()
 
     tot_ent = st.session_state.df_e.set_index('MESES').sum()
     df_res_e = pd.DataFrame({'MESES': ['TOTAL RECEBIMENTOS:']})
     for m in utils.meses_pt: df_res_e[m] = [tot_ent.get(m, 0)]
-    
     styled_res_e = df_res_e[colunas_visiveis].style.apply(lambda row: [f'background-color: #9BC2E6; font-weight: bold; color: black' for _ in colunas_visiveis], axis=1)
     st.dataframe(styled_res_e.format(lambda x: x if isinstance(x, str) else utils.to_br_currency(x, False)), hide_index=True, column_config=col_cfg, use_container_width=True, height=75)
-
-    st.markdown("---")
 
     # --------------------------
     # 9.3 RENDIMENTOS
     # --------------------------
     st.markdown("#### 📈 Rendimento Mensal (Investimentos)")
-    xp_val = df_n[df_n.index == 'INVESTIMENTO XP'].sum()
-    inter_val = df_n[df_n.index == 'CONTA INTER'].sum()
-    xp_var = xp_val.diff().fillna(0); inter_var = inter_val.diff().fillna(0)
-    rend_total = xp_var + inter_var
+    xp_val = df_n[df_n.index == 'INVESTIMENTO XP'].sum(); inter_val = df_n[df_n.index == 'CONTA INTER'].sum()
+    xp_var = xp_val.diff().fillna(0); inter_var = inter_val.diff().fillna(0); rend_total = xp_var + inter_var
     prev_bal = (xp_val + inter_val).shift(1).fillna(0)
     
     df_rend = pd.DataFrame({'MESES': ['RESULTADO XP', 'RESULTADO INTER', 'RENDIMENTO TOTAL', '% RETORNO MÊS', 'SALÁRIO + RENDIMENTO MÊS']})
     for i, m in enumerate(utils.meses_pt):
-        if (ano_selecionado > utils.ano_atual) or (ano_selecionado == utils.ano_atual and i > utils.mes_hoje_idx - 1): 
-            df_rend[m] = [0, 0, 0, "0,00%", 0]
+        if (ano_selecionado > utils.ano_atual) or (ano_selecionado == utils.ano_atual and i > utils.mes_hoje_idx - 1): df_rend[m] = [0, 0, 0, "0,00%", 0]
         else:
-            rt = rend_total.get(m, 0); pb = prev_bal.get(m, 0)
-            df_rend[m] = [xp_var.get(m, 0), inter_var.get(m, 0), rt, f"{(rt/pb*100) if pb>0 else 0:.2f}%", tot_ent.get(m, 0) + rt]
+            rt = rend_total.get(m, 0); pb = prev_bal.get(m, 0); pct = (rt/pb*100) if pb>0 else 0
+            df_rend[m] = [xp_var.get(m, 0), inter_var.get(m, 0), rt, f"{pct:.2f}%", tot_ent.get(m, 0) + rt]
             
     styled_rend = df_rend[colunas_visiveis].style.apply(lambda row: [f'background-color: {"#FF9900" if row["MESES"] == "RENDIMENTO TOTAL" else "#FFF2CC" if "%" in row["MESES"] else "#9BC2E6" if "SALÁRIO" in row["MESES"] else "white"}; font-weight: bold; color: black' for _ in colunas_visiveis], axis=1)
     st.dataframe(styled_rend.format(lambda x: x if isinstance(x, str) else utils.to_br_currency(x, False)), hide_index=True, column_config=col_cfg, use_container_width=True, height=215)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # --------------------------
-    # 9.4 MÉTRICAS FINAIS
-    # --------------------------
-    st.markdown("<br>", unsafe_allow_html=True)
-    c1, c2, c3, c4 = st.columns(4)
-    meses_calc = utils.meses_pt[:utils.mes_hoje_idx] if ano_selecionado == utils.ano_atual else utils.meses_pt
-    
-    c1.metric("💰 MÉDIA ENTRADAS", utils.to_br_currency(tot_ent[meses_calc].mean()))
-    c2.metric("🎯 LIMITE DE GASTO", utils.to_br_currency(rend_total[meses_calc].mean()))
-    c3.metric("🏛️ PATRIMÔNIO ATUAL", utils.to_br_currency(pat_tot.get(utils.mes_atual_nome, pat_tot.iloc[-1])))
-    c4.metric("📊 VARIAÇÃO ANUAL", f"{((pat_tot.iloc[-1]/pat_tot.iloc[0]-1)*100) if pat_tot.iloc[0]>0 else 0:.1f}%")
