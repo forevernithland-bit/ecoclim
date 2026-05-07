@@ -31,7 +31,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         if coluna not in df_itens.columns:
             df_itens[coluna] = 0.0 if 'Un.' in coluna or 'Qtd' in coluna else ""
 
-    # PULO DO GATO: Busca Exata do Custo na Base de Dados
+    # PULO DO GATO: Busca Exata do Custo na Base de Dados (Se estiver zero)
     if not df_produtos.empty:
         for idx, row in df_itens.iterrows():
             try: custo_atual = float(row.get('Custo Un.', 0))
@@ -40,12 +40,10 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             if custo_atual == 0.0:
                 item_nome = str(row.get('Item', '')).strip().lower()
                 # Procura o produto exato
-                match = df_produtos[df_produtos['Item'].str.strip().str.lower() == item_nome]
+                match = df_produtos[df_produtos['Item'].astype(str).str.strip().str.lower() == item_nome]
                 if not match.empty:
-                    # Tenta puxar o Custo
-                    c_val = match.iloc[0].get('Custo', 0)
-                    if pd.isna(c_val) or c_val == 0: 
-                        c_val = match.iloc[0].get('Custo (R$)', 0)
+                    # Tenta puxar o Custo (vê as duas formas possíveis que o utils.py retorna)
+                    c_val = match.iloc[0].get('Custo', match.iloc[0].get('Custo (R$)', 0))
                     df_itens.at[idx, 'Custo Un.'] = float(c_val)
 
     config_colunas_itens = {
@@ -71,30 +69,29 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         # Valor da Venda Fechado
         valor_venda_fechado = f_col1.number_input("Valor Final da Venda (R$)", value=float(projeto_selecionado.get('valor_venda_total', 0.0)), format="%.2f", key=f"venda_{prefix_key}")
         
-        # Nota Fiscal (Busca Exata na Base)
+        # Nota Fiscal (Busca pelo nome exato NOTA FISCAL no banco)
         tem_nota = f_col2.radio("Emitir Nota Fiscal?", ["Não", "Sim"], index=1 if float(projeto_selecionado.get('custo_impostos', 0.0)) > 0 else 0, key=f"nf_{prefix_key}")
         valor_nf = 0.0
         if tem_nota == "Sim":
-            taxa_nf_pct = 6.0 # Padrao se não achar
+            taxa_nf_pct = 0.0
             if not df_taxas_config.empty:
-                match_nf = df_taxas_config[df_taxas_config['Item'].str.strip().str.lower() == "nota fiscal"]
+                match_nf = df_taxas_config[df_taxas_config['Item'].astype(str).str.upper().str.strip() == "NOTA FISCAL"]
                 if not match_nf.empty:
-                    taxa_nf_pct = float(match_nf.iloc[0].get('Taxa (%)', 6.0))
+                    taxa_nf_pct = float(match_nf.iloc[0].get('Taxa (%)', 0.0))
                     
             valor_nf = valor_venda_fechado * (taxa_nf_pct / 100)
             f_col2.caption(f"Imposto ({taxa_nf_pct}%): - {utils.to_br_currency(valor_nf)}")
         
-        # Cartão de Crédito (Busca Exata na Base)
+        # Cartão de Crédito (BUSCA O NÚMERO EXATO NA BASE: "1", "2", "3")
         metodo_pgto = f_col3.selectbox("Forma de Pagamento", ["PIX / Dinheiro", "Cartão de Crédito"], key=f"pgto_{prefix_key}")
         valor_cartao_taxa = 0.0
         if metodo_pgto == "Cartão de Crédito":
-            parcelas_selecionadas = f_col3.selectbox("Número de Parcelas", [f"{i}x" for i in range(1, 13)], key=f"parc_{prefix_key}")
+            parcelas_selecionadas = f_col3.selectbox("Número de Parcelas", [i for i in range(1, 13)], format_func=lambda x: f"{x}x", key=f"parc_{prefix_key}")
             
             taxa_cartao_pct = 0.0
-            termo_busca = f"cartão {parcelas_selecionadas}".lower() # Ex: "cartão 3x"
-            
             if not df_taxas_config.empty:
-                match_cartao = df_taxas_config[df_taxas_config['Item'].str.strip().str.lower() == termo_busca]
+                # O item na sua base é apenas "1", "2", "3"... Então procuro exatamente esse número!
+                match_cartao = df_taxas_config[df_taxas_config['Item'].astype(str).str.strip() == str(parcelas_selecionadas)]
                 if not match_cartao.empty:
                     taxa_cartao_pct = float(match_cartao.iloc[0].get('Taxa (%)', 0.0))
                     
@@ -149,7 +146,6 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         except Exception as e:
             st.error(f"Erro ao guardar: {e}")
 
-
 def renderizar():
     st.markdown("## 📋 Gestão de Serviços (CRM)")
     
@@ -166,7 +162,7 @@ def renderizar():
         st.info("Nenhum registo encontrado.")
         return
 
-    # Carrega taxas e produtos
+    # Carrega taxas e produtos para popular a inteligência da tela
     df_taxas_config = utils.load_taxas()
     df_produtos = utils.load_catalog('catalogo_produtos')
 
