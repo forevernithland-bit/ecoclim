@@ -7,121 +7,95 @@ def renderizar():
     
     tabs = st.tabs(["🛒 Produtos", "🛠️ Serviços", "🤝 Outros / Terceiros", "📊 Taxas"])
     
-    # --- FUNÇÃO DE IMPORTAÇÃO INTELIGENTE ---
-    def processar_upload(uploaded_file):
-        df = pd.read_excel(uploaded_file)
-        # Limpa espaços e força maiúsculo para bater com o banco
-        df.columns = df.columns.str.strip().str.upper()
+    def processar_upload_excel(arquivo_subido):
+        df_excel = pd.read_excel(arquivo_subido)
+        df_excel.columns = df_excel.columns.str.strip().str.upper()
+        df_final = pd.DataFrame()
         
-        new_df = pd.DataFrame()
+        if "PRODUTO" in df_excel.columns: df_final["Item"] = df_excel["PRODUTO"]
+        elif "ITEM" in df_excel.columns: df_final["Item"] = df_excel["ITEM"]
+        else: df_final["Item"] = "Sem Nome"
         
-        # Mapeia colunas da sua planilha
-        if "PRODUTO" in df.columns: new_df["Item"] = df["PRODUTO"]
-        elif "ITEM" in df.columns: new_df["Item"] = df["ITEM"]
-        else: new_df["Item"] = ""
+        if "CUSTO" in df_excel.columns: df_final["Custo (R$)"] = pd.to_numeric(df_excel["CUSTO"], errors='coerce').fillna(0.0)
+        else: df_final["Custo (R$)"] = 0.0
         
-        if "CUSTO" in df.columns: new_df["Custo (R$)"] = pd.to_numeric(df["CUSTO"], errors='coerce').fillna(0.0)
-        else: new_df["Custo (R$)"] = 0.0
+        if "DESCRIÇÃO" in df_excel.columns: df_final["Descrição"] = df_excel["DESCRIÇÃO"].fillna("")
+        elif "DESCRICAO" in df_excel.columns: df_final["Descrição"] = df_excel["DESCRICAO"].fillna("")
+        else: df_final["Descrição"] = ""
         
-        if "DESCRIÇÃO" in df.columns: new_df["Descrição"] = df["DESCRIÇÃO"].fillna("")
-        elif "DESCRICAO" in df.columns: new_df["Descrição"] = df["DESCRICAO"].fillna("")
-        else: new_df["Descrição"] = ""
-        
-        new_df["Margem (%)"] = 0.0
-        new_df["Lucro (R$)"] = 0.0
-        new_df["Venda (R$)"] = new_df["Custo (R$)"]
-        
-        return new_df
+        df_final["Margem (%)"] = 0.0
+        df_final["Lucro (R$)"] = 0.0
+        df_final["Venda (R$)"] = df_final["Custo (R$)"]
+        return df_final
 
-    def exibir_aba(table_name, titulo):
-        df = utils.load_catalog(table_name)
+    def exibir_aba_catalogo(nome_tabela, titulo_aba):
+        df_atual = utils.load_catalog(nome_tabela)
         
-        # 1. ÁREA DE IMPORTAÇÃO
-        st.markdown(f"#### 📥 Importar Planilha de {titulo}")
-        upl = st.file_uploader(f"Selecione o arquivo Excel (.xlsx)", type=["xlsx"], key=f"upl_{table_name}")
-        if upl:
-            if st.button(f"Processar Arquivo - {titulo}"):
-                df_importado = processar_upload(upl)
-                # Mescla e zera o índice para evitar KeyError
-                df = pd.concat([df, df_importado], ignore_index=True).drop_duplicates(subset=['Item'], keep='last')
-                df = df.reset_index(drop=True)
-                st.session_state[f'df_tmp_{table_name}'] = df
-                st.success("✅ Planilha carregada! Verifique os dados abaixo e clique em Gravar.")
+        st.markdown(f"#### 📥 Importar Planilha de {titulo_aba}")
+        arquivo_excel = st.file_uploader(f"Selecione o arquivo (.xlsx)", type=["xlsx"], key=f"upload_{nome_tabela}")
+        if arquivo_excel:
+            if st.button(f"Processar Planilha - {titulo_aba}"):
+                df_novo = processar_upload_excel(arquivo_excel)
+                df_combinado = pd.concat([df_atual, df_novo], ignore_index=True).drop_duplicates(subset=['Item'], keep='last')
+                df_combinado = df_combinado.reset_index(drop=True)
+                st.session_state[f'temp_df_{nome_tabela}'] = df_combinado
+                st.success("✅ Dados processados! Verifique na tabela e clique em Gravar.")
 
-        if f'df_tmp_{table_name}' in st.session_state:
-            df = st.session_state[f'df_tmp_{table_name}']
+        if f'temp_df_{nome_tabela}' in st.session_state:
+            df_atual = st.session_state[f'temp_df_{nome_tabela}']
 
-        # GARANTIA FINAL CONTRA KEYERROR
-        df = df.reset_index(drop=True)
+        # GARANTIA contra o KeyError: força as colunas existirem
+        for col in ["Item", "Descrição", "Custo (R$)", "Margem (%)", "Lucro (R$)", "Venda (R$)"]:
+            if col not in df_atual.columns:
+                df_atual[col] = "" if "Item" in col or "Desc" in col else 0.0
 
         st.markdown("---")
+        st.markdown("#### ⚡ Margem Automática em Massa")
+        col_m1, col_m2 = st.columns([1, 3])
+        margem_digitada = col_m1.number_input("Margem (%)", min_value=0.0, format="%.2f", key=f"val_margem_{nome_tabela}")
         
-        # 2. FERRAMENTA DE MARGEM AUTOMÁTICA EM MASSA
-        st.markdown("#### ⚡ Ações Rápidas: Margem Automática")
-        c1, c2 = st.columns([1, 3])
-        with c1:
-            margem_global = st.number_input("Definir Margem (%)", min_value=0.0, format="%.2f", key=f"mg_{table_name}")
-        with c2:
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button(f"Aplicar {margem_global}% a todos os itens da tabela", key=f"btn_mg_{table_name}"):
-                # Matemática Vetorizada ultra segura e rápida
-                df['Margem (%)'] = margem_global
-                df['Custo (R$)'] = pd.to_numeric(df['Custo (R$)'], errors='coerce').fillna(0.0)
-                df['Margem (%)'] = pd.to_numeric(df['Margem (%)'], errors='coerce').fillna(0.0)
-                df['Venda (R$)'] = df['Custo (R$)'] * (1 + (df['Margem (%)']/100))
-                df['Lucro (R$)'] = df['Venda (R$)'] - df['Custo (R$)']
-                
-                st.session_state[f'df_tmp_{table_name}'] = df
-                st.rerun()
+        if col_m2.button(f"Aplicar {margem_digitada}% a todos os itens acima", key=f"btn_massa_{nome_tabela}"):
+            df_atual['Margem (%)'] = margem_digitada
+            df_atual['Custo (R$)'] = pd.to_numeric(df_atual['Custo (R$)'], errors='coerce').fillna(0.0)
+            df_atual['Venda (R$)'] = df_atual['Custo (R$)'] * (1 + (df_atual['Margem (%)'] / 100))
+            df_atual['Lucro (R$)'] = df_atual['Venda (R$)'] - df_atual['Custo (R$)']
+            st.session_state[f'temp_df_{nome_tabela}'] = df_atual
+            st.rerun()
 
-        st.markdown("#### 📋 Catálogo Atual")
-        
-        cfg = {
+        st.markdown("#### 📋 Edição do Catálogo")
+        config_editor = {
             "Item": st.column_config.TextColumn("Item", width="medium"),
             "Descrição": st.column_config.TextColumn("Descrição / Detalhes", width="large"),
             "Custo (R$)": st.column_config.NumberColumn("Custo", format="R$ %,.2f"),
             "Margem (%)": st.column_config.NumberColumn("Margem %", format="%.2f %%"),
             "Lucro (R$)": st.column_config.NumberColumn("Lucro", format="R$ %,.2f", disabled=True),
-            "Venda (R$)": st.column_config.NumberColumn("Venda (Final)", format="R$ %,.2f")
+            "Venda (R$)": st.column_config.NumberColumn("Preço Venda", format="R$ %,.2f")
         }
         
-        # O Editor da Tabela
-        df_edit = st.data_editor(df, column_config=cfg, num_rows="dynamic", use_container_width=True, key=f"ed_{table_name}")
+        df_editor = st.data_editor(df_atual, column_config=config_editor, num_rows="dynamic", use_container_width=True, key=f"editor_{nome_tabela}")
         
-        # Resetando índice do editor para blindar totalmente
-        df_edit = df_edit.reset_index(drop=True)
+        # Matemática Segura em tempo real
+        df_editor['Custo (R$)'] = pd.to_numeric(df_editor['Custo (R$)'], errors='coerce').fillna(0.0)
+        df_editor['Margem (%)'] = pd.to_numeric(df_editor['Margem (%)'], errors='coerce').fillna(0.0)
+        df_editor['Venda (R$)'] = pd.to_numeric(df_editor['Venda (R$)'], errors='coerce').fillna(0.0)
         
-        # Matemática protegida em tempo real
-        df_edit['Custo (R$)'] = pd.to_numeric(df_edit['Custo (R$)'], errors='coerce').fillna(0.0)
-        df_edit['Margem (%)'] = pd.to_numeric(df_edit['Margem (%)'], errors='coerce').fillna(0.0)
-        df_edit['Venda (R$)'] = pd.to_numeric(df_edit['Venda (R$)'], errors='coerce').fillna(0.0)
-        
-        # Aplica Venda e Lucro onde a margem é maior que zero
-        mask = df_edit['Margem (%)'] > 0
-        df_edit.loc[mask, 'Venda (R$)'] = df_edit.loc[mask, 'Custo (R$)'] * (1 + (df_edit.loc[mask, 'Margem (%)'] / 100))
-        df_edit['Lucro (R$)'] = df_edit['Venda (R$)'] - df_edit['Custo (R$)']
+        mascara_margem = df_editor['Margem (%)'] > 0
+        df_editor.loc[mascara_margem, 'Venda (R$)'] = df_editor.loc[mascara_margem, 'Custo (R$)'] * (1 + (df_editor.loc[mascara_margem, 'Margem (%)'] / 100))
+        df_editor['Lucro (R$)'] = df_editor['Venda (R$)'] - df_editor['Custo (R$)']
 
-        st.markdown("<br>", unsafe_allow_html=True)
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("🧮 ATUALIZAR CÁLCULOS NA TELA", use_container_width=True, key=f"atualizar_{table_name}"):
-                st.session_state[f'df_tmp_{table_name}'] = df_edit
-                st.rerun()
-        with col2:
-            if st.button(f"💾 GRAVAR ALTERAÇÕES", type="primary", use_container_width=True, key=f"btn_save_{table_name}"):
-                utils.save_catalog(table_name, df_edit)
-                if f'df_tmp_{table_name}' in st.session_state: del st.session_state[f'df_tmp_{table_name}']
-                st.success(f"Catálogo de {titulo} atualizado com sucesso!")
-                st.rerun()
+        if st.button(f"💾 GRAVAR ALTERAÇÕES", type="primary", use_container_width=True, key=f"save_{nome_tabela}"):
+            utils.save_catalog(nome_tabela, df_editor)
+            if f'temp_df_{nome_tabela}' in st.session_state: del st.session_state[f'temp_df_{nome_tabela}']
+            st.success(f"Catálogo atualizado!")
+            st.rerun()
 
-    with tabs[0]: exibir_aba('catalogo_produtos', 'Produtos')
-    with tabs[1]: exibir_aba('catalogo_servicos', 'Serviços')
-    with tabs[2]: exibir_aba('catalogo_outros', 'Terceiros')
-    
+    with tabs[0]: exibir_aba_catalogo('catalogo_produtos', 'Produtos')
+    with tabs[1]: exibir_aba_catalogo('catalogo_servicos', 'Serviços')
+    with tabs[2]: exibir_aba_catalogo('catalogo_outros', 'Terceiros')
     with tabs[3]:
         st.subheader("📊 Taxas e Impostos")
         df_t = utils.load_taxas()
-        df_t_ed = st.data_editor(df_t, use_container_width=True, num_rows="dynamic")
-        if st.button("💾 Gravar Taxas", type="primary"):
-            utils.save_taxas(df_t_ed)
+        df_t_edit = st.data_editor(df_t, use_container_width=True, num_rows="dynamic")
+        if st.button("💾 Gravar Taxas", type="primary", use_container_width=True):
+            utils.save_taxas(df_t_edit)
             st.success("Taxas salvas!")
