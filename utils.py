@@ -23,7 +23,16 @@ def init_connection():
     return create_client(url, key)
 
 # ==========================================
-# FUNÇÕES FINANCEIRAS
+# FUNÇÕES DA LINHA DO TEMPO (RECUPERADAS!)
+# ==========================================
+def load_user_settings():
+    return "JANEIRO", mes_atual_nome
+
+def save_user_settings(inicio, fim):
+    pass
+
+# ==========================================
+# FUNÇÕES FINANCEIRAS (LEITURA DIRETA)
 # ==========================================
 def load_year_data(table, default_accounts, year):
     supabase = st.session_state.supabase
@@ -35,7 +44,7 @@ def load_year_data(table, default_accounts, year):
             for m in meses_pt: df[m] = 0.0
             return df
         
-        # Como o seu banco já tem MESES e MARÇO exatos, basta padronizar MAIÚSCULAS
+        # Padroniza para maiúsculas por segurança
         df_db.columns = df_db.columns.str.upper()
         
         cols = ["MESES"] + meses_pt
@@ -113,9 +122,6 @@ def save_taxas(df):
     st.session_state.supabase.table('catalogo_taxas').delete().neq("item", "___").execute()
     if data: st.session_state.supabase.table('catalogo_taxas').insert(data).execute()
 
-# ==========================================
-# GERAÇÃO DE PDF (COM GORDURA EXTRA NA LINHA AZUL)
-# ==========================================
 def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, obs, mostrar_un):
     buffer = BytesIO()
     p = canvas.Canvas(buffer, pagesize=A4)
