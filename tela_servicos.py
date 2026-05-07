@@ -79,9 +79,9 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         metodo_pgto = f_col3.selectbox("Forma de Pagamento", ["PIX / Dinheiro", "Cartão de Crédito"], key=f"pgto_{prefix_key}")
         valor_cartao_taxa = 0.0
         if metodo_pgto == "Cartão de Crédito":
-            num_parc = f_col3.selectbox("Número de Parcelas", [i for i in range(1, 13)], format_func=lambda x: f"{x}x", key=f"parc_{prefix_key}")
-            # Procura inteligentemente na base por termos como "Cartão 3x" ou apenas "3x"
-            busca_cartao = df_taxas_config[df_taxas_config['Item'].astype(str).str.contains(rf"{num_parc}\s*x", case=False, regex=True, na=False)]
+            num_parc = f_col3.selectbox("Número de Parcelas", [f"{i}x" for i in range(1, 13)], key=f"parc_{prefix_key}")
+            # AQUI ESTAVA O ERRO! Como num_parc já é "1x", a procura agora é exata.
+            busca_cartao = df_taxas_config[df_taxas_config['Item'].astype(str).str.contains(num_parc, case=False, regex=False, na=False)]
             taxa_cartao_pct = float(busca_cartao['Taxa (%)'].values[0]) if not busca_cartao.empty else 0.0
             valor_cartao_taxa = valor_venda_fechado * (taxa_cartao_pct / 100)
             f_col3.caption(f"Taxa ({taxa_cartao_pct}%): - {utils.to_br_currency(valor_cartao_taxa)}")
@@ -105,10 +105,10 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         
         st.markdown("<br>", unsafe_allow_html=True)
         res1, res2 = st.columns(2)
-        res1.metric("Custo Operacional Total (Produtos + Taxas)", utils.to_br_currency(custo_total_produtos + abatimentos_totais))
+        res1.metric("Custo Total Operacional", utils.to_br_currency(custo_total_produtos + abatimentos_totais))
         
         margem_real = (lucro_final / valor_venda_fechado * 100) if valor_venda_fechado > 0 else 0
-        res2.metric("LUCRO LÍQUIDO REAL", utils.to_br_currency(lucro_final), delta=f"{margem_real:.1f}% de Margem Líquida")
+        res2.metric("LUCRO LÍQUIDO REAL", utils.to_br_currency(lucro_final), delta=f"{margem_real:.1f}% de Margem Líquida", delta_color="normal" if lucro_final > 0 else "inverse")
 
     notas_internas = st.text_area("Notas e Observações do Projeto", value=str(projeto_selecionado.get('notas_internas', '')), key=f"notas_{prefix_key}")
 
@@ -172,7 +172,7 @@ def renderizar():
         key="grid_ativos"
     )
     
-    # Se clicar na tabela de CIMA, mostra os detalhes logo AQUI
+    # Detalhes aparecem AQUI embaixo, se clicado nos ativos
     if selecao_ativo.selection.rows:
         projeto_selecionado = df_servicos_ativos.iloc[selecao_ativo.selection.rows[0]]
         exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_produtos, prefix_key=f"ativo_{projeto_selecionado['id']}")
@@ -190,7 +190,7 @@ def renderizar():
         key="grid_orcamentos"
     )
 
-    # Se clicar na tabela de BAIXO, mostra os detalhes logo AQUI
+    # Detalhes aparecem AQUI embaixo, se clicado nos orçamentos
     if selecao_orcamento.selection.rows:
         projeto_selecionado = df_orcamentos_pendentes.iloc[selecao_orcamento.selection.rows[0]]
         exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_produtos, prefix_key=f"orc_{projeto_selecionado['id']}")
