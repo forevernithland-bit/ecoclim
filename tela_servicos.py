@@ -66,7 +66,7 @@ def renderizar():
         nova_data = c2.date_input("Data de Conclusão / Previsão", value=data_padrao)
         
         # ==========================================
-        # TABELA DE ITENS (BLINDADA CONTRA ERROS)
+        # TABELA DE ITENS (BLINDADA CONTRA ERROS DE COLUNA)
         # ==========================================
         itens_json = row.get('detalhamento_itens', [])
         if isinstance(itens_json, list) and len(itens_json) > 0:
@@ -74,11 +74,19 @@ def renderizar():
         else:
             df_edit = pd.DataFrame(columns=['Item', 'Qtd', 'Venda Un.', 'Custo Un.', 'Descrição'])
             
-        colunas_obrigatorias = {'Custo Un.': 0.0, 'Qtd': 0, 'Venda Un.': 0.0, 'Item': '', 'Descrição': ''}
-        for col, default_val in colunas_obrigatorias.items():
-            if col not in df_edit.columns:
-                df_edit[col] = default_val
+        # FORÇANDO A CRIAÇÃO DA COLUNA DE FORMA SEGURA (Evita o KeyError)
+        colunas_faltantes = {}
+        if 'Custo Un.' not in df_edit.columns: colunas_faltantes['Custo Un.'] = 0.0
+        if 'Qtd' not in df_edit.columns: colunas_faltantes['Qtd'] = 0
+        if 'Venda Un.' not in df_edit.columns: colunas_faltantes['Venda Un.'] = 0.0
+        if 'Item' not in df_edit.columns: colunas_faltantes['Item'] = ""
+        if 'Descrição' not in df_edit.columns: colunas_faltantes['Descrição'] = ""
+        
+        # Adiciona as colunas usando assign, que é 100% à prova de falhas no pandas
+        if colunas_faltantes:
+            df_edit = df_edit.assign(**colunas_faltantes)
 
+        # Conversão numérica protegida
         df_edit['Custo Un.'] = pd.to_numeric(df_edit['Custo Un.'], errors='coerce').fillna(0.0)
         df_edit['Venda Un.'] = pd.to_numeric(df_edit['Venda Un.'], errors='coerce').fillna(0.0)
         df_edit['Qtd'] = pd.to_numeric(df_edit['Qtd'], errors='coerce').fillna(0)
@@ -98,7 +106,7 @@ def renderizar():
         custo_materiais_tabela = (df_edit['Custo Un.'] * df_edit['Qtd']).sum()
         
         # ==========================================
-        # PAINEL DE CUSTOS REAIS (RESTAURADO!)
+        # PAINEL DE CUSTOS REAIS
         # ==========================================
         st.markdown("#### 🧮 Custos e Fechamento")
         
