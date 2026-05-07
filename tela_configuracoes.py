@@ -44,8 +44,9 @@ def renderizar():
         if f'temp_df_{nome_tabela}' in st.session_state:
             df_atual = st.session_state[f'temp_df_{nome_tabela}']
 
-        # GARANTIA contra o KeyError: força as colunas existirem
-        for col in ["Item", "Descrição", "Custo (R$)", "Margem (%)", "Lucro (R$)", "Venda (R$)"]:
+        # GARANTIA ABSOLUTA CONTRA KEYERROR:
+        colunas_padrao = ["Item", "Descrição", "Custo (R$)", "Margem (%)", "Lucro (R$)", "Venda (R$)"]
+        for col in colunas_padrao:
             if col not in df_atual.columns:
                 df_atual[col] = "" if "Item" in col or "Desc" in col else 0.0
 
