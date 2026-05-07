@@ -29,8 +29,10 @@ def renderizar():
         st.subheader("⚙️ 1. Equipamentos")
         mostrar_pdf = st.checkbox("Mostrar Preços Unitários no PDF?", value=False)
         
+        # AQUI FOI CORRIGIDO O ATTRIBUTE ERROR: Assegurando que a cópia sempre existe
         if 'df_orc' not in st.session_state:
             st.session_state.df_orc = pd.DataFrame([{"Produto da Base": "", "Produto Manual": "", "Descrição": "", "Quantidade": 0, "Venda (R$)": 0.0, "Venda Total": 0.0} for _ in range(5)])
+        if 'df_orc_prev' not in st.session_state:
             st.session_state.df_orc_prev = st.session_state.df_orc.copy()
         
         cfg = {
@@ -70,29 +72,45 @@ def renderizar():
 
     with st.container(border=True):
         st.subheader("🛠️ 2. Serviços / Diversos")
+        
+        # DESCRIÇÃO DE SERVIÇOS ROBUSTA RESTAURADA
         lista_s = st.session_state.db_servicos['Item'].tolist() if not st.session_state.db_servicos.empty else []
+        if 's_sel_atual' not in st.session_state: st.session_state.s_sel_atual = ""
         s_sel = st.selectbox("Selecionar Serviço Principal:", [""] + lista_s + ["Manual"])
-        if s_sel != st.session_state.get('last_s_sel'):
-            if s_sel == "Manual": st.session_state.d_s_val, st.session_state.v_s_val = "", 0.0
+        
+        if s_sel != st.session_state.s_sel_atual:
+            st.session_state.s_sel_atual = s_sel
+            if s_sel == "Manual":
+                st.session_state.desc_serv_txt, st.session_state.val_serv_num = "", 0.0
             elif s_sel != "":
                 row = st.session_state.db_servicos.loc[st.session_state.db_servicos['Item']==s_sel]
-                desc_db = str(row['Descrição'].values[0]) if 'Descrição' in row.columns and str(row['Descrição'].values[0]) != 'nan' else ""
-                st.session_state.d_s_val = f"{s_sel}\n{desc_db}".strip(); st.session_state.v_s_val = float(row['Venda (R$)'].values[0])
-            st.session_state.last_s_sel = s_sel
-        d_s = st.text_area("Descrição do Serviço:", value=st.session_state.get('d_s_val', ""), height=100)
-        v_s = st.number_input("Valor do Serviço (R$):", value=float(st.session_state.get('v_s_val', 0.0)), format="%.2f")
+                desc_bd = str(row['Descrição'].values[0]) if 'Descrição' in row.columns and str(row['Descrição'].values[0]) != 'nan' else ""
+                st.session_state.desc_serv_txt = f"{s_sel}\n{desc_bd}".strip()
+                st.session_state.val_serv_num = float(row['Venda (R$)'].values[0])
+            else:
+                st.session_state.desc_serv_txt, st.session_state.val_serv_num = "", 0.0
+                
+        d_s = st.text_area("Descrição do Serviço:", value=st.session_state.get('desc_serv_txt', ""), height=100)
+        v_s = st.number_input("Valor do Serviço (R$):", value=float(st.session_state.get('val_serv_num', 0.0)), format="%.2f")
         
         lista_o = st.session_state.db_outros['Item'].tolist() if not st.session_state.db_outros.empty else []
+        if 'o_sel_atual' not in st.session_state: st.session_state.o_sel_atual = ""
         o_sel = st.selectbox("Adicionar Outros/Diversos:", [""] + lista_o + ["Manual"])
-        if o_sel != st.session_state.get('last_o_sel'):
-            if o_sel == "Manual": st.session_state.d_o_val, st.session_state.v_o_val = "", 0.0
+        
+        if o_sel != st.session_state.o_sel_atual:
+            st.session_state.o_sel_atual = o_sel
+            if o_sel == "Manual":
+                st.session_state.desc_outros_txt, st.session_state.val_outros_num = "", 0.0
             elif o_sel != "":
                 row = st.session_state.db_outros.loc[st.session_state.db_outros['Item']==o_sel]
-                desc_db = str(row['Descrição'].values[0]) if 'Descrição' in row.columns and str(row['Descrição'].values[0]) != 'nan' else ""
-                st.session_state.d_o_val = f"{o_sel}\n{desc_db}".strip(); st.session_state.v_o_val = float(row['Venda (R$)'].values[0])
-            st.session_state.last_o_sel = o_sel
-        d_o = st.text_area("Descrição Diversos:", value=st.session_state.get('d_o_val', ""), height=80)
-        v_o = st.number_input("Valor Adicional (R$):", value=float(st.session_state.get('v_o_val', 0.0)), format="%.2f")
+                desc_bd = str(row['Descrição'].values[0]) if 'Descrição' in row.columns and str(row['Descrição'].values[0]) != 'nan' else ""
+                st.session_state.desc_outros_txt = f"{o_sel}\n{desc_bd}".strip()
+                st.session_state.val_outros_num = float(row['Venda (R$)'].values[0])
+            else:
+                st.session_state.desc_outros_txt, st.session_state.val_outros_num = "", 0.0
+
+        d_o = st.text_area("Descrição Diversos:", value=st.session_state.get('desc_outros_txt', ""), height=80)
+        v_o = st.number_input("Valor Adicional (R$):", value=float(st.session_state.get('val_outros_num', 0.0)), format="%.2f")
 
     total_geral = total_equip + v_s + v_o
     st.markdown(f"<h3 style='color:#004488;'>💰 INVESTIMENTO TOTAL: {utils.to_br_currency(total_geral)}</h3>", unsafe_allow_html=True)
