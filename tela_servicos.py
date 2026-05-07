@@ -3,6 +3,20 @@ import pandas as pd
 import datetime
 import utils
 
+# Função para verificar se virou o mês
+def deve_ir_para_finalizados(status, data_conc_str):
+    if status not in ["Concluído PIX", "Concluído CARTÃO"]:
+        return False
+    try:
+        data_conc = pd.to_datetime(data_conc_str).date()
+        hoje = datetime.date.today()
+        # Se estamos num mês ou ano posterior à data de conclusão, vai para Finalizados
+        if hoje.year > data_conc.year or (hoje.year == data_conc.year and hoje.month > data_conc.month):
+            return True
+        return False
+    except:
+        return False
+
 def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_produtos, prefix_key):
     st.markdown("---")
     st.markdown(f"### ⚙️ Detalhes e Fechamento: **{projeto_selecionado.get('nome_cliente', 'Sem Nome')}**")
@@ -19,9 +33,9 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
     if pd.notna(data_bruta) and str(data_bruta).lower() not in ['none', 'nan', 'nat', '']:
         try: data_default = pd.to_datetime(data_bruta).date()
         except: pass
-    nova_data = col_dir.date_input("Previsão de Conclusão", value=data_default, key=f"data_{prefix_key}")
+    nova_data = col_dir.date_input("Previsão / Data de Conclusão", value=data_default, key=f"data_{prefix_key}")
 
-    # --- 1. PRODUTOS DO ORÇAMENTO (BUSCA DE CUSTO BLINDADA) ---
+    # --- 1. PRODUTOS DO ORÇAMENTO ---
     st.markdown("#### 🛒 Produtos Adquiridos (Ajuste Quantidades e Custos)")
     itens_json = projeto_selecionado.get('detalhamento_itens', [])
     df_itens = pd.DataFrame(itens_json) if (isinstance(itens_json, list) and len(itens_json) > 0) else pd.DataFrame(columns=['Item', 'Qtd', 'Custo Un.', 'Venda Un.'])
@@ -30,7 +44,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         if coluna not in df_itens.columns:
             df_itens[coluna] = 0.0 if 'Un.' in coluna or 'Qtd' in coluna else ""
 
-    # MOTOR DE BUSCA DO CUSTO 100% BLINDADO
+    # Puxa o custo automaticamente do catálogo, se estiver zerado
     if not df_produtos.empty:
         for idx, row in df_itens.iterrows():
             custo_atual = 0.0
@@ -61,7 +75,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
     df_itens_final['Qtd'] = pd.to_numeric(df_itens_final['Qtd'], errors='coerce').fillna(0)
     custo_total_produtos = (df_itens_final['Custo Un.'] * df_itens_final['Qtd']).sum()
 
-    # --- 2. SIMULADOR DE TAXAS (BUSCA IMPLACÁVEL) ---
+    # --- 2. SIMULADOR DE TAXAS MANUAIS E IMPOSTOS ---
     st.markdown("#### 🧮 Simulador de Custos e Impostos")
     
     with st.container(border=True):
@@ -69,42 +83,37 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         
         valor_venda_fechado = f_col1.number_input("Valor Final da Venda (R$)", value=float(projeto_selecionado.get('valor_venda_total', 0.0)), format="%.2f", key=f"venda_{prefix_key}")
         
+        # Imposto
         tem_nota = f_col2.radio("Emitir Nota Fiscal?", ["Não", "Sim"], index=1 if float(projeto_selecionado.get('custo_impostos', 0.0)) > 0 else 0, key=f"nf_{prefix_key}")
         valor_nf = 0.0
         if tem_nota == "Sim":
-            taxa_nf_pct = 0.0
+            taxa_nf_pct = 6.0
             if not df_taxas_config.empty:
                 for _, t_row in df_taxas_config.iterrows():
                     n_taxa = str(t_row.get('Item', '')).strip().lower()
                     if "nota fiscal" in n_taxa or "nf" in n_taxa or "imposto" in n_taxa:
                         try: taxa_nf_pct = float(t_row.get('Taxa (%)', 0.0))
-                        except: taxa_nf_pct = 0.0
+                        except: pass
                         break
             valor_nf = valor_venda_fechado * (taxa_nf_pct / 100)
             f_col2.caption(f"Imposto ({taxa_nf_pct}%): - {utils.to_br_currency(valor_nf)}")
         
+        # Pagamento e Cartão (AGORA É MANUAL E 100% SEGURO)
         metodo_pgto = f_col3.selectbox("Forma de Pagamento", ["PIX / Dinheiro", "Cartão de Crédito"], key=f"pgto_{prefix_key}")
         valor_cartao_taxa = 0.0
+        
         if metodo_pgto == "Cartão de Crédito":
-            parcelas_selecionadas = f_col3.selectbox("Número de Parcelas", [i for i in range(1, 13)], format_func=lambda x: f"{x}x", key=f"parc_{prefix_key}")
-            taxa_cartao_pct = 0.0
+            # Descobre a % salva anteriormente para carregar de volta
+            custo_cartao_bd = float(projeto_selecionado.get('custo_cartao', 0.0))
+            taxa_bd_padrao = (custo_cartao_bd / valor_venda_fechado * 100) if valor_venda_fechado > 0 else 0.0
             
-            # BUSCA IMPECÁVEL PARA O CARTÃO: Procura "cart" e o número de parcelas (ex: "3x")
-            termo_parcelas = f"{parcelas_selecionadas}x"
-            
-            if not df_taxas_config.empty:
-                for _, t_row in df_taxas_config.iterrows():
-                    n_taxa = str(t_row.get('Item', '')).strip().lower()
-                    # Substitui acentos para evitar falhas ("cartão" vs "cartao")
-                    n_taxa = n_taxa.replace('ã', 'a').replace('á', 'a')
-                    
-                    if "cart" in n_taxa and termo_parcelas in n_taxa:
-                        try: taxa_cartao_pct = float(t_row.get('Taxa (%)', 0.0))
-                        except: taxa_cartao_pct = 0.0
-                        break
-
+            taxa_cartao_pct = f_col3.number_input("Digite a Taxa do Cartão (%)", value=float(taxa_bd_padrao), format="%.2f", key=f"tx_cart_manual_{prefix_key}")
             valor_cartao_taxa = valor_venda_fechado * (taxa_cartao_pct / 100)
-            f_col3.caption(f"Taxa ({taxa_cartao_pct}%): - {utils.to_br_currency(valor_cartao_taxa)}")
+            f_col3.caption(f"Valor a descontar: - {utils.to_br_currency(valor_cartao_taxa)}")
+            
+            # Aba expansível para colar os valores sem precisar sair da tela
+            with f_col3.expander("📋 Ver Tabela de Taxas"):
+                st.dataframe(df_taxas_config[['Item', 'Taxa (%)']], hide_index=True)
         else:
             f_col3.caption("Taxa PIX: Isento")
 
@@ -154,7 +163,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
 
 
 def renderizar():
-    st.markdown("## 📋 Gestão de Serviços (CRM)")
+    st.markdown("## 📋 Gestão de Serviços e Orçamentos")
     
     supabase = st.session_state.supabase
     
@@ -172,41 +181,62 @@ def renderizar():
     df_taxas_config = utils.load_taxas()
     df_produtos = utils.load_catalog('catalogo_produtos')
 
+    # APLICA A LÓGICA DO MÊS PARA SEPARAR OS FINALIZADOS
+    df_projetos['ir_para_finalizados'] = df_projetos.apply(lambda x: deve_ir_para_finalizados(x['status_projeto'], x['data_conclusao']), axis=1)
+
     lista_status_ativos = ["Em Andamento", "Aguardando Peças", "Concluído PIX", "Concluído CARTÃO"]
-    
-    df_servicos_ativos = df_projetos[df_projetos['status_projeto'].isin(lista_status_ativos)].reset_index(drop=True)
-    df_orcamentos_pendentes = df_projetos[~df_projetos['status_projeto'].isin(lista_status_ativos)].reset_index(drop=True)
 
-    colunas_grid = ['id', 'numero_orcamento', 'nome_cliente', 'status_projeto', 'valor_venda_total']
+    mask_orcamentos = ~df_projetos['status_projeto'].isin(lista_status_ativos)
+    mask_finalizados = df_projetos['ir_para_finalizados'] == True
+    mask_ativos = (df_projetos['status_projeto'].isin(lista_status_ativos)) & (~mask_finalizados)
 
-    # --- TABELA 1: SERVIÇOS ATIVOS ---
-    st.markdown("### 🚀 Serviços em Andamento")
-    selecao_ativo = st.dataframe(
-        df_servicos_ativos[[c for c in colunas_grid if c in df_servicos_ativos.columns]],
-        use_container_width=True,
-        on_select="rerun",
-        selection_mode="single-row",
-        hide_index=True,
-        key="grid_ativos"
-    )
-    
-    if selecao_ativo.selection.rows:
-        projeto_selecionado = df_servicos_ativos.iloc[selecao_ativo.selection.rows[0]]
-        exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_produtos, prefix_key=f"ativo_{projeto_selecionado['id']}")
+    df_orcamentos = df_projetos[mask_orcamentos].reset_index(drop=True)
+    df_ativos = df_projetos[mask_ativos].reset_index(drop=True)
+    df_finalizados = df_projetos[mask_finalizados].reset_index(drop=True)
 
-    st.markdown("---")
+    colunas_grid = ['id', 'numero_orcamento', 'nome_cliente', 'status_projeto', 'valor_venda_total', 'data_conclusao']
 
-    # --- TABELA 2: ORÇAMENTOS ---
-    st.markdown("### 📝 Orçamentos em Andamento")
-    selecao_orcamento = st.dataframe(
-        df_orcamentos_pendentes[[c for c in colunas_grid if c in df_orcamentos_pendentes.columns]],
-        use_container_width=True,
-        on_select="rerun",
-        selection_mode="single-row",
-        hide_index=True,
-        key="grid_orcamentos"
-    )
+    # --- CRIAÇÃO DAS ABAS ---
+    aba1, aba2, aba3 = st.tabs(["🚀 Em Andamento", "📝 Orçamentos", "✅ Finalizados"])
 
-    if selecao_orcamento.selection.rows and not selecao_ativo.selection.rows:
-        projeto_selecionado = df_orcamentos_pendentes.iloc[selecao_orcamento.selection.rows[0]]
-        exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_produtos, prefix_key=f"orc_{projeto_selecionado['id']}")
+    with aba1:
+        st.markdown("### Serviços Ativos no Mês")
+        selecao_ativo = st.dataframe(
+            df_ativos[[c for c in colunas_grid if c in df_ativos.columns]],
+            use_container_width=True,
+            on_select="rerun",
+            selection_mode="single-row",
+            hide_index=True,
+            key="grid_ativos"
+        )
+        if selecao_ativo.selection.rows:
+            projeto_selecionado = df_ativos.iloc[selecao_ativo.selection.rows[0]]
+            exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_produtos, prefix_key=f"ativo_{projeto_selecionado['id']}")
+
+    with aba2:
+        st.markdown("### Orçamentos Aguardando Fechamento")
+        selecao_orcamento = st.dataframe(
+            df_orcamentos[[c for c in colunas_grid if c in df_orcamentos.columns]],
+            use_container_width=True,
+            on_select="rerun",
+            selection_mode="single-row",
+            hide_index=True,
+            key="grid_orcamentos"
+        )
+        if selecao_orcamento.selection.rows:
+            projeto_selecionado = df_orcamentos.iloc[selecao_orcamento.selection.rows[0]]
+            exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_produtos, prefix_key=f"orc_{projeto_selecionado['id']}")
+
+    with aba3:
+        st.markdown("### Histórico de Serviços Finalizados (Meses Anteriores)")
+        selecao_finalizado = st.dataframe(
+            df_finalizados[[c for c in colunas_grid if c in df_finalizados.columns]],
+            use_container_width=True,
+            on_select="rerun",
+            selection_mode="single-row",
+            hide_index=True,
+            key="grid_finalizados"
+        )
+        if selecao_finalizado.selection.rows:
+            projeto_selecionado = df_finalizados.iloc[selecao_finalizado.selection.rows[0]]
+            exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_produtos, prefix_key=f"fin_{projeto_selecionado['id']}")
