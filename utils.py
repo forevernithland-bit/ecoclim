@@ -24,7 +24,7 @@ def init_connection():
     return create_client(url, key)
 
 # ==========================================
-# FUNÇÕES FINANCEIRAS (CORREÇÃO DE MAIÚSCULAS/MINÚSCULAS)
+# FUNÇÕES FINANCEIRAS
 # ==========================================
 def load_year_data(table, default_accounts, year):
     supabase = st.session_state.supabase
@@ -37,9 +37,7 @@ def load_year_data(table, default_accounts, year):
             for m in meses_pt: df[m] = 0.0
             return df
         
-        # A MÁGICA QUE RESOLVEU O MISTÉRIO: Força tudo para maiúsculo
         df_db.columns = df_db.columns.str.upper()
-        
         if 'MARCO' in df_db.columns: df_db = df_db.rename(columns={'MARCO': 'MARÇO'})
             
         cols = ["MESES"] + meses_pt
@@ -136,7 +134,7 @@ def to_excel(df):
     return output.getvalue()
 
 # ==========================================
-# GERAÇÃO DE PDF
+# GERAÇÃO DE PDF (COM CORREÇÃO DE SOBREPOSIÇÃO)
 # ==========================================
 def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v_out, total, obs, mostrar_un):
     buffer = BytesIO()
@@ -164,6 +162,7 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
     y -= 0.6*cm; p.setFillColor(colors.black); p.setFont("Helvetica-Bold", 9)
     p.drawString(2.3*cm, y - 0.3*cm, "Item"); p.drawString(12.5*cm, y - 0.3*cm, "Qtd"); p.drawRightString(largura - 2.3*cm, y - 0.3*cm, "Subtotal")
     p.setFont("Helvetica", 9); y -= 0.8*cm
+    
     for _, row in df_items.iterrows():
         if row['Quantidade'] > 0:
             item_nome = row['Produto da Base'] if row['Produto da Base'] != "OUTRO" else row['Produto Manual']
@@ -178,11 +177,14 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
                     if linha.strip():
                         p.drawString(2.3*cm, y, linha.strip()[:95]); y -= 0.35*cm
                 p.setFillColor(colors.black)
-            y -= 0.1*cm
-    y -= 0.6*cm 
+            y -= 0.2*cm # Gordura extra entre os itens
+
+    # CORREÇÃO CRÍTICA DO BLOCO 2 (Evitar Sobreposição)
+    y -= 1.2*cm # Afastamento garantido para a caixa desenhar para cima sem bater no texto
     p.setFillColor(colors.HexColor("#004488")); p.rect(2*cm, y, largura - 4*cm, 0.7*cm, fill=1, stroke=0)
     p.setFillColor(colors.white); p.setFont("Helvetica-Bold", 11); p.drawString(2.3*cm, y + 0.2*cm, "2. SERVIÇOS")
     y -= 0.8*cm; p.setFillColor(colors.black); p.setFont("Helvetica", 10)
+    
     if str(d_serv).strip() != "":
         p.drawRightString(largura - 2.3*cm, y, to_br_currency(v_serv))
         for linha in str(d_serv).split('\n'):
@@ -191,8 +193,12 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
         p.drawRightString(largura - 2.3*cm, y, to_br_currency(v_out))
         for linha in str(d_out).split('\n'):
             if linha.strip(): p.drawString(2.3*cm, y, linha.strip()[:85]); y -= 0.45*cm
-    y -= 0.2*cm; p.setFillColor(colors.HexColor("#f0f0f0")); p.rect(2*cm, y - 0.2*cm, largura - 4*cm, 1*cm, fill=1, stroke=0)
-    p.setFillColor(colors.black); p.setFont("Helvetica-Bold", 12); p.drawString(2.3*cm, y + 0.2*cm, "INVESTIMENTO TOTAL"); p.drawRightString(largura - 2.3*cm, y + 0.2*cm, to_br_currency(total))
+            
+    # CORREÇÃO CRÍTICA DO TOTAL (Evitar Sobreposição)
+    y -= 1.2*cm 
+    p.setFillColor(colors.HexColor("#f0f0f0")); p.rect(2*cm, y, largura - 4*cm, 1.0*cm, fill=1, stroke=0)
+    p.setFillColor(colors.black); p.setFont("Helvetica-Bold", 12); p.drawString(2.3*cm, y + 0.3*cm, "INVESTIMENTO TOTAL"); p.drawRightString(largura - 2.3*cm, y + 0.3*cm, to_br_currency(total))
+    
     y -= 1.8*cm; p.setFillColor(colors.red); p.setFont("Helvetica-Bold", 10); p.drawString(2*cm, y, "OBSERVAÇÕES:")
     p.setFont("Helvetica", 9); p.setFillColor(colors.black); p.drawString(2*cm, y - 0.5*cm, str(obs)[:100])
     p.save(); buffer.seek(0); return buffer
