@@ -30,11 +30,12 @@ def renderizar():
     
     st.info("Selecione uma linha abaixo para ver e editar os detalhes do projeto.")
     
+    # CORREÇÃO DO ERRO AQUI: "single-row" com traço, não underline!
     sel_orc = st.dataframe(
         df_display,
         use_container_width=True,
         on_select="rerun",
-        selection_mode="single_row",
+        selection_mode="single-row",
         hide_index=True
     )
 
@@ -66,7 +67,7 @@ def renderizar():
         nova_data = c2.date_input("Data de Conclusão / Previsão", value=data_padrao)
         
         # ==========================================
-        # BLINDAGEM DOS ITENS (FIM DO KEYERROR)
+        # BLINDAGEM DOS ITENS
         # ==========================================
         itens_json = row.get('detalhamento_itens', [])
         if isinstance(itens_json, list) and len(itens_json) > 0:
@@ -74,7 +75,7 @@ def renderizar():
         else:
             df_edit = pd.DataFrame(columns=['Item', 'Qtd', 'Venda Un.', 'Custo Un.', 'Descrição'])
             
-        # Essa é a mágica: se a coluna não existir, ele cria na hora!
+        # Garante que as colunas matemáticas existam
         colunas_obrigatorias = {'Custo Un.': 0.0, 'Qtd': 0, 'Venda Un.': 0.0, 'Item': '', 'Descrição': ''}
         for col, default_val in colunas_obrigatorias.items():
             if col not in df_edit.columns:
@@ -96,7 +97,7 @@ def renderizar():
         
         df_edit = st.data_editor(df_edit, column_config=config_itens, num_rows="dynamic", use_container_width=True, key=f"ed_itens_{row['id']}")
         
-        # Matemática agora é 100% segura
+        # Matemática segura do custo dos materiais
         custo_materiais = (df_edit['Custo Un.'] * df_edit['Qtd']).sum()
         
         st.markdown("#### 🧮 Custos Adicionais e Fechamento")
@@ -132,6 +133,6 @@ def renderizar():
             except Exception as e:
                 st.error(f"Erro ao atualizar projeto: {e}")
 
-    # GATILHO DE EXIBIÇÃO
+    # GATILHO DE EXIBIÇÃO DA TABELA DETALHADA
     if sel_orc.selection.rows: 
         exibir_detalhes_avancados(df_orcamentos.iloc[sel_orc.selection.rows[0]], supabase)
