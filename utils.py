@@ -13,7 +13,7 @@ from reportlab.lib.units import cm
 hoje = datetime.date.today()
 ano_atual = hoje.year
 meses_pt = ['JANEIRO', 'FEVEREIRO', 'MARÇO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO']
-# Mapeamento para o Banco de Dados (Sincronizado com seu Print do Supabase: MARCO sem cedilha)
+# Sincronização com o Supabase (MARCO sem cedilha)
 meses_db = ['JANEIRO', 'FEVEREIRO', 'MARCO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO']
 
 mes_hoje_idx = hoje.month
@@ -47,7 +47,7 @@ def load_year_data(table, default_accounts, year):
         for c in cols:
             if c not in df_db.columns: df_db[c] = 0.0 if c != "MESES" else ""
         return df_db[cols]
-    except Exception as e:
+    except Exception:
         df = pd.DataFrame({"MESES": default_accounts})
         for m in meses_pt: df[m] = 0.0
         return df
@@ -55,8 +55,6 @@ def load_year_data(table, default_accounts, year):
 def save_to_supabase(table, df, year):
     supabase = st.session_state.supabase
     data = []
-    
-    # Prepara o mapeamento reverso para salvar MARÇO como MARCO
     df_save = df.copy()
     if 'MARÇO' in df_save.columns:
         df_save = df_save.rename(columns={'MARÇO': 'MARCO'})
@@ -70,10 +68,10 @@ def save_to_supabase(table, df, year):
         supabase.table(table).delete().eq("ano", year).execute()
         supabase.table(table).insert(data).execute()
     except Exception as e:
-        st.error(f"Erro ao salvar no banco: {e}")
+        st.error(f"Erro ao salvar: {e}")
 
 # ==========================================
-# RESTANTE DAS FUNÇÕES (CATÁLOGO, PDF, ETC)
+# CATÁLOGOS E FORMATAÇÃO
 # ==========================================
 def load_catalog(table_name):
     supabase = st.session_state.supabase
@@ -83,8 +81,8 @@ def load_catalog(table_name):
         mapping = {"item": "Item", "descricao": "Descrição", "custo": "Custo (R$)", "margem": "Margem (%)", "lucro": "Lucro (R$)", "venda": "Venda (R$)"}
         if df.empty: return pd.DataFrame(columns=["Item", "Descrição", "Custo (R$)", "Margem (%)", "Lucro (R$)", "Venda (R$)"])
         df = df.rename(columns={k:v for k,v in mapping.items() if k in df.columns})
-        for col_sistema in mapping.values():
-            if col_sistema not in df.columns: df[col_sistema] = "" if col_sistema == "Descrição" else 0.0
+        for col in mapping.values():
+            if col not in df.columns: df[col] = "" if col == "Descrição" else 0.0
         return df[list(mapping.values())]
     except: return pd.DataFrame(columns=["Item", "Descrição", "Custo (R$)", "Margem (%)", "Lucro (R$)", "Venda (R$)"])
 
@@ -141,6 +139,9 @@ def to_excel(df):
     with pd.ExcelWriter(output, engine='openpyxl') as writer: df.to_excel(writer, index=False, sheet_name='Sheet1')
     return output.getvalue()
 
+# ==========================================
+# GERAÇÃO DE PDF (LAYOUT ECOCLIM v.2.6)
+# ==========================================
 def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v_out, total, obs, mostrar_un):
     buffer = BytesIO()
     p = canvas.Canvas(buffer, pagesize=A4)
@@ -179,8 +180,7 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
                 p.setFont("Helvetica", 8); p.setFillColor(colors.grey)
                 for linha in desc.split('\n'):
                     if linha.strip():
-                        p.drawString(2.3*cm, y, linha.strip()[:95])
-                        y -= 0.35*cm
+                        p.drawString(2.3*cm, y, linha.strip()[:95]); y -= 0.35*cm
                 p.setFillColor(colors.black)
             y -= 0.1*cm
     y -= 0.6*cm 
@@ -195,8 +195,8 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
         p.drawRightString(largura - 2.3*cm, y, to_br_currency(v_out))
         for linha in str(d_out).split('\n'):
             if linha.strip(): p.drawString(2.3*cm, y, linha.strip()[:85]); y -= 0.45*cm
-    y -= 0.5*cm; p.setFillColor(colors.HexColor("#f0f0f0")); p.rect(2*cm, y - 0.2*cm, largura - 4*cm, 1.2*cm, fill=1, stroke=0)
-    p.setFillColor(colors.black); p.setFont("Helvetica-Bold", 12); p.drawString(2.3*cm, y + 0.3*cm, "INVESTIMENTO TOTAL"); p.drawRightString(largura - 2.3*cm, y + 0.3*cm, to_br_currency(total))
+    y -= 0.2*cm; p.setFillColor(colors.HexColor("#f0f0f0")); p.rect(2*cm, y - 0.2*cm, largura - 4*cm, 1*cm, fill=1, stroke=0)
+    p.setFillColor(colors.black); p.setFont("Helvetica-Bold", 12); p.drawString(2.3*cm, y + 0.2*cm, "INVESTIMENTO TOTAL"); p.drawRightString(largura - 2.3*cm, y + 0.2*cm, to_br_currency(total))
     y -= 1.8*cm; p.setFillColor(colors.red); p.setFont("Helvetica-Bold", 10); p.drawString(2*cm, y, "OBSERVAÇÕES:")
     p.setFont("Helvetica", 9); p.setFillColor(colors.black); p.drawString(2*cm, y - 0.5*cm, str(obs)[:100])
     p.save(); buffer.seek(0); return buffer
