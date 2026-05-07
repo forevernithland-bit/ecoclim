@@ -16,18 +16,12 @@ meses_pt = ['JANEIRO', 'FEVEREIRO', 'MARÇO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO',
 mes_hoje_idx = hoje.month
 mes_atual_nome = meses_pt[mes_hoje_idx - 1]
 
-# ==========================================
-# CONEXÃO BANCO DE DADOS (SUPABASE)
-# ==========================================
 def init_connection():
     from supabase import create_client
     url = st.secrets["SUPABASE_URL"]
     key = st.secrets["SUPABASE_KEY"]
     return create_client(url, key)
 
-# ==========================================
-# FUNÇÕES DE CATÁLOGO E CONFIGURAÇÕES
-# ==========================================
 def load_catalog(table_name):
     supabase = st.session_state.supabase
     try:
@@ -43,19 +37,14 @@ def load_catalog(table_name):
             "venda": "Venda (R$)"
         }
         
-        if df.empty:
-            return pd.DataFrame(columns=["Item", "Descrição", "Custo (R$)", "Margem (%)", "Lucro (R$)", "Venda (R$)"])
-            
+        if df.empty: return pd.DataFrame(columns=["Item", "Descrição", "Custo (R$)", "Margem (%)", "Lucro (R$)", "Venda (R$)"])
         df = df.rename(columns={k:v for k,v in mapping.items() if k in df.columns})
         
         for col_sistema in mapping.values():
             if col_sistema not in df.columns:
                 df[col_sistema] = "" if col_sistema == "Descrição" else 0.0
-        
         return df[list(mapping.values())]
-        
     except Exception as e:
-        st.error(f"Erro ao carregar a tabela {table_name}: {e}")
         return pd.DataFrame(columns=["Item", "Descrição", "Custo (R$)", "Margem (%)", "Lucro (R$)", "Venda (R$)"])
 
 def save_catalog(table_name, df):
@@ -71,45 +60,33 @@ def save_catalog(table_name, df):
                     "lucro": float(row['Lucro (R$)']),
                     "venda": float(row['Venda (R$)'])
                 }
-                if 'Descrição' in row:
-                    record['descricao'] = str(row['Descrição'])
+                if 'Descrição' in row: record['descricao'] = str(row['Descrição'])
                 data.append(record)
         supabase.table(table_name).delete().neq("item", "___vazio___").execute()
-        if data:
-            supabase.table(table_name).insert(data).execute()
-    except Exception as e:
-        st.error(f"Erro ao salvar catálogo: {e}")
+        if data: supabase.table(table_name).insert(data).execute()
+    except Exception as e: st.error(f"Erro ao salvar catálogo: {e}")
 
 def load_taxas():
     supabase = st.session_state.supabase
     try:
         res = supabase.table('catalogo_taxas').select("*").order("item").execute()
         df = pd.DataFrame(res.data)
-        if df.empty:
-            return pd.DataFrame(columns=["Item", "Taxa (%)"])
+        if df.empty: return pd.DataFrame(columns=["Item", "Taxa (%)"])
         df = df.rename(columns={"item": "Item", "taxa_percentual": "Taxa (%)"})
         return df[["Item", "Taxa (%)"]]
-    except Exception:
-        return pd.DataFrame(columns=["Item", "Taxa (%)"])
+    except Exception: return pd.DataFrame(columns=["Item", "Taxa (%)"])
 
 def save_taxas(df):
     supabase = st.session_state.supabase
     try:
         data = [{"item": row['Item'], "taxa_percentual": float(row['Taxa (%)'])} for _, row in df.iterrows() if row['Item'] and str(row['Item']).strip() != ""]
         supabase.table('catalogo_taxas').delete().neq("item", "___vazio___").execute()
-        if data:
-            supabase.table('catalogo_taxas').insert(data).execute()
-    except Exception as e:
-        st.error(f"Erro ao salvar taxas: {e}")
+        if data: supabase.table('catalogo_taxas').insert(data).execute()
+    except Exception as e: st.error(f"Erro ao salvar taxas: {e}")
 
-# ==========================================
-# FUNÇÕES FINANCEIRAS
-# ==========================================
-def load_user_settings():
-    return "JANEIRO", mes_atual_nome
+def load_user_settings(): return "JANEIRO", mes_atual_nome
 
-def save_user_settings(inicio, fim):
-    pass 
+def save_user_settings(inicio, fim): pass 
 
 def load_year_data(table, default_accounts, year):
     supabase = st.session_state.supabase
@@ -118,19 +95,15 @@ def load_year_data(table, default_accounts, year):
         df = pd.DataFrame(res.data)
         if df.empty:
             df = pd.DataFrame({"MESES": default_accounts})
-            for m in meses_pt:
-                df[m] = 0.0
+            for m in meses_pt: df[m] = 0.0
             return df
-        
         cols = ["MESES"] + meses_pt
         for c in cols:
-            if c not in df.columns:
-                df[c] = 0.0 if c != "MESES" else ""
+            if c not in df.columns: df[c] = 0.0 if c != "MESES" else ""
         return df[cols]
     except Exception:
         df = pd.DataFrame({"MESES": default_accounts})
-        for m in meses_pt:
-            df[m] = 0.0
+        for m in meses_pt: df[m] = 0.0
         return df
 
 def save_to_supabase(table, df, year):
@@ -138,43 +111,32 @@ def save_to_supabase(table, df, year):
     data = []
     for _, row in df.iterrows():
         record = {"ano": year, "MESES": row["MESES"]}
-        for m in meses_pt:
-            record[m] = float(row[m]) if pd.notna(row[m]) else 0.0
+        for m in meses_pt: record[m] = float(row[m]) if pd.notna(row[m]) else 0.0
         data.append(record)
     try:
         supabase.table(table).delete().eq("ano", year).execute()
         supabase.table(table).insert(data).execute()
-    except Exception as e:
-        st.error(f"Erro ao salvar: {e}")
+    except Exception as e: st.error(f"Erro ao salvar: {e}")
 
-# ==========================================
-# UTILITÁRIOS DE FORMATAÇÃO E EXCEL
-# ==========================================
 def to_br_currency(value, symbol=True):
-    if pd.isna(value) or value is None:
-        value = 0.0
+    if pd.isna(value) or value is None: value = 0.0
     res = f"{value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     return f"R$ {res}" if symbol else res
 
 def parse_br_currency(val_str):
-    if isinstance(val_str, (int, float)):
-        return float(val_str)
-    if not val_str or pd.isna(val_str):
-        return 0.0
+    if isinstance(val_str, (int, float)): return float(val_str)
+    if not val_str or pd.isna(val_str): return 0.0
     s = str(val_str).replace("R$", "").strip().replace(".", "").replace(",", ".")
-    try:
-        return float(s)
-    except Exception:
-        return 0.0
+    try: return float(s)
+    except Exception: return 0.0
 
 def to_excel(df):
     output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='Sheet1')
+    with pd.ExcelWriter(output, engine='openpyxl') as writer: df.to_excel(writer, index=False, sheet_name='Sheet1')
     return output.getvalue()
 
 # ==========================================
-# GERAÇÃO DE PDF
+# GERAÇÃO DE PDF (ESPAÇAMENTO CORRIGIDO)
 # ==========================================
 def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v_out, total, obs, mostrar_un):
     buffer = BytesIO()
@@ -191,7 +153,6 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
     p.setFont("Helvetica-Bold", 14)
     p.drawString(largura - 9*cm, altura - 1.5*cm, "PROPOSTA COMERCIAL")
     
-    # Informações de Contato ECOCLIM
     p.setFont("Helvetica", 8)
     p.setFillColor(colors.grey)
     p.drawString(largura - 9*cm, altura - 2.1*cm, "WWW.ECOCLIM.COM.BR")
@@ -263,7 +224,6 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
             y -= 0.4*cm
             
             desc = str(row.get('Descrição', "")).strip()
-            
             if desc and desc != "nan":
                 p.setFont("Helvetica", 8)
                 p.setFillColor(colors.HexColor("#555555")) 
@@ -271,21 +231,19 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
                 for linha in linhas_desc:
                     if linha.strip():
                         linha_up = linha.upper()
-                        prefix = ""
-                        if linha == linhas_desc[0] and not (linha_up.startswith("DETALHES") or linha_up.startswith("QUANTIDADE") or linha_up.startswith("GARANTIA") or linha_up.startswith("-")):
-                            prefix = "Detalhes: "
+                        prefix = "Detalhes: " if linha == linhas_desc[0] and not (linha_up.startswith("DETALHES") or linha_up.startswith("QUANTIDADE") or linha_up.startswith("GARANTIA") or linha_up.startswith("-")) else ""
                         p.drawString(2.3*cm, y, prefix + linha.strip())
                         y -= 0.35*cm
                 p.setFillColor(colors.black)
-                # ESPAÇO EXTRA APÓS DESCRIÇÃO PARA NÃO ENCAVALAR
-                y -= 0.2*cm
-            else:
-                y -= 0.1*cm
 
-    # 5. SERVIÇOS E DIVERSOS (MAIS ABAIXO)
-    y -= 0.6*cm # Adicionado gordura extra
+    # ==========================================
+    # CORREÇÃO CRUCIAL AQUI: Empurrar a caixa "2. SERVIÇOS" bem para baixo
+    # ==========================================
+    y -= 1.2*cm # Espaço seguro garantido para não sobrepor a última linha da descrição
+
+    # 5. SERVIÇOS E DIVERSOS
     p.setFillColor(colors.HexColor("#004488"))
-    p.rect(2*cm, y, largura - 4*cm, 0.7*cm, fill=1, stroke=0)
+    p.rect(2*cm, y, largura - 4*cm, 0.7*cm, fill=1, stroke=0) # O rect desenha PARA CIMA a partir do y
     p.setFillColor(colors.white)
     p.setFont("Helvetica-Bold", 11)
     p.drawString(2.3*cm, y + 0.2*cm, "2. SERVIÇOS")
@@ -315,7 +273,7 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
     p.drawString(2.3*cm, y + 0.3*cm, "INVESTIMENTO TOTAL")
     p.drawRightString(largura - 2.3*cm, y + 0.3*cm, to_br_currency(total))
 
-    # 7. OBSERVAÇÕES E MARCA D'ÁGUA
+    # 7. OBSERVAÇÕES
     y -= 1.5*cm
     p.setFillColor(colors.red)
     p.setFont("Helvetica-Bold", 10)
@@ -326,7 +284,7 @@ def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v
     
     p.setFont("Helvetica", 6)
     p.setFillColor(colors.lightgrey)
-    p.drawString(2*cm, 1*cm, "v.2.2")
+    p.drawString(2*cm, 1*cm, "v.2.3") # Verifique esta versão ao testar!
 
     p.save()
     buffer.seek(0)
