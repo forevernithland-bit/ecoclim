@@ -13,9 +13,7 @@ from reportlab.lib.units import cm
 hoje = datetime.date.today()
 ano_atual = hoje.year
 meses_pt = ['JANEIRO', 'FEVEREIRO', 'MARÇO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO']
-# Sincronização com o Supabase (MARCO sem cedilha)
 meses_db = ['JANEIRO', 'FEVEREIRO', 'MARCO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO']
-
 mes_hoje_idx = hoje.month
 mes_atual_nome = meses_pt[mes_hoje_idx - 1]
 
@@ -26,7 +24,7 @@ def init_connection():
     return create_client(url, key)
 
 # ==========================================
-# FUNÇÕES FINANCEIRAS (CORRIGIDAS PARA MARCO)
+# FUNÇÕES FINANCEIRAS (CORREÇÃO DE MAIÚSCULAS/MINÚSCULAS)
 # ==========================================
 def load_year_data(table, default_accounts, year):
     supabase = st.session_state.supabase
@@ -39,9 +37,10 @@ def load_year_data(table, default_accounts, year):
             for m in meses_pt: df[m] = 0.0
             return df
         
-        # Converte MARCO (DB) para MARÇO (UI)
-        if 'MARCO' in df_db.columns:
-            df_db = df_db.rename(columns={'MARCO': 'MARÇO'})
+        # A MÁGICA QUE RESOLVEU O MISTÉRIO: Força tudo para maiúsculo
+        df_db.columns = df_db.columns.str.upper()
+        
+        if 'MARCO' in df_db.columns: df_db = df_db.rename(columns={'MARCO': 'MARÇO'})
             
         cols = ["MESES"] + meses_pt
         for c in cols:
@@ -56,22 +55,19 @@ def save_to_supabase(table, df, year):
     supabase = st.session_state.supabase
     data = []
     df_save = df.copy()
-    if 'MARÇO' in df_save.columns:
-        df_save = df_save.rename(columns={'MARÇO': 'MARCO'})
+    if 'MARÇO' in df_save.columns: df_save = df_save.rename(columns={'MARÇO': 'MARCO'})
         
     for _, row in df_save.iterrows():
         record = {"ano": year, "MESES": row["MESES"]}
-        for m in meses_db:
-            record[m] = float(row[m]) if pd.notna(row[m]) else 0.0
+        for m in meses_db: record[m] = float(row[m]) if pd.notna(row[m]) else 0.0
         data.append(record)
     try:
         supabase.table(table).delete().eq("ano", year).execute()
         supabase.table(table).insert(data).execute()
-    except Exception as e:
-        st.error(f"Erro ao salvar: {e}")
+    except Exception as e: st.error(f"Erro ao salvar: {e}")
 
 # ==========================================
-# CATÁLOGOS E FORMATAÇÃO
+# CATÁLOGOS E UTILITÁRIOS
 # ==========================================
 def load_catalog(table_name):
     supabase = st.session_state.supabase
@@ -97,7 +93,7 @@ def save_catalog(table_name, df):
                 data.append(record)
         supabase.table(table_name).delete().neq("item", "___vazio___").execute()
         if data: supabase.table(table_name).insert(data).execute()
-    except Exception as e: st.error(f"Erro ao salvar catálogo: {e}")
+    except Exception as e: st.error(f"Erro ao salvar: {e}")
 
 def load_taxas():
     supabase = st.session_state.supabase
@@ -115,7 +111,7 @@ def save_taxas(df):
         data = [{"item": row['Item'], "taxa_percentual": float(row['Taxa (%)'])} for _, row in df.iterrows() if row['Item'] and str(row['Item']).strip() != ""]
         supabase.table('catalogo_taxas').delete().neq("item", "___vazio___").execute()
         if data: supabase.table('catalogo_taxas').insert(data).execute()
-    except Exception as e: st.error(f"Erro ao salvar taxas: {e}")
+    except: pass
 
 def load_user_settings(): return "JANEIRO", mes_atual_nome
 def save_user_settings(inicio, fim): pass 
@@ -140,7 +136,7 @@ def to_excel(df):
     return output.getvalue()
 
 # ==========================================
-# GERAÇÃO DE PDF (LAYOUT ECOCLIM v.2.6)
+# GERAÇÃO DE PDF
 # ==========================================
 def gerar_pdf_orcamento(nome, tel, capa_tipo, df_items, d_serv, v_serv, d_out, v_out, total, obs, mostrar_un):
     buffer = BytesIO()
