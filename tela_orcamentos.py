@@ -18,7 +18,7 @@ def renderizar():
     if 'db_outros' not in st.session_state: st.session_state.db_outros = utils.load_catalog('catalogo_outros')
 
     cat_produtos = st.session_state.db_produtos
-    lista_nomes_produtos = cat_produtos['Item'].tolist() if not cat_produtos.empty else []
+    lista_nomes_produtos = cat_produtos['Item'].dropna().tolist() if not cat_produtos.empty else []
     
     with st.container(border=True):
         st.subheader("👤 Dados do Cliente")
@@ -59,30 +59,51 @@ def renderizar():
         df_editavel = df_editavel.reset_index(drop=True)
         
         precisa_atualizar_tela = False
+        
         for i in range(len(df_editavel)):
+            # 1. Tratamento seguro de valores nulos
             produto_atual = df_editavel.at[i, 'Produto da Base']
             produto_anterior = st.session_state.df_orc_prev.at[i, 'Produto da Base'] if i < len(st.session_state.df_orc_prev) else ""
             
-            # Se o usuário trocou o produto na linha, busca dados da base
+            if pd.isna(produto_atual) or produto_atual is None: produto_atual = ""
+            if pd.isna(produto_anterior) or produto_anterior is None: produto_anterior = ""
+            
+            # Atualiza o dataframe com a string limpa
+            df_editavel.at[i, 'Produto da Base'] = produto_atual
+
+            # 2. Se o usuário trocou o produto, busca dados da base
             if produto_atual != produto_anterior and produto_atual in lista_nomes_produtos:
                 match_base = cat_produtos[cat_produtos['Item'] == produto_atual]
                 if not match_base.empty:
-                    # Puxa o preço de VENDA da base (conforme o print do Supabase)
-                    df_editavel.at[i, 'Venda (R$)'] = float(match_base['Venda (R$)'].values[0])
-                    df_editavel.at[i, 'Descrição'] = str(match_base['Descrição'].values[0]) if str(match_base['Descrição'].values[0]) != 'nan' else ""
-                    if df_editavel.at[i, 'Quantidade'] == 0: 
+                    preco_venda_base = float(match_base['Venda (R$)'].values[0]) if pd.notna(match_base['Venda (R$)'].values[0]) else 0.0
+                    desc_base = str(match_base['Descrição'].values[0]) if pd.notna(match_base['Descrição'].values[0]) else ""
+                    
+                    df_editavel.at[i, 'Venda (R$)'] = preco_venda_base
+                    df_editavel.at[i, 'Descrição'] = desc_base if desc_base != 'nan' else ""
+                    
+                    if pd.isna(df_editavel.at[i, 'Quantidade']) or df_editavel.at[i, 'Quantidade'] <= 0: 
                         df_editavel.at[i, 'Quantidade'] = 1
+                        
                     precisa_atualizar_tela = True
-                
-        df_editavel['Venda Total'] = df_editavel['Venda (R$)'] * df_editavel['Quantidade']
-        
-        if precisa_atualizar_tela:
-            st.session_state.df_orc = df_editavel
-            st.session_state.df_orc_prev = df_editavel.copy()
-            st.rerun()
             
+            # 3. Matemática segura para recálculo na hora (Quantidade x Preço)
+            qtd = float(df_editavel.at[i, 'Quantidade']) if pd.notna(df_editavel.at[i, 'Quantidade']) else 0.0
+            preco = float(df_editavel.at[i, 'Venda (R$)']) if pd.notna(df_editavel.at[i, 'Venda (R$)']) else 0.0
+            total_calculado_agora = qtd * preco
+            total_que_estava_na_tela = float(df_editavel.at[i, 'Venda Total']) if pd.notna(df_editavel.at[i, 'Venda Total']) else 0.0
+            
+            # Se a quantidade ou o preço unitário mudou, força o total a se atualizar e avisa a tela!
+            if abs(total_calculado_agora - total_que_estava_na_tela) > 0.01:
+                df_editavel.at[i, 'Venda Total'] = total_calculado_agora
+                precisa_atualizar_tela = True
+                
+        # Atualiza o estado ANTES do rerun
         st.session_state.df_orc = df_editavel
         st.session_state.df_orc_prev = df_editavel.copy()
+        
+        # Só recarrega a tela se houver mudança de fato (evita loop infinito)
+        if precisa_atualizar_tela:
+            st.rerun()
         
         subtotal_equipamentos = df_editavel['Venda Total'].sum()
         st.markdown(f"**Subtotal Equipamentos:** :blue[{utils.to_br_currency(subtotal_equipamentos)}]")
@@ -90,7 +111,7 @@ def renderizar():
     with st.container(border=True):
         st.subheader("🛠️ 2. Serviços / Diversos")
         
-        lista_servicos = st.session_state.db_servicos['Item'].tolist() if not st.session_state.db_servicos.empty else []
+        lista_servicos = st.session_state.db_servicos['Item'].dropna().tolist() if not st.session_state.db_servicos.empty else []
         if 'servico_selecionado_anterior' not in st.session_state: st.session_state.servico_selecionado_anterior = ""
         
         servico_atual = st.selectbox("Selecionar Serviço da Base:", [""] + lista_servicos + ["Manual"])
@@ -101,9 +122,9 @@ def renderizar():
                 st.session_state.txt_servico, st.session_state.val_servico = "", 0.0
             elif servico_atual != "":
                 linha_base = st.session_state.db_servicos.loc[st.session_state.db_servicos['Item']==servico_atual]
-                descricao_base = str(linha_base['Descrição'].values[0]) if str(linha_base['Descrição'].values[0]) != 'nan' else ""
+                descricao_base = str(linha_base['Descrição'].values[0]) if pd.notna(linha_base['Descrição'].values[0]) else ""
                 st.session_state.txt_servico = f"{servico_atual}\n{descricao_base}".strip()
-                st.session_state.val_servico = float(linha_base['Venda (R$)'].values[0])
+                st.session_state.val_servico = float(linha_base['Venda (R$)'].values[0]) if pd.notna(linha_base['Venda (R$)'].values[0]) else 0.0
             else:
                 st.session_state.txt_servico, st.session_state.val_servico = "", 0.0
 
@@ -112,7 +133,7 @@ def renderizar():
 
         st.markdown("---")
 
-        lista_outros = st.session_state.db_outros['Item'].tolist() if not st.session_state.db_outros.empty else []
+        lista_outros = st.session_state.db_outros['Item'].dropna().tolist() if not st.session_state.db_outros.empty else []
         if 'outros_selecionado_anterior' not in st.session_state: st.session_state.outros_selecionado_anterior = ""
         
         outros_atual = st.selectbox("Adicionar Outros / Terceiros:", [""] + lista_outros + ["Manual"])
@@ -123,9 +144,9 @@ def renderizar():
                 st.session_state.txt_outros, st.session_state.val_outros = "", 0.0
             elif outros_atual != "":
                 linha_base_o = st.session_state.db_outros.loc[st.session_state.db_outros['Item']==outros_atual]
-                descricao_base_o = str(linha_base_o['Descrição'].values[0]) if str(linha_base_o['Descrição'].values[0]) != 'nan' else ""
+                descricao_base_o = str(linha_base_o['Descrição'].values[0]) if pd.notna(linha_base_o['Descrição'].values[0]) else ""
                 st.session_state.txt_outros = f"{outros_atual}\n{descricao_base_o}".strip()
-                st.session_state.val_outros = float(linha_base_o['Venda (R$)'].values[0])
+                st.session_state.val_outros = float(linha_base_o['Venda (R$)'].values[0]) if pd.notna(linha_base_o['Venda (R$)'].values[0]) else 0.0
             else:
                 st.session_state.txt_outros, st.session_state.val_outros = "", 0.0
 
