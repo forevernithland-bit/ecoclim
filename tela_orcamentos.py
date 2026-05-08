@@ -25,14 +25,16 @@ def renderizar():
         col1, col2 = st.columns(2)
         nome_cliente = col1.text_input("Nome do Cliente", key="input_nome_cliente")
         whatsapp = col2.text_input("WhatsApp", placeholder="(31) 99715-1596", key="input_whatsapp")
+        
+        # OPÇÕES ATUALIZADAS AQUI PARA PUXAR AS IMAGENS CORRETAS
         modelo_capa = st.selectbox("Modelo para Capa", [
-            "AQUECEDOR SOLAR TRADICIONAL", 
-            "AQUECEDOR SOLAR A VÁCUO ACOPLADO", 
-            "AQUECEDOR SOLAR MODULAR", 
-            "AQUECEDOR DE PISCINA - TRADICIONAL", 
-            "AQUECEDOR DE PISCINA - TROCADOR DE CALOR", 
-            "SISTEMAS DE PRESSURIZAÇÃO"
-        ], index=1)
+            "Aquecedor Solar Tradicional", 
+            "Aquecedor Solar a Vácuo Acoplado", 
+            "Aquecedor Solar Modular", 
+            "Aquecedor de Piscina - Tradicional", 
+            "Aquecedor de Piscina - Trocador de Calor", 
+            "Sistema de Pressurização"
+        ], index=3) # Padrão: Aquecedor de Piscina - Tradicional
 
     with st.container(border=True):
         st.subheader("⚙️ 1. Equipamentos")
