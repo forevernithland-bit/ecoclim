@@ -6,7 +6,7 @@ import utils
 # Escudo contra erros de valores nulos do banco de dados
 def safe_float(val):
     try:
-        if pd.isna(val) or val is None: 
+        if pd.isna(val) or val is None or str(val).strip() == '': 
             return 0.0
         return float(val)
     except:
@@ -74,7 +74,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
     
     custo_total_produtos = (pd.to_numeric(df_itens_final['Custo Un.'], errors='coerce').fillna(0) * pd.to_numeric(df_itens_final['Qtd'], errors='coerce').fillna(0)).sum()
 
-    # --- 2. SIMULADOR FINANCEIRO (TAXA MANUAL E BLINDADA) ---
+    # --- 2. SIMULADOR FINANCEIRO (100% DIGITÁVEL) ---
     st.markdown("#### 🧮 Abatimentos e Impostos")
     with st.container(border=True):
         f_col1, f_col2, f_col3 = st.columns(3)
@@ -94,24 +94,19 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             valor_nf = venda_final * (taxa_nf_pct / 100)
             f_col2.caption(f"Imposto ({taxa_nf_pct}%): - {utils.to_br_currency(valor_nf)}")
         
-        # CARTÃO (PERCENTUAL MANUAL COM COLINHA)
-        forma_pgto = f_col3.selectbox("Recebimento", ["PIX / Dinheiro", "Cartão de Crédito"], key=f"pgto_{prefix_key}")
-        valor_cartao_taxa = 0.0
-        if forma_pgto == "Cartão de Crédito":
-            custo_c_salvo = safe_float(projeto_selecionado.get('custo_cartao'))
-            perc_previo = (custo_c_salvo / venda_final * 100) if venda_final > 0 else 0.0
-            
-            taxa_manual_pct = f_col3.number_input("Digite a Taxa do Cartão (%)", value=float(perc_previo), format="%.2f", step=0.01, key=f"taxa_man_{prefix_key}")
-            valor_cartao_taxa = venda_final * (taxa_manual_pct / 100)
-            f_col3.caption(f"Desconto Cartão: - {utils.to_br_currency(valor_cartao_taxa)}")
-            
-            with f_col3.expander("📋 Ver Tabela de Taxas"):
-                if not df_taxas_config.empty:
-                    st.dataframe(df_taxas_config[['Item', 'Taxa (%)']], hide_index=True, use_container_width=True)
-                else: 
-                    st.warning("Sem taxas cadastradas.")
-        else:
-            f_col3.caption("Taxa PIX: 0,00")
+        # TAXA DE RECEBIMENTO (CARTÃO/PIX - DIRETO EM %)
+        custo_c_salvo = safe_float(projeto_selecionado.get('custo_cartao'))
+        perc_previo = (custo_c_salvo / venda_final * 100) if venda_final > 0 else 0.0
+        
+        taxa_manual_pct = f_col3.number_input("Taxa de Recebimento (%)", value=float(perc_previo), format="%.2f", step=0.01, key=f"taxa_man_{prefix_key}")
+        valor_cartao_taxa = venda_final * (taxa_manual_pct / 100)
+        f_col3.caption(f"Desconto Recebimento: - {utils.to_br_currency(valor_cartao_taxa)}")
+        
+        with f_col3.expander("📋 Ver Tabela de Taxas"):
+            if not df_taxas_config.empty:
+                st.dataframe(df_taxas_config[['Item', 'Taxa (%)']], hide_index=True, use_container_width=True)
+            else: 
+                st.warning("Sem taxas cadastradas.")
 
         st.markdown("---")
         f_col4, f_col5, f_col6 = st.columns(3)
