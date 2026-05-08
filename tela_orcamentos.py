@@ -8,7 +8,7 @@ def renderizar():
     
     # Botão para forçar atualização do banco
     if st.button("🔄 ATUALIZAR DADOS DO BANCO"):
-        for chave in ['db_produtos', 'db_servicos', 'db_outros', 'df_orc', 'df_orc_prev']:
+        for chave in ['db_produtos', 'db_servicos', 'db_outros', 'df_orc', 'df_orc_prev', 'editor_orc_base']:
             if chave in st.session_state: del st.session_state[chave]
         st.rerun()
 
@@ -42,7 +42,6 @@ def renderizar():
         if 'df_orc' not in st.session_state:
             st.session_state.df_orc = pd.DataFrame([{"Produto da Base": "", "Produto Manual": "", "Descrição": "", "Quantidade": 0, "Venda (R$)": 0.0, "Venda Total": 0.0} for _ in range(5)])
         
-        # Garantia contra AttributeError: a tabela espelho sempre deve existir
         if 'df_orc_prev' not in st.session_state:
             st.session_state.df_orc_prev = st.session_state.df_orc.copy()
         
@@ -55,55 +54,70 @@ def renderizar():
             "Venda Total": st.column_config.NumberColumn("Total", format="R$ %,.2f", disabled=True)
         }
         
-        df_editavel = st.data_editor(st.session_state.df_orc, column_config=configuracao_colunas, num_rows="dynamic", use_container_width=True)
+        # ATENÇÃO: Adicionamos uma KEY fixa para poder deletar o cache da tabela
+        df_editavel = st.data_editor(st.session_state.df_orc, column_config=configuracao_colunas, num_rows="dynamic", use_container_width=True, key="editor_orc_base")
         df_editavel = df_editavel.reset_index(drop=True)
         
         precisa_atualizar_tela = False
         
         for i in range(len(df_editavel)):
-            # 1. Tratamento seguro de valores nulos
-            produto_atual = df_editavel.at[i, 'Produto da Base']
-            produto_anterior = st.session_state.df_orc_prev.at[i, 'Produto da Base'] if i < len(st.session_state.df_orc_prev) else ""
+            # 1. Tratamento seguro de nomes (evita bug de 'None' invisível)
+            produto_atual = str(df_editavel.at[i, 'Produto da Base']).strip()
+            if produto_atual.lower() in ['nan', 'none', '']: produto_atual = ""
             
-            if pd.isna(produto_atual) or produto_atual is None: produto_atual = ""
-            if pd.isna(produto_anterior) or produto_anterior is None: produto_anterior = ""
-            
-            # Atualiza o dataframe com a string limpa
+            produto_anterior = ""
+            if i < len(st.session_state.df_orc_prev):
+                produto_anterior = str(st.session_state.df_orc_prev.at[i, 'Produto da Base']).strip()
+                if produto_anterior.lower() in ['nan', 'none', '']: produto_anterior = ""
+
             df_editavel.at[i, 'Produto da Base'] = produto_atual
 
-            # 2. Se o usuário trocou o produto, busca dados da base
-            if produto_atual != produto_anterior and produto_atual in lista_nomes_produtos:
-                match_base = cat_produtos[cat_produtos['Item'] == produto_atual]
+            # 2. Se o usuário escolheu um produto novo da lista
+            if produto_atual != produto_anterior and produto_atual != "":
+                # Procura no catálogo forçando conversão para string limpa
+                match_base = cat_produtos[cat_produtos['Item'].astype(str).str.strip() == produto_atual]
+                
                 if not match_base.empty:
-                    preco_venda_base = float(match_base['Venda (R$)'].values[0]) if pd.notna(match_base['Venda (R$)'].values[0]) else 0.0
-                    desc_base = str(match_base['Descrição'].values[0]) if pd.notna(match_base['Descrição'].values[0]) else ""
+                    val_venda = match_base['Venda (R$)'].values[0]
+                    desc_base = match_base['Descrição'].values[0]
                     
-                    df_editavel.at[i, 'Venda (R$)'] = preco_venda_base
-                    df_editavel.at[i, 'Descrição'] = desc_base if desc_base != 'nan' else ""
+                    try:
+                        preco_novo = float(val_venda)
+                    except:
+                        preco_novo = 0.0
+                        
+                    # Preenche os dados puxados!
+                    df_editavel.at[i, 'Venda (R$)'] = preco_novo
+                    df_editavel.at[i, 'Descrição'] = str(desc_base) if pd.notna(desc_base) and str(desc_base).lower() != 'nan' else ""
                     
-                    if pd.isna(df_editavel.at[i, 'Quantidade']) or df_editavel.at[i, 'Quantidade'] <= 0: 
+                    # Se tiver quantidade 0, joga pra 1 automaticamente
+                    if pd.isna(df_editavel.at[i, 'Quantidade']) or float(df_editavel.at[i, 'Quantidade']) <= 0:
                         df_editavel.at[i, 'Quantidade'] = 1
                         
                     precisa_atualizar_tela = True
-            
-            # 3. Matemática segura para recálculo na hora (Quantidade x Preço)
+
+            # 3. Matemática Segura de Totais na hora
             qtd = float(df_editavel.at[i, 'Quantidade']) if pd.notna(df_editavel.at[i, 'Quantidade']) else 0.0
             preco = float(df_editavel.at[i, 'Venda (R$)']) if pd.notna(df_editavel.at[i, 'Venda (R$)']) else 0.0
-            total_calculado_agora = qtd * preco
-            total_que_estava_na_tela = float(df_editavel.at[i, 'Venda Total']) if pd.notna(df_editavel.at[i, 'Venda Total']) else 0.0
+            total_calc = qtd * preco
+            total_tela = float(df_editavel.at[i, 'Venda Total']) if pd.notna(df_editavel.at[i, 'Venda Total']) else 0.0
             
-            # Se a quantidade ou o preço unitário mudou, força o total a se atualizar e avisa a tela!
-            if abs(total_calculado_agora - total_que_estava_na_tela) > 0.01:
-                df_editavel.at[i, 'Venda Total'] = total_calculado_agora
+            # Se a matemática divergir do que está na tela, atualiza!
+            if abs(total_calc - total_tela) > 0.01:
+                df_editavel.at[i, 'Venda Total'] = total_calc
                 precisa_atualizar_tela = True
-                
-        # Atualiza o estado ANTES do rerun
+
+        # CRÍTICO: Se houve preenchimento automático, forçamos o Streamlit a aceitar nossos dados
+        if precisa_atualizar_tela:
+            st.session_state.df_orc = df_editavel
+            st.session_state.df_orc_prev = df_editavel.copy()
+            # Isso apaga a memória da interface e força ela a ler nosso novo df_orc
+            if "editor_orc_base" in st.session_state:
+                del st.session_state["editor_orc_base"]
+            st.rerun()
+
         st.session_state.df_orc = df_editavel
         st.session_state.df_orc_prev = df_editavel.copy()
-        
-        # Só recarrega a tela se houver mudança de fato (evita loop infinito)
-        if precisa_atualizar_tela:
-            st.rerun()
         
         subtotal_equipamentos = df_editavel['Venda Total'].sum()
         st.markdown(f"**Subtotal Equipamentos:** :blue[{utils.to_br_currency(subtotal_equipamentos)}]")
