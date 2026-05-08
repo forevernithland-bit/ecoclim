@@ -3,14 +3,23 @@ import pandas as pd
 import datetime
 import utils
 
-# Função para verificar se virou o mês
+# Escudo contra erros de valores nulos do banco de dados
+def safe_float(val):
+    try:
+        if pd.isna(val) or val is None: 
+            return 0.0
+        return float(val)
+    except:
+        return 0.0
+
+# Regra: Só vai para a aba Finalizados se o status for Concluído E o mês já tiver virado
 def deve_ir_para_finalizados(status, data_conc_str):
     if status not in ["Concluído PIX", "Concluído CARTÃO"]:
         return False
     try:
         data_conc = pd.to_datetime(data_conc_str).date()
         hoje = datetime.date.today()
-        # Se estamos num mês ou ano posterior à data de conclusão, vai para Finalizados
+        # Verifica se o mês/ano atual é maior que o mês/ano da conclusão
         if hoje.year > data_conc.year or (hoje.year == data_conc.year and hoje.month > data_conc.month):
             return True
         return False
@@ -21,222 +30,172 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
     st.markdown("---")
     st.markdown(f"### ⚙️ Detalhes e Fechamento: **{projeto_selecionado.get('nome_cliente', 'Sem Nome')}**")
     
-    # --- STATUS E DATA ---
     col_esq, col_dir = st.columns(2)
+    
+    # --- STATUS ---
     status_atual = projeto_selecionado.get('status_projeto', 'Orçamento Enviado')
     todas_opcoes = ["Orçamento Enviado", "Em Andamento", "Aguardando Peças", "Concluído PIX", "Concluído CARTÃO", "Cancelado"]
-    
     novo_status = col_esq.selectbox("Alterar Status", todas_opcoes, index=todas_opcoes.index(status_atual) if status_atual in todas_opcoes else 0, key=f"status_{prefix_key}")
     
-    data_bruta = projeto_selecionado.get('data_conclusao')
-    data_default = datetime.date.today()
-    if pd.notna(data_bruta) and str(data_bruta).lower() not in ['none', 'nan', 'nat', '']:
-        try: data_default = pd.to_datetime(data_bruta).date()
+    # --- DATA (Blindada) ---
+    data_banco = projeto_selecionado.get('data_conclusao')
+    data_inicial = datetime.date.today()
+    if pd.notna(data_banco) and str(data_banco).lower() not in ['none', 'nan', 'nat', '']:
+        try: data_inicial = pd.to_datetime(data_banco).date()
         except: pass
-    nova_data = col_dir.date_input("Previsão / Data de Conclusão", value=data_default, key=f"data_{prefix_key}")
+    nova_data = col_dir.date_input("Previsão / Data de Conclusão", value=data_inicial, key=f"data_{prefix_key}")
 
     # --- 1. PRODUTOS DO ORÇAMENTO ---
-    st.markdown("#### 🛒 Produtos Adquiridos (Ajuste Quantidades e Custos)")
+    st.markdown("#### 🛒 Itens Vendidos (Ajuste Quantidades e Custos)")
     itens_json = projeto_selecionado.get('detalhamento_itens', [])
     df_itens = pd.DataFrame(itens_json) if (isinstance(itens_json, list) and len(itens_json) > 0) else pd.DataFrame(columns=['Item', 'Qtd', 'Custo Un.', 'Venda Un.'])
     
-    for coluna in ['Item', 'Qtd', 'Custo Un.', 'Venda Un.']:
-        if coluna not in df_itens.columns:
-            df_itens[coluna] = 0.0 if 'Un.' in coluna or 'Qtd' in coluna else ""
+    for col in ['Item', 'Qtd', 'Custo Un.', 'Venda Un.']:
+        if col not in df_itens.columns: df_itens[col] = 0.0 if 'Un.' in col or 'Qtd' in col else ""
 
+    # Busca automática de custo se estiver zerado
     if not df_produtos.empty:
         for idx, row in df_itens.iterrows():
-            custo_atual = 0.0
-            try: custo_atual = float(row.get('Custo Un.', 0))
-            except: pass
-                
-            if custo_atual == 0.0:
+            if safe_float(row.get('Custo Un.')) == 0.0:
                 nome_procurado = str(row.get('Item', '')).strip().upper()
                 for _, prod_row in df_produtos.iterrows():
-                    nome_catalogo = str(prod_row.get('Item', '')).strip().upper()
-                    if nome_procurado == nome_catalogo:
-                        c_val = prod_row.get('Custo', 0)
-                        if pd.isna(c_val) or c_val == 0: 
-                            c_val = prod_row.get('Custo (R$)', 0)
-                        df_itens.at[idx, 'Custo Un.'] = float(c_val)
+                    if str(prod_row.get('Item', '')).strip().upper() == nome_procurado:
+                        c_val = prod_row.get('Custo', prod_row.get('Custo (R$)', 0))
+                        df_itens.at[idx, 'Custo Un.'] = safe_float(c_val)
                         break
 
-    config_colunas_itens = {
+    config_itens = {
         "Item": st.column_config.TextColumn("Produto", width="medium"),
         "Qtd": st.column_config.NumberColumn("Qtd", min_value=0),
         "Custo Un.": st.column_config.NumberColumn("Custo Fábrica (Un.)", format="R$ %.2f"),
-        "Venda Un.": st.column_config.NumberColumn("Preço Venda (Un.)", format="R$ %.2f")
+        "Venda Un.": st.column_config.NumberColumn("Venda (Un.)", format="R$ %.2f")
     }
+    df_itens_final = st.data_editor(df_itens, column_config=config_itens, num_rows="dynamic", use_container_width=True, key=f"edit_itens_{prefix_key}")
     
-    df_itens_final = st.data_editor(df_itens, column_config=config_colunas_itens, num_rows="dynamic", use_container_width=True, key=f"edit_itens_{prefix_key}")
-    
-    df_itens_final['Custo Un.'] = pd.to_numeric(df_itens_final['Custo Un.'], errors='coerce').fillna(0.0)
-    df_itens_final['Qtd'] = pd.to_numeric(df_itens_final['Qtd'], errors='coerce').fillna(0)
-    custo_total_produtos = (df_itens_final['Custo Un.'] * df_itens_final['Qtd']).sum()
+    custo_total_produtos = (pd.to_numeric(df_itens_final['Custo Un.'], errors='coerce').fillna(0) * pd.to_numeric(df_itens_final['Qtd'], errors='coerce').fillna(0)).sum()
 
-    # --- 2. SIMULADOR DE TAXAS MANUAIS E IMPOSTOS ---
-    st.markdown("#### 🧮 Simulador de Custos e Impostos")
-    
+    # --- 2. SIMULADOR FINANCEIRO (TAXA MANUAL E BLINDADA) ---
+    st.markdown("#### 🧮 Abatimentos e Impostos")
     with st.container(border=True):
         f_col1, f_col2, f_col3 = st.columns(3)
         
-        valor_venda_fechado = f_col1.number_input("Valor Final da Venda (R$)", value=float(projeto_selecionado.get('valor_venda_total', 0.0)), format="%.2f", key=f"venda_{prefix_key}")
+        venda_final = f_col1.number_input("Valor da Venda (R$)", value=safe_float(projeto_selecionado.get('valor_venda_total')), format="%.2f", key=f"venda_{prefix_key}")
         
-        # Imposto
-        tem_nota = f_col2.radio("Emitir Nota Fiscal?", ["Não", "Sim"], index=1 if float(projeto_selecionado.get('custo_impostos', 0.0)) > 0 else 0, key=f"nf_{prefix_key}")
+        # IMPOSTO
+        emite_nf = f_col2.radio("Nota Fiscal?", ["Não", "Sim"], index=1 if safe_float(projeto_selecionado.get('custo_impostos')) > 0 else 0, key=f"nf_{prefix_key}")
         valor_nf = 0.0
-        if tem_nota == "Sim":
-            taxa_nf_pct = 6.0
+        if emite_nf == "Sim":
+            taxa_nf_pct = 6.0 # Padrão
             if not df_taxas_config.empty:
                 for _, t_row in df_taxas_config.iterrows():
-                    n_taxa = str(t_row.get('Item', '')).strip().lower()
-                    if "nota fiscal" in n_taxa or "nf" in n_taxa or "imposto" in n_taxa:
-                        try: taxa_nf_pct = float(t_row.get('Taxa (%)', 0.0))
-                        except: pass
+                    if "NOTA FISCAL" in str(t_row.get('Item', '')).upper() or "NF" in str(t_row.get('Item', '')).upper():
+                        taxa_nf_pct = safe_float(t_row.get('Taxa (%)'))
                         break
-            valor_nf = valor_venda_fechado * (taxa_nf_pct / 100)
+            valor_nf = venda_final * (taxa_nf_pct / 100)
             f_col2.caption(f"Imposto ({taxa_nf_pct}%): - {utils.to_br_currency(valor_nf)}")
         
-        # Pagamento e Cartão (AGORA É MANUAL E 100% SEGURO)
-        metodo_pgto = f_col3.selectbox("Forma de Pagamento", ["PIX / Dinheiro", "Cartão de Crédito"], key=f"pgto_{prefix_key}")
+        # CARTÃO (PERCENTUAL MANUAL COM COLINHA)
+        forma_pgto = f_col3.selectbox("Recebimento", ["PIX / Dinheiro", "Cartão de Crédito"], key=f"pgto_{prefix_key}")
         valor_cartao_taxa = 0.0
-        
-        if metodo_pgto == "Cartão de Crédito":
-            custo_cartao_bd = float(projeto_selecionado.get('custo_cartao', 0.0))
-            taxa_bd_padrao = (custo_cartao_bd / valor_venda_fechado * 100) if valor_venda_fechado > 0 else 0.0
+        if forma_pgto == "Cartão de Crédito":
+            custo_c_salvo = safe_float(projeto_selecionado.get('custo_cartao'))
+            perc_previo = (custo_c_salvo / venda_final * 100) if venda_final > 0 else 0.0
             
-            # Campo manual para a taxa do cartão
-            taxa_cartao_pct = f_col3.number_input("Digite a Taxa do Cartão (%)", value=float(taxa_bd_padrao), format="%.2f", key=f"tx_cart_manual_{prefix_key}")
-            valor_cartao_taxa = valor_venda_fechado * (taxa_cartao_pct / 100)
-            f_col3.caption(f"Valor a descontar: - {utils.to_br_currency(valor_cartao_taxa)}")
+            taxa_manual_pct = f_col3.number_input("Digite a Taxa do Cartão (%)", value=float(perc_previo), format="%.2f", step=0.01, key=f"taxa_man_{prefix_key}")
+            valor_cartao_taxa = venda_final * (taxa_manual_pct / 100)
+            f_col3.caption(f"Desconto Cartão: - {utils.to_br_currency(valor_cartao_taxa)}")
             
-            # Aba expansível para a "colinha" sem precisar sair da tela
             with f_col3.expander("📋 Ver Tabela de Taxas"):
                 if not df_taxas_config.empty:
                     st.dataframe(df_taxas_config[['Item', 'Taxa (%)']], hide_index=True, use_container_width=True)
-                else:
-                    st.info("Nenhuma taxa cadastrada em Configurações.")
+                else: 
+                    st.warning("Sem taxas cadastradas.")
         else:
-            f_col3.caption("Taxa PIX: Isento")
+            f_col3.caption("Taxa PIX: 0,00")
 
         st.markdown("---")
         f_col4, f_col5, f_col6 = st.columns(3)
         
-        comissao_percentual = f_col4.number_input("Comissão do Vendedor (%)", value=0.0, format="%.1f", key=f"com_{prefix_key}")
-        valor_comissao = valor_venda_fechado * (comissao_percentual / 100)
-        f_col4.caption(f"Valor Pago: - {utils.to_br_currency(valor_comissao)}")
+        perc_comissao_salvo = (safe_float(projeto_selecionado.get('custo_comissao')) / venda_final * 100) if venda_final > 0 else 0.0
+        comissao_pct = f_col4.number_input("Comissão (%)", value=float(perc_comissao_salvo), format="%.1f", key=f"com_{prefix_key}")
+        valor_comissao = venda_final * (comissao_pct / 100)
+        f_col4.caption(f"Valor: - {utils.to_br_currency(valor_comissao)}")
 
-        custo_mat_extra = f_col5.number_input("Materiais Extras (R$)", value=float(projeto_selecionado.get('custo_adicional_materiais', 0.0)), format="%.2f", key=f"mat_{prefix_key}")
-        custo_mao_obra = f_col6.number_input("Mão de Obra / Terceiros (R$)", value=float(projeto_selecionado.get('custo_terceirizados', 0.0)), format="%.2f", key=f"mao_{prefix_key}")
+        custo_ext = f_col5.number_input("Materiais Extras (R$)", value=safe_float(projeto_selecionado.get('custo_adicional_materiais')), format="%.2f", key=f"mat_{prefix_key}")
+        custo_mo = f_col6.number_input("Mão de Obra / Terceiros (R$)", value=safe_float(projeto_selecionado.get('custo_terceirizados')), format="%.2f", key=f"mao_{prefix_key}")
 
-        # === CÁLCULO FINAL ===
-        abatimentos_totais = valor_nf + valor_cartao_taxa + valor_comissao + custo_mat_extra + custo_mao_obra
-        lucro_final = valor_venda_fechado - custo_total_produtos - abatimentos_totais
+        # Lógica final de lucro
+        abatimentos = valor_nf + valor_cartao_taxa + valor_comissao + custo_ext + custo_mo
+        lucro_final = venda_final - custo_total_produtos - abatimentos
         
         st.markdown("<br>", unsafe_allow_html=True)
-        res1, res2 = st.columns(2)
-        res1.metric("Custo Total Operacional (Produtos + Taxas)", utils.to_br_currency(custo_total_produtos + abatimentos_totais))
-        
-        margem_real = (lucro_final / valor_venda_fechado * 100) if valor_venda_fechado > 0 else 0
-        res2.metric("LUCRO LÍQUIDO REAL", utils.to_br_currency(lucro_final), delta=f"{margem_real:.1f}% de Margem Líquida")
+        r1, r2 = st.columns(2)
+        r1.metric("Custo Total (Produtos + Taxas)", utils.to_br_currency(custo_total_produtos + abatimentos))
+        margem_r = (lucro_final / venda_final * 100) if venda_final > 0 else 0
+        r2.metric("LUCRO LÍQUIDO FINAL", utils.to_br_currency(lucro_final), delta=f"{margem_r:.1f}% Margem")
 
-    notas_internas = st.text_area("Notas e Observações", value=str(projeto_selecionado.get('notas_internas', '')), key=f"notas_{prefix_key}")
+    notas = st.text_area("Observações", value=str(projeto_selecionado.get('notas_internas', '')), key=f"notas_{prefix_key}")
 
-    if st.button("💾 GUARDAR ALTERAÇÕES DO PROJETO", type="primary", use_container_width=True, key=f"save_{prefix_key}"):
-        dados_para_atualizar = {
-            "status_projeto": novo_status,
+    if st.button("💾 SALVAR PROJETO", type="primary", use_container_width=True, key=f"save_{prefix_key}"):
+        dados = {
+            "status_projeto": novo_status, 
             "data_conclusao": nova_data.strftime('%Y-%m-%d'),
             "detalhamento_itens": df_itens_final.to_dict('records'),
-            "custo_adicional_materiais": custo_mat_extra,
-            "custo_terceirizados": custo_mao_obra,
-            "custo_comissao": valor_comissao,
+            "custo_adicional_materiais": custo_ext, 
+            "custo_terceirizados": custo_mo,
+            "custo_comissao": valor_comissao, 
             "custo_impostos": valor_nf,
-            "custo_cartao": valor_cartao_taxa,
-            "valor_venda_total": valor_venda_fechado,
-            "lucro_estimado": lucro_final,
-            "notas_internas": notas_internas
+            "custo_cartao": valor_cartao_taxa, 
+            "valor_venda_total": venda_final,
+            "lucro_estimado": lucro_final, 
+            "notas_internas": notas
         }
         try:
-            supabase.table('servicos_andamento').update(dados_para_atualizar).eq('id', int(projeto_selecionado['id'])).execute()
-            st.success("✅ Alterações guardadas com sucesso!")
+            supabase.table('servicos_andamento').update(dados).eq('id', int(projeto_selecionado['id'])).execute()
+            st.success("✅ Atualizado com sucesso!")
             st.rerun()
-        except Exception as e:
-            st.error(f"Erro ao guardar: {e}")
-
+        except Exception as e: 
+            st.error(f"Erro ao salvar: {e}")
 
 def renderizar():
-    st.markdown("## 📋 Gestão de Serviços e Orçamentos")
-    
+    st.markdown("## 📋 Gestão de Serviços")
     supabase = st.session_state.supabase
     
     try:
-        resposta = supabase.table('servicos_andamento').select("*").order("id", desc=True).execute()
-        df_projetos = pd.DataFrame(resposta.data)
-    except Exception as erro:
-        st.error(f"Erro ao ligar ao banco de dados: {erro}")
+        res = supabase.table('servicos_andamento').select("*").order("id", desc=True).execute()
+        df = pd.DataFrame(res.data)
+    except: 
+        st.error("Erro de conexão.")
+        return
+        
+    if df.empty: 
+        st.info("Nada encontrado.")
         return
 
-    if df_projetos.empty:
-        st.info("Nenhum registo encontrado.")
-        return
-
-    df_taxas_config = utils.load_taxas()
+    df_taxas = utils.load_taxas()
     df_produtos = utils.load_catalog('catalogo_produtos')
+    
+    df['ir_finalizados'] = df.apply(lambda x: deve_ir_para_finalizados(x['status_projeto'], x['data_conclusao']), axis=1)
 
-    df_projetos['ir_para_finalizados'] = df_projetos.apply(lambda x: deve_ir_para_finalizados(x['status_projeto'], x['data_conclusao']), axis=1)
-
-    lista_status_ativos = ["Em Andamento", "Aguardando Peças", "Concluído PIX", "Concluído CARTÃO"]
-
-    mask_orcamentos = ~df_projetos['status_projeto'].isin(lista_status_ativos)
-    mask_finalizados = df_projetos['ir_para_finalizados'] == True
-    mask_ativos = (df_projetos['status_projeto'].isin(lista_status_ativos)) & (~mask_finalizados)
-
-    df_orcamentos = df_projetos[mask_orcamentos].reset_index(drop=True)
-    df_ativos = df_projetos[mask_ativos].reset_index(drop=True)
-    df_finalizados = df_projetos[mask_finalizados].reset_index(drop=True)
-
-    colunas_grid = ['id', 'numero_orcamento', 'nome_cliente', 'status_projeto', 'valor_venda_total', 'data_conclusao']
+    ativos_status = ["Em Andamento", "Aguardando Peças", "Concluído PIX", "Concluído CARTÃO"]
+    df_orc = df[~df['status_projeto'].isin(ativos_status)].reset_index(drop=True)
+    df_fin = df[df['ir_finalizados'] == True].reset_index(drop=True)
+    df_atv = df[(df['status_projeto'].isin(ativos_status)) & (df['ir_finalizados'] == False)].reset_index(drop=True)
 
     aba1, aba2, aba3 = st.tabs(["🚀 Em Andamento", "📝 Orçamentos", "✅ Finalizados"])
-
+    
     with aba1:
-        st.markdown("### Serviços Ativos no Mês")
-        selecao_ativo = st.dataframe(
-            df_ativos[[c for c in colunas_grid if c in df_ativos.columns]],
-            use_container_width=True,
-            on_select="rerun",
-            selection_mode="single-row",
-            hide_index=True,
-            key="grid_ativos"
-        )
-        if selecao_ativo.selection.rows:
-            projeto_selecionado = df_ativos.iloc[selecao_ativo.selection.rows[0]]
-            exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_produtos, prefix_key=f"ativo_{projeto_selecionado['id']}")
-
+        sel = st.dataframe(df_atv[['id','numero_orcamento','nome_cliente','status_projeto','valor_venda_total','data_conclusao']], use_container_width=True, on_select="rerun", selection_mode="single-row", hide_index=True, key="g_atv")
+        if sel.selection.rows: 
+            exibir_painel_detalhado(df_atv.iloc[sel.selection.rows[0]], supabase, df_taxas, df_produtos, f"atv_{df_atv.iloc[sel.selection.rows[0]]['id']}")
+    
     with aba2:
-        st.markdown("### Orçamentos Aguardando Fechamento")
-        selecao_orcamento = st.dataframe(
-            df_orcamentos[[c for c in colunas_grid if c in df_orcamentos.columns]],
-            use_container_width=True,
-            on_select="rerun",
-            selection_mode="single-row",
-            hide_index=True,
-            key="grid_orcamentos"
-        )
-        if selecao_orcamento.selection.rows:
-            projeto_selecionado = df_orcamentos.iloc[selecao_orcamento.selection.rows[0]]
-            exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_produtos, prefix_key=f"orc_{projeto_selecionado['id']}")
+        sel = st.dataframe(df_orc[['id','numero_orcamento','nome_cliente','status_projeto','valor_venda_total','data_conclusao']], use_container_width=True, on_select="rerun", selection_mode="single-row", hide_index=True, key="g_orc")
+        if sel.selection.rows: 
+            exibir_painel_detalhado(df_orc.iloc[sel.selection.rows[0]], supabase, df_taxas, df_produtos, f"orc_{df_orc.iloc[sel.selection.rows[0]]['id']}")
 
     with aba3:
-        st.markdown("### Histórico de Serviços Finalizados (Meses Anteriores)")
-        selecao_finalizado = st.dataframe(
-            df_finalizados[[c for c in colunas_grid if c in df_finalizados.columns]],
-            use_container_width=True,
-            on_select="rerun",
-            selection_mode="single-row",
-            hide_index=True,
-            key="grid_finalizados"
-        )
-        if selecao_finalizado.selection.rows:
-            projeto_selecionado = df_finalizados.iloc[selecao_finalizado.selection.rows[0]]
-            exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_produtos, prefix_key=f"fin_{projeto_selecionado['id']}")
+        st.caption("Serviços concluídos em meses anteriores.")
+        sel = st.dataframe(df_fin[['id','numero_orcamento','nome_cliente','status_projeto','valor_venda_total','data_conclusao']], use_container_width=True, on_select="rerun", selection_mode="single-row", hide_index=True, key="g_fin")
+        if sel.selection.rows: 
+            exibir_painel_detalhado(df_fin.iloc[sel.selection.rows[0]], supabase, df_taxas, df_produtos, f"fin_{df_fin.iloc[sel.selection.rows[0]]['id']}")
