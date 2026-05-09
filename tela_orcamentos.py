@@ -26,7 +26,7 @@ def renderizar():
         nome_cliente = col1.text_input("Nome do Cliente", key="input_nome_cliente")
         whatsapp = col2.text_input("WhatsApp", placeholder="(31) 99715-1596", key="input_whatsapp")
         
-        # OPÇÕES ATUALIZADAS AQUI PARA PUXAR AS IMAGENS CORRETAS
+        # OPÇÕES DE IMAGENS MAPEADAS CORRETAMENTE
         modelo_capa = st.selectbox("Modelo para Capa", [
             "Aquecedor Solar Tradicional", 
             "Aquecedor Solar a Vácuo Acoplado", 
@@ -34,7 +34,7 @@ def renderizar():
             "Aquecedor de Piscina - Tradicional", 
             "Aquecedor de Piscina - Trocador de Calor", 
             "Sistema de Pressurização"
-        ], index=3) # Padrão: Aquecedor de Piscina - Tradicional
+        ], index=3)
 
     with st.container(border=True):
         st.subheader("⚙️ 1. Equipamentos")
@@ -56,14 +56,13 @@ def renderizar():
             "Venda Total": st.column_config.NumberColumn("Total", format="R$ %,.2f", disabled=True)
         }
         
-        # ATENÇÃO: Adicionamos uma KEY fixa para poder deletar o cache da tabela
         df_editavel = st.data_editor(st.session_state.df_orc, column_config=configuracao_colunas, num_rows="dynamic", use_container_width=True, key="editor_orc_base")
         df_editavel = df_editavel.reset_index(drop=True)
         
         precisa_atualizar_tela = False
         
         for i in range(len(df_editavel)):
-            # 1. Tratamento seguro de nomes (evita bug de 'None' invisível)
+            # 1. Tratamento seguro de nomes
             produto_atual = str(df_editavel.at[i, 'Produto da Base']).strip()
             if produto_atual.lower() in ['nan', 'none', '']: produto_atual = ""
             
@@ -76,7 +75,6 @@ def renderizar():
 
             # 2. Se o usuário escolheu um produto novo da lista
             if produto_atual != produto_anterior and produto_atual != "":
-                # Procura no catálogo forçando conversão para string limpa
                 match_base = cat_produtos[cat_produtos['Item'].astype(str).str.strip() == produto_atual]
                 
                 if not match_base.empty:
@@ -88,32 +86,27 @@ def renderizar():
                     except:
                         preco_novo = 0.0
                         
-                    # Preenche os dados puxados!
                     df_editavel.at[i, 'Venda (R$)'] = preco_novo
                     df_editavel.at[i, 'Descrição'] = str(desc_base) if pd.notna(desc_base) and str(desc_base).lower() != 'nan' else ""
                     
-                    # Se tiver quantidade 0, joga pra 1 automaticamente
                     if pd.isna(df_editavel.at[i, 'Quantidade']) or float(df_editavel.at[i, 'Quantidade']) <= 0:
                         df_editavel.at[i, 'Quantidade'] = 1
                         
                     precisa_atualizar_tela = True
 
-            # 3. Matemática Segura de Totais na hora
+            # 3. Matemática Segura
             qtd = float(df_editavel.at[i, 'Quantidade']) if pd.notna(df_editavel.at[i, 'Quantidade']) else 0.0
             preco = float(df_editavel.at[i, 'Venda (R$)']) if pd.notna(df_editavel.at[i, 'Venda (R$)']) else 0.0
             total_calc = qtd * preco
             total_tela = float(df_editavel.at[i, 'Venda Total']) if pd.notna(df_editavel.at[i, 'Venda Total']) else 0.0
             
-            # Se a matemática divergir do que está na tela, atualiza!
             if abs(total_calc - total_tela) > 0.01:
                 df_editavel.at[i, 'Venda Total'] = total_calc
                 precisa_atualizar_tela = True
 
-        # CRÍTICO: Se houve preenchimento automático, forçamos o Streamlit a aceitar nossos dados
         if precisa_atualizar_tela:
             st.session_state.df_orc = df_editavel
             st.session_state.df_orc_prev = df_editavel.copy()
-            # Isso apaga a memória da interface e força ela a ler nosso novo df_orc
             if "editor_orc_base" in st.session_state:
                 del st.session_state["editor_orc_base"]
             st.rerun()
@@ -124,8 +117,9 @@ def renderizar():
         subtotal_equipamentos = df_editavel['Venda Total'].sum()
         st.markdown(f"**Subtotal Equipamentos:** :blue[{utils.to_br_currency(subtotal_equipamentos)}]")
 
+    # ------------------ DIVISÃO 2 (Serviços) ------------------
     with st.container(border=True):
-        st.subheader("🛠️ 2. Serviços / Diversos")
+        st.subheader("🛠️ 2. Serviços")
         
         lista_servicos = st.session_state.db_servicos['Item'].dropna().tolist() if not st.session_state.db_servicos.empty else []
         if 'servico_selecionado_anterior' not in st.session_state: st.session_state.servico_selecionado_anterior = ""
@@ -147,7 +141,9 @@ def renderizar():
         descricao_final_servico = st.text_area("Descrição detalhada do Serviço:", value=st.session_state.get('txt_servico', ""), height=100)
         valor_final_servico = st.number_input("Valor do Serviço (R$):", value=float(st.session_state.get('val_servico', 0.0)), format="%.2f")
 
-        st.markdown("---")
+    # ------------------ DIVISÃO 3 (Outros/Terceiros) ------------------
+    with st.container(border=True):
+        st.subheader("🤝 3. Outros / Terceiros")
 
         lista_outros = st.session_state.db_outros['Item'].dropna().tolist() if not st.session_state.db_outros.empty else []
         if 'outros_selecionado_anterior' not in st.session_state: st.session_state.outros_selecionado_anterior = ""
@@ -169,6 +165,7 @@ def renderizar():
         descricao_final_outros = st.text_area("Descrição de Diversos:", value=st.session_state.get('txt_outros', ""), height=80)
         valor_final_outros = st.number_input("Valor Adicional (R$):", value=float(st.session_state.get('val_outros', 0.0)), format="%.2f")
 
+    # ------------------ FECHAMENTO ------------------
     total_investimento = subtotal_equipamentos + valor_final_servico + valor_final_outros
     st.markdown(f"<h3 style='color:#004488;'>💰 INVESTIMENTO TOTAL: {utils.to_br_currency(total_investimento)}</h3>", unsafe_allow_html=True)
     obs_pdf = st.text_area("Observações no PDF:", value="Material Hidráulico não incluído na proposta")
