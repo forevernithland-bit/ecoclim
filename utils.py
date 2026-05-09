@@ -128,22 +128,27 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
     p = canvas.Canvas(buffer, pagesize=A4)
     largura, altura = A4
     
+    # Cabeçalho e Logos
     try: p.drawImage("logo.png", 2*cm, altura - 3.5*cm, width=4*cm, preserveAspectRatio=True, mask='auto')
     except: p.setFont("Helvetica-Bold", 16); p.drawString(2*cm, altura - 2.5*cm, "ECOCLIM")
     
     p.setFont("Helvetica-Bold", 14); p.drawString(largura - 9*cm, altura - 1.5*cm, "PROPOSTA COMERCIAL")
     p.setFont("Helvetica", 8); p.setFillColor(colors.grey)
     p.drawString(largura - 9*cm, altura - 2.1*cm, "WWW.ECOCLIM.COM.BR"); p.drawString(largura - 9*cm, altura - 2.5*cm, "COMERCIAL@ECOCLIM.COM.BR")
+    
+    # Datas e Validade
     p.setFillColor(colors.black); p.setFont("Helvetica", 9)
     p.drawString(largura - 9*cm, altura - 3.5*cm, f"Data: {datetime.date.today().strftime('%d/%m/%Y')}")
+    p.drawString(largura - 9*cm, altura - 4.0*cm, "Validade da Proposta: 15 dias")
     
+    # Dados do Cliente
     y = altura - 5.5*cm
     p.setFillColor(colors.HexColor("#f0f0f0")); p.rect(2*cm, y - 1.5*cm, largura - 4*cm, 2*cm, fill=1, stroke=0)
     p.setFillColor(colors.black); p.setFont("Helvetica-Bold", 10); p.drawString(2.3*cm, y, "DADOS DO CLIENTE")
     p.setFont("Helvetica", 10); p.drawString(2.3*cm, y - 0.5*cm, f"Nome: {nome}"); p.drawString(2.3*cm, y - 1*cm, f"WhatsApp: {tel}")
     
+    # Imagem de Capa
     y -= 2.2*cm
-    # MAPA DE IMAGENS REVISADO
     img_map = {
         "Aquecedor Solar Tradicional": "aquecedor_tradicional.jpg",
         "Aquecedor Solar a Vácuo Acoplado": "vacuo_acoplado.jpg",
@@ -158,6 +163,7 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
     except: 
         pass
     
+    # 1. Equipamentos
     y -= 6.5*cm
     p.setFillColor(colors.HexColor("#004488")); p.rect(2*cm, y, largura - 4*cm, 0.7*cm, fill=1, stroke=0)
     p.setFillColor(colors.white); p.setFont("Helvetica-Bold", 11); p.drawString(2.3*cm, y + 0.2*cm, "1. EQUIPAMENTOS")
@@ -179,6 +185,7 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
                 p.setFillColor(colors.black)
             y -= 0.2*cm
             
+    # 2. Serviços
     y -= 1.0*cm 
     p.setFillColor(colors.HexColor("#004488")); p.rect(2*cm, y, largura - 4*cm, 0.7*cm, fill=1, stroke=0)
     p.setFillColor(colors.white); p.setFont("Helvetica-Bold", 11); p.drawString(2.3*cm, y + 0.2*cm, "2. SERVIÇOS")
@@ -187,13 +194,26 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
     if d_s:
         p.drawRightString(largura - 2.3*cm, y, to_br_currency(v_s))
         for l in d_s.split('\n'): p.drawString(2.3*cm, y, l); y -= 0.45*cm
+    else:
+        p.drawString(2.3*cm, y, "Nenhum serviço selecionado."); y -= 0.45*cm
+        
+    # 3. Outros / Terceiros
+    y -= 0.5*cm 
+    p.setFillColor(colors.HexColor("#004488")); p.rect(2*cm, y, largura - 4*cm, 0.7*cm, fill=1, stroke=0)
+    p.setFillColor(colors.white); p.setFont("Helvetica-Bold", 11); p.drawString(2.3*cm, y + 0.2*cm, "3. OUTROS / TERCEIROS")
+    y -= 0.8*cm; p.setFillColor(colors.black); p.setFont("Helvetica", 10)
+    
     if d_o:
         p.drawRightString(largura - 2.3*cm, y, to_br_currency(v_o))
         for l in d_o.split('\n'): p.drawString(2.3*cm, y, l); y -= 0.45*cm
+    else:
+        p.drawString(2.3*cm, y, "Nenhum item adicional selecionado."); y -= 0.45*cm
         
+    # Total
     y -= 1.0*cm; p.setFillColor(colors.HexColor("#f0f0f0")); p.rect(2*cm, y - 0.2*cm, largura - 4*cm, 1.2*cm, fill=1, stroke=0)
     p.setFillColor(colors.black); p.setFont("Helvetica-Bold", 12); p.drawString(2.3*cm, y + 0.2*cm, "INVESTIMENTO TOTAL"); p.drawRightString(largura - 2.3*cm, y + 0.2*cm, to_br_currency(total))
     
+    # Observações
     y -= 1.8*cm; p.setFillColor(colors.red); p.setFont("Helvetica-Bold", 10); p.drawString(2*cm, y, "OBSERVAÇÕES:"); p.setFont("Helvetica", 9); p.setFillColor(colors.black); p.drawString(2*cm, y - 0.5*cm, str(obs)[:100])
     
     p.save()
