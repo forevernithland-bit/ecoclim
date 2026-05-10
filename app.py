@@ -11,13 +11,14 @@ st.set_page_config(
 )
 
 # =============================================================================
-# 2. IMPORTAÇÃO DOS MÓDULOS (Certifique-se que os arquivos .py estão na mesma pasta)
+# 2. IMPORTAÇÃO DOS MÓDULOS
 # =============================================================================
 import utils
 import tela_orcamentos
 import tela_servicos
 import tela_financeira
 import tela_configuracoes
+import tela_airnb  # <--- NOVO MÓDULO ADICIONADO
 
 # =============================================================================
 # 3. CONEXÃO COM O BANCO DE DADOS
@@ -108,7 +109,7 @@ else:
         
         st.write("### Menu Principal")
         
-        # Opções de navegação atualizadas com o novo módulo
+        # Opções de navegação atualizadas com o novo módulo AirBnb
         menu = st.radio(
             "Navegação", 
             [
@@ -116,6 +117,7 @@ else:
                 "Orçamentos", 
                 "Serviços em Andamento", 
                 "Controle Financeiro", 
+                "AirBnb e Locações",  # <--- OPÇÃO ADICIONADA
                 "Configurações"
             ],
             label_visibility="collapsed"
@@ -166,6 +168,9 @@ else:
 
     elif st.session_state.pagina_atual == "Controle Financeiro":
         tela_financeira.renderizar()
+
+    elif st.session_state.pagina_atual == "AirBnb e Locações":  # <--- ROTEAMENTO ADICIONADO
+        tela_airnb.renderizar()
 
     elif st.session_state.pagina_atual == "Configurações":
         tela_configuracoes.renderizar()
