@@ -4,7 +4,7 @@ import datetime
 import utils
 
 def atualizar_df_completo(df_base, df_tela, meses_visiveis):
-    """Função inteligente para garantir que se vc adicionar uma linha, ela exista em todos os meses"""
+    """Função inteligente para garantir que se adicionar uma linha, ela exista em todos os meses"""
     df_tela = df_tela[df_tela['MESES'].astype(str).str.strip() != ''] # Remove linhas em branco
     df_novo = pd.DataFrame({"MESES": df_tela["MESES"]})
     
@@ -28,13 +28,13 @@ def garantir_linhas(df, lista_contas):
     if df.empty or 'MESES' not in df.columns:
         return pd.DataFrame({"MESES": lista_contas, **{m: 0.0 for m in utils.meses_pt}})
     
-    # Adiciona as linhas que estão faltando
+    # Adiciona as linhas que estão a faltar
     for c in lista_contas:
         if c not in df['MESES'].values:
             nova_linha = {"MESES": c, **{m: 0.0 for m in utils.meses_pt}}
             df = pd.concat([df, pd.DataFrame([nova_linha])], ignore_index=True)
             
-    # Força a ordenação exata da lista (para o OUTROS ficar por último)
+    # Força a ordenação exata da lista (para o OUTROS ficar no fim)
     df['MESES'] = pd.Categorical(df['MESES'], categories=lista_contas, ordered=True)
     df = df.sort_values('MESES').reset_index(drop=True)
     
@@ -89,9 +89,9 @@ def renderizar():
 
     with aba_atual:
         if not meses_atuais:
-            st.info(f"Você está visualizando o ano de {ano_selecionado}. Como já passou, todos os meses estão disponíveis na aba 'Histórico do Ano'.")
+            st.info(f"Está a visualizar o ano de {ano_selecionado}. Como já passou, todos os meses estão disponíveis no separador 'Histórico do Ano'.")
         else:
-            st.caption(f"Foco total! Você está gerenciando: **{' e '.join(meses_atuais)} de {ano_selecionado}**.")
+            st.caption(f"Foco total! Está a gerir: **{' e '.join(meses_atuais)} de {ano_selecionado}**.")
             
             cols_ent = ['MESES'] + meses_atuais
             cfg_atual = get_col_config(meses_atuais)
@@ -100,10 +100,24 @@ def renderizar():
             with c1:
                 st.markdown("#### ⬆️ Entradas")
                 df_ent_edit = st.data_editor(st.session_state.df_airnb_ent[cols_ent], column_config=cfg_atual, num_rows="dynamic", use_container_width=True, key="airnb_ent_atual")
+                
+                # ADICIONADO: Totais das Entradas por baixo da tabela
+                st.markdown("<br>", unsafe_allow_html=True)
+                for m in meses_atuais:
+                    ent_tot = pd.to_numeric(df_ent_edit[m], errors='coerce').fillna(0).sum()
+                    st.markdown(f"<div style='text-align: right; font-size: 16px; color: #004488; margin-bottom: 4px;'><b>Total Entrada {m}:</b> {utils.to_br_currency(ent_tot)}</div>", unsafe_allow_html=True)
+
             with c2:
                 st.markdown("#### ⬇️ Saídas (Custos)")
                 df_sai_edit = st.data_editor(st.session_state.df_airnb_sai[cols_ent], column_config=cfg_atual, num_rows="dynamic", use_container_width=True, key="airnb_sai_atual")
+                
+                # ADICIONADO: Totais dos Custos por baixo da tabela
+                st.markdown("<br>", unsafe_allow_html=True)
+                for m in meses_atuais:
+                    sai_tot = pd.to_numeric(df_sai_edit[m], errors='coerce').fillna(0).sum()
+                    st.markdown(f"<div style='text-align: right; font-size: 16px; color: #cc0000; margin-bottom: 4px;'><b>Custo Total {m}:</b> {utils.to_br_currency(sai_tot)}</div>", unsafe_allow_html=True)
 
+            st.markdown("<hr>", unsafe_allow_html=True)
             st.markdown("### 💰 Resultado Líquido")
             cols_res = st.columns(len(meses_atuais))
             for i, m in enumerate(meses_atuais):
@@ -132,7 +146,7 @@ def renderizar():
                 )
 
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("💾 SALVAR ALTERAÇÕES (MÊS ATUAL)", type="primary", use_container_width=True):
+            if st.button("💾 GRAVAR ALTERAÇÕES (MÊS ATUAL)", type="primary", use_container_width=True):
                 st.session_state.df_airnb_ent = atualizar_df_completo(st.session_state.df_airnb_ent, df_ent_edit, meses_atuais)
                 st.session_state.df_airnb_sai = atualizar_df_completo(st.session_state.df_airnb_sai, df_sai_edit, meses_atuais)
                 utils.save_to_supabase('airnb_entradas', st.session_state.df_airnb_ent, ano_selecionado)
@@ -142,7 +156,7 @@ def renderizar():
 
     with aba_antigos:
         if not meses_antigos:
-            st.info("Não há histórico de meses anteriores neste ano ainda.")
+            st.info("Ainda não há histórico de meses anteriores neste ano.")
         else:
             st.caption(f"Histórico: **{', '.join(meses_antigos)}** de {ano_selecionado}.")
             cols_ant = ['MESES'] + meses_antigos
@@ -151,8 +165,24 @@ def renderizar():
             st.markdown("#### ⬆️ Entradas Históricas")
             df_ent_ant = st.data_editor(st.session_state.df_airnb_ent[cols_ant], column_config=cfg_ant, num_rows="dynamic", use_container_width=True, key="airnb_ent_ant")
             
+            # Resumo das Entradas Antigas
+            res_e_ant = st.columns(len(meses_antigos))
+            for i, m in enumerate(meses_antigos):
+                tot_e_ant = pd.to_numeric(df_ent_ant[m], errors='coerce').fillna(0).sum()
+                res_e_ant[i].markdown(f"<div style='font-size: 14px; color: #004488;'><b>Total {m}:</b><br>{utils.to_br_currency(tot_e_ant)}</div>", unsafe_allow_html=True)
+
+            st.markdown("<hr>", unsafe_allow_html=True)
+
             st.markdown("#### ⬇️ Saídas Históricas")
             df_sai_ant = st.data_editor(st.session_state.df_airnb_sai[cols_ant], column_config=cfg_ant, num_rows="dynamic", use_container_width=True, key="airnb_sai_ant")
+
+            # Resumo das Saídas Antigas
+            res_s_ant = st.columns(len(meses_antigos))
+            for i, m in enumerate(meses_antigos):
+                tot_s_ant = pd.to_numeric(df_sai_ant[m], errors='coerce').fillna(0).sum()
+                res_s_ant[i].markdown(f"<div style='font-size: 14px; color: #cc0000;'><b>Custo {m}:</b><br>{utils.to_br_currency(tot_s_ant)}</div>", unsafe_allow_html=True)
+
+            st.markdown("<hr>", unsafe_allow_html=True)
 
             st.markdown("### 📊 Histórico de Lucros")
             cols_res_ant = st.columns(len(meses_antigos))
@@ -178,10 +208,10 @@ def renderizar():
                 )
 
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("💾 SALVAR HISTÓRICO", type="secondary", use_container_width=True):
+            if st.button("💾 GRAVAR HISTÓRICO", type="secondary", use_container_width=True):
                 st.session_state.df_airnb_ent = atualizar_df_completo(st.session_state.df_airnb_ent, df_ent_ant, meses_antigos)
                 st.session_state.df_airnb_sai = atualizar_df_completo(st.session_state.df_airnb_sai, df_sai_ant, meses_antigos)
                 utils.save_to_supabase('airnb_entradas', st.session_state.df_airnb_ent, ano_selecionado)
                 utils.save_to_supabase('airnb_saidas', st.session_state.df_airnb_sai, ano_selecionado)
-                st.success("✅ Histórico antigo salvo!")
+                st.success("✅ Histórico antigo gravado com sucesso!")
                 st.rerun()
