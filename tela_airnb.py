@@ -23,10 +23,26 @@ def atualizar_df_completo(df_base, df_tela, meses_visiveis):
             df_novo[m] = valores_antigos
     return df_novo
 
+def garantir_linhas(df, lista_contas):
+    """Garante que todas as contas padrão existam e fiquem na ordem correta"""
+    if df.empty or 'MESES' not in df.columns:
+        return pd.DataFrame({"MESES": lista_contas, **{m: 0.0 for m in utils.meses_pt}})
+    
+    # Adiciona as linhas que estão faltando
+    for c in lista_contas:
+        if c not in df['MESES'].values:
+            nova_linha = {"MESES": c, **{m: 0.0 for m in utils.meses_pt}}
+            df = pd.concat([df, pd.DataFrame([nova_linha])], ignore_index=True)
+            
+    # Força a ordenação exata da lista (para o OUTROS ficar por último)
+    df['MESES'] = pd.Categorical(df['MESES'], categories=lista_contas, ordered=True)
+    df = df.sort_values('MESES').reset_index(drop=True)
+    
+    return df
+
 def renderizar():
     st.markdown("## 🏡 AirBnb e Locações")
     
-    # Adicionando o seletor de Ano na barra lateral para blindar contra viradas de ano
     with st.sidebar:
         st.image("logo.png", width=150)
         ano_selecionado = st.selectbox("Ano de Referência", options=[2025, 2026, 2027, 2028], index=1, key="ano_airnb")
@@ -34,7 +50,6 @@ def renderizar():
     # --- Lógica do Tempo Dinâmica ---
     hoje = datetime.date.today()
     
-    # Se estiver olhando o ano atual, separa entre mês atual/anterior e antigos
     if ano_selecionado == hoje.year:
         mes_atual_idx = hoje.month - 1
         mes_atual_nome = utils.meses_pt[mes_atual_idx]
@@ -43,25 +58,25 @@ def renderizar():
             mes_anterior_nome = utils.meses_pt[mes_atual_idx - 1]
             meses_atuais = [mes_anterior_nome, mes_atual_nome]
             meses_antigos = utils.meses_pt[:mes_atual_idx - 1]
-        else: # É Janeiro! Não existe mês anterior no mesmo ano.
+        else:
             meses_atuais = [mes_atual_nome]
             meses_antigos = []
     else:
-        # Se você selecionar um ano passado (ex: 2026 estando em 2027), 
-        # todos os meses vão para o histórico!
         meses_atuais = []
         meses_antigos = utils.meses_pt
 
-    # --- Carregar Dados do Supabase com base no ano ---
+    # --- Carregar Dados do Supabase ---
+    contas_ent = ['AIRNB', 'LOCAÇÕES POR FORA']
+    contas_sai = ['LIMPEZA', 'LUZ', 'ÁGUA', 'INTERNET', 'PISCINEIRO', 'PRODUTOS DE LIMPEZA', 'OUTROS']
+
     if 'ano_airnb_atual' not in st.session_state or st.session_state.ano_airnb_atual != ano_selecionado:
-        st.session_state.df_airnb_ent = utils.load_year_data('airnb_entradas', ['AIRNB', 'LOCAÇÕES POR FORA'], ano_selecionado)
+        st.session_state.df_airnb_ent = utils.load_year_data('airnb_entradas', contas_ent, ano_selecionado)
+        st.session_state.df_airnb_sai = utils.load_year_data('airnb_saidas', contas_sai, ano_selecionado)
         
-        # CATEGORIAS DE SAÍDA ATUALIZADAS
-        st.session_state.df_airnb_sai = utils.load_year_data(
-            'airnb_saidas', 
-            ['LIMPEZA', 'LUZ', 'ÁGUA', 'INTERNET', 'PISCINEIRO', 'PRODUTOS DE LIMPEZA', 'OUTROS'], 
-            ano_selecionado
-        )
+        # Garante que as linhas novas apareçam imediatamente e na ordem correta
+        st.session_state.df_airnb_ent = garantir_linhas(st.session_state.df_airnb_ent, contas_ent)
+        st.session_state.df_airnb_sai = garantir_linhas(st.session_state.df_airnb_sai, contas_sai)
+        
         st.session_state.ano_airnb_atual = ano_selecionado
 
     def get_col_config(meses_visiveis):
@@ -100,7 +115,7 @@ def renderizar():
                 breno_parte = liq * 0.5
                 eunice_parte = liq * 0.5
                 
-                # Cores dinâmicas: verde se lucrou, vermelho se deu prejuízo
+                # Cores dinâmicas
                 bg_color = "#e6ffe6" if liq >= 0 else "#ffe6e6"
                 txt_color = "#006600" if liq >= 0 else "#cc0000"
                 
