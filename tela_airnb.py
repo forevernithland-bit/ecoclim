@@ -55,7 +55,13 @@ def renderizar():
     # --- Carregar Dados do Supabase com base no ano ---
     if 'ano_airnb_atual' not in st.session_state or st.session_state.ano_airnb_atual != ano_selecionado:
         st.session_state.df_airnb_ent = utils.load_year_data('airnb_entradas', ['AIRNB', 'LOCAÇÕES POR FORA'], ano_selecionado)
-        st.session_state.df_airnb_sai = utils.load_year_data('airnb_saidas', ['LIMPEZA', 'LUZ', 'ÁGUA', 'INTERNET', 'OUTROS'], ano_selecionado)
+        
+        # CATEGORIAS DE SAÍDA ATUALIZADAS
+        st.session_state.df_airnb_sai = utils.load_year_data(
+            'airnb_saidas', 
+            ['LIMPEZA', 'LUZ', 'ÁGUA', 'INTERNET', 'PISCINEIRO', 'PRODUTOS DE LIMPEZA', 'OUTROS'], 
+            ano_selecionado
+        )
         st.session_state.ano_airnb_atual = ano_selecionado
 
     def get_col_config(meses_visiveis):
@@ -90,6 +96,10 @@ def renderizar():
                 sai_tot = pd.to_numeric(df_sai_edit[m], errors='coerce').fillna(0).sum()
                 liq = ent_tot - sai_tot
                 
+                # Divisão 50/50
+                breno_parte = liq * 0.5
+                eunice_parte = liq * 0.5
+                
                 # Cores dinâmicas: verde se lucrou, vermelho se deu prejuízo
                 bg_color = "#e6ffe6" if liq >= 0 else "#ffe6e6"
                 txt_color = "#006600" if liq >= 0 else "#cc0000"
@@ -99,6 +109,9 @@ def renderizar():
                     <div style="background-color: {bg_color}; padding: 15px; border-radius: 10px; border: 1px solid {txt_color}; text-align: center;">
                         <h4 style="color: {txt_color}; margin: 0;">{m}</h4>
                         <h2 style="color: {txt_color}; margin: 0;">{utils.to_br_currency(liq)}</h2>
+                        <hr style="border-top: 1px dashed {txt_color}; margin: 10px 0;">
+                        <p style="color: {txt_color}; margin: 2px 0; font-size: 15px;"><strong>Breno (50%):</strong> {utils.to_br_currency(breno_parte)}</p>
+                        <p style="color: {txt_color}; margin: 2px 0; font-size: 15px;"><strong>Eunice (50%):</strong> {utils.to_br_currency(eunice_parte)}</p>
                     </div>
                     """, unsafe_allow_html=True
                 )
@@ -132,8 +145,22 @@ def renderizar():
                 ent_tot_a = pd.to_numeric(df_ent_ant[m], errors='coerce').fillna(0).sum()
                 sai_tot_a = pd.to_numeric(df_sai_ant[m], errors='coerce').fillna(0).sum()
                 liq_a = ent_tot_a - sai_tot_a
+                
+                breno_a = liq_a * 0.5
+                eunice_a = liq_a * 0.5
+                
                 cor_a = "green" if liq_a >= 0 else "red"
-                cols_res_ant[i].markdown(f"**{m}**: <br><span style='color:{cor_a}'>{utils.to_br_currency(liq_a)}</span>", unsafe_allow_html=True)
+                
+                cols_res_ant[i].markdown(
+                    f"""
+                    <div style='border-left: 3px solid {cor_a}; padding-left: 10px; margin-bottom: 10px;'>
+                        <strong>{m}</strong><br>
+                        <span style='color:{cor_a}; font-size: 18px;'><b>{utils.to_br_currency(liq_a)}</b></span><br>
+                        <span style='font-size: 13px;'>Breno: {utils.to_br_currency(breno_a)}<br>Eunice: {utils.to_br_currency(eunice_a)}</span>
+                    </div>
+                    """, 
+                    unsafe_allow_html=True
+                )
 
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button("💾 SALVAR HISTÓRICO", type="secondary", use_container_width=True):
