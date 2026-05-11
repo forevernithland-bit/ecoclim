@@ -4,8 +4,8 @@ import numpy as np
 import utils
 
 def renderizar():
+    # Mantemos a div para o CSS global do app.py funcionar (esconder cabeçalhos das tabelas de resumo)
     st.markdown('<div class="financeiro">', unsafe_allow_html=True)
-    st.subheader("📊 Controle Financeiro e Patrimônio")
     
     with st.sidebar:
         st.image("logo.png", width=150)
@@ -13,24 +13,22 @@ def renderizar():
         st.write("---")
         st.markdown("### 👁️ Linha do Tempo")
         
-        # Controle de estado seguro para o Slider
         if 'mes_inicio_fin' not in st.session_state:
             st.session_state.mes_inicio_fin = 'JANEIRO'
             st.session_state.mes_fim_fin = 'DEZEMBRO'
 
         mes_inicio, mes_fim = st.select_slider(
-            "Período Visível na Tela:", 
+            "Período Visível:", 
             options=utils.meses_pt, 
             value=(st.session_state.mes_inicio_fin, st.session_state.mes_fim_fin)
         )
         
-        # Atualiza a memória da sessão
         st.session_state.mes_inicio_fin = mes_inicio
         st.session_state.mes_fim_fin = mes_fim
             
         colunas_visiveis = ["MESES"] + utils.meses_pt[utils.meses_pt.index(mes_inicio):utils.meses_pt.index(mes_fim) + 1]
 
-        if st.button("🔄 Recarregar Dados do Banco"): 
+        if st.button("🔄 Recarregar Dados"): 
             st.session_state.pop('ano_dados_atual', None)
             st.rerun()
 
@@ -42,51 +40,37 @@ def renderizar():
         st.session_state.df_e = utils.load_year_data('entradas', contas_e, ano_selecionado)
         st.session_state.ano_dados_atual = ano_selecionado
 
-    # --- FILTRO ANTILIXO: BLINDAGEM CONTRA LINHAS VAZIAS ---
     def garantir_linhas(df, lista_contas):
         if df.empty or 'MESES' not in df.columns:
             return pd.DataFrame({"MESES": lista_contas, **{m: 0.0 for m in utils.meses_pt}})
-        
-        # 1. Filtra removendo tudo que estiver vazio ou não pertencer à lista oficial
         df = df[df['MESES'].isin(lista_contas)].copy()
-        
-        # 2. Garante que todas as contas da lista estejam presentes
         for c in lista_contas:
             if c not in df['MESES'].values:
-                nova_linha = {"MESES": c, **{m: 0.0 for m in utils.meses_pt}}
-                df = pd.concat([df, pd.DataFrame([nova_linha])], ignore_index=True)
-                
-        # 3. Força a ordem exata das linhas conforme definido em contas_p e contas_e
+                df = pd.concat([df, pd.DataFrame([{"MESES": c, **{m: 0.0 for m in utils.meses_pt}}])], ignore_index=True)
         df['MESES'] = pd.Categorical(df['MESES'], categories=lista_contas, ordered=True)
-        df = df.sort_values('MESES').reset_index(drop=True)
-        
-        return df
+        return df.sort_values('MESES').reset_index(drop=True)
 
     st.session_state.df_p = garantir_linhas(st.session_state.df_p, contas_p)
     st.session_state.df_e = garantir_linhas(st.session_state.df_e, contas_e)
 
-    # Blindagem matemática (Garante que tudo seja lido como número)
     for m in utils.meses_pt:
         st.session_state.df_p[m] = pd.to_numeric(st.session_state.df_p[m], errors='coerce').fillna(0.0)
         st.session_state.df_e[m] = pd.to_numeric(st.session_state.df_e[m], errors='coerce').fillna(0.0)
 
     col_cfg = {"MESES": st.column_config.TextColumn("CONTA", width=220, disabled=True)}
-    for m in utils.meses_pt: 
-        col_cfg[m] = st.column_config.NumberColumn(m, width=100, format="R$ %,.2f") 
+    for m in utils.meses_pt: col_cfg[m] = st.column_config.NumberColumn(m, width=100, format="R$ %,.2f") 
 
     st.markdown('<div class="container-tabelas">', unsafe_allow_html=True)
     
-    # --------------------------
-    # 1. PATRIMÔNIO
-    # --------------------------
+    # --- 1. PATRIMÔNIO (SALVAMENTO AUTOMÁTICO NO ENTER) ---
     st.markdown("#### 🏛️ Posição Patrimonial e Investimentos")
-    
     df_p_editado = st.data_editor(st.session_state.df_p[colunas_visiveis], hide_index=True, column_config=col_cfg, use_container_width=True, key="editor_p")
 
     if not df_p_editado.equals(st.session_state.df_p[colunas_visiveis]):
         for m in [c for c in colunas_visiveis if c != "MESES"]: 
             st.session_state.df_p.loc[:, m] = pd.to_numeric(df_p_editado[m], errors='coerce').fillna(0.0)
         utils.save_to_supabase('patrimonio', st.session_state.df_p, ano_selecionado)
+        st.toast("✅ Patrimônio salvo!", icon="💾") # Feedback visual rápido
         st.rerun()
 
     df_n = st.session_state.df_p.set_index('MESES')
@@ -101,8 +85,9 @@ def renderizar():
     st.dataframe(styled_res_p.format(lambda x: x if isinstance(x, str) else utils.to_br_currency(x, False)), hide_index=True, column_config=col_cfg, use_container_width=True)
 
     st.markdown("---")
-    st.markdown("#### 💰 Recebimentos e Pró-labore")
     
+    # --- 2. RECEBIMENTOS (SALVAMENTO AUTOMÁTICO NO ENTER) ---
+    st.markdown("#### 💰 Recebimentos e Pró-labore")
     if ano_selecionado == utils.ano_atual:
         try:
             res_serv = st.session_state.supabase.table('servicos_andamento').select('lucro_estimado, status_projeto').execute()
@@ -119,6 +104,7 @@ def renderizar():
         for m in [c for c in colunas_visiveis if c != "MESES"]: 
             st.session_state.df_e.loc[:, m] = pd.to_numeric(df_e_edit[m], errors='coerce').fillna(0.0)
         utils.save_to_supabase('entradas', st.session_state.df_e, ano_selecionado)
+        st.toast("✅ Recebimentos salvos!", icon="💰")
         st.rerun()
 
     tot_ent = st.session_state.df_e.set_index('MESES').sum()
@@ -145,18 +131,13 @@ def renderizar():
     st.dataframe(styled_rend.format(lambda x: x if isinstance(x, str) else utils.to_br_currency(x, False)), hide_index=True, column_config=col_cfg, use_container_width=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # --------------------------
-    # 2. GRÁFICOS E MÉTRICAS
-    # --------------------------
     st.markdown("<br>", unsafe_allow_html=True)
     c1, c2, c3, c4 = st.columns(4)
     meses_calc = utils.meses_pt[:utils.mes_hoje_idx] if ano_selecionado == utils.ano_atual else utils.meses_pt
     media_ent = tot_ent[meses_calc].mean() if not tot_ent.empty else 0
     media_rend_r = rend_tot[meses_calc].mean() if not rend_tot.empty else 0
-    
     pb_safe = prev_bal[meses_calc].replace(0, np.nan)
     media_rend_p = (rend_tot[meses_calc] / pb_safe).mean() * 100 if not pb_safe.isna().all() else 0.0
-    
     idx_ref = 11 if ano_selecionado < utils.ano_atual else (utils.mes_hoje_idx - 1 if utils.mes_hoje_idx > 0 else 0)
     pat_atual = pat_tot.iloc[idx_ref] if len(pat_tot) > idx_ref else 0
 
@@ -167,21 +148,15 @@ def renderizar():
 
     st.write("---")
     g1, g2 = st.columns(2)
-    
     pat_chart = pd.to_numeric(pat_tot[utils.meses_pt], errors='coerce').fillna(0)
     rend_chart = pd.to_numeric(rend_tot[utils.meses_pt], errors='coerce').fillna(0)
     salario_chart = pd.to_numeric(tot_ent[utils.meses_pt] + rend_tot[utils.meses_pt], errors='coerce').fillna(0)
-    
     eco_series = st.session_state.df_e.set_index('MESES')
     eco_vals = pd.to_numeric(eco_series[eco_series.index == 'ECOCLIM'].sum()[utils.meses_pt], errors='coerce').fillna(0)
 
     with g1:
-        st.subheader("Aumento de Patrimônio Total")
-        st.line_chart(pat_chart)
-        st.subheader("Rendimento Mensal (R$)")
-        st.bar_chart(rend_chart)
+        st.subheader("Aumento de Patrimônio Total"); st.line_chart(pat_chart)
+        st.subheader("Rendimento Mensal (R$)"); st.bar_chart(rend_chart)
     with g2:
-        st.subheader("Salário + Rendimento Mensal")
-        st.area_chart(salario_chart)
-        st.subheader("Faturamento Ecoclim")
-        st.line_chart(eco_vals)
+        st.subheader("Salário + Rendimento Mensal"); st.area_chart(salario_chart)
+        st.subheader("Faturamento Ecoclim"); st.line_chart(eco_vals)
