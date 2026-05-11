@@ -4,50 +4,41 @@ import numpy as np
 import utils
 
 # =============================================================================
-# NOVAS FUNÇÕES DE BANCO DE DADOS (BASEADO NO SEU PRINT)
-# Converte a visualização da tela (Horizontal) para o banco de dados (Vertical)
+# FUNÇÕES DE BANCO DE DADOS (FORMATO VERTICAL EXATO DO SEU PRINT)
 # =============================================================================
 
 def carregar_fin_do_banco(nome_tabela, contas_padrao, ano):
-    """Puxa os dados verticais do Supabase e monta a tabela horizontal pra tela"""
     supabase = st.session_state.supabase
-    
-    # Cria o dataframe vazio com todas as contas e meses zerados
+    # Cria a base vazia com as contas e colunas de meses
     df_novo = pd.DataFrame({"MESES": contas_padrao})
     for m in utils.meses_pt:
         df_novo[m] = 0.0
 
     try:
-        # Puxa os dados do ano específico
+        # Puxa os dados verticais
         res = supabase.table(nome_tabela).select("*").eq("ano", ano).execute()
-        dados_banco = res.data
-        
-        # Se tiver dados, preenche o dataframe nos lugares certos
-        if dados_banco:
-            for d in dados_banco:
+        if res.data:
+            for d in res.data:
                 conta = d.get("conta")
                 mes = d.get("mes")
                 valor = float(d.get("valor", 0.0))
                 
-                # Se a conta e o mês baterem com o nosso padrão, atualiza o valor na célula
+                # Joga os valores nas células corretas da tela
                 if conta in contas_padrao and mes in utils.meses_pt:
                     df_novo.loc[df_novo["MESES"] == conta, mes] = valor
     except Exception as e:
-        pass # Se falhar, retorna o dataframe zerado mesmo
-        
+        pass
     return df_novo
 
 def salvar_fin_no_banco(nome_tabela, df, ano):
-    """Desmonta a tabela horizontal da tela e salva no formato vertical do Supabase"""
     supabase = st.session_state.supabase
     dados_para_enviar = []
     
+    # Desmonta a tabela horizontal em formato Vertical (conta, mes, ano, valor)
     for _, linha in df.iterrows():
         conta = str(linha["MESES"]).strip()
         for m in utils.meses_pt:
             valor = float(linha[m]) if pd.notna(linha[m]) else 0.0
-            
-            # Monta o pacote EXATAMENTE como está no seu print
             dados_para_enviar.append({
                 "conta": conta,
                 "mes": m,
@@ -56,17 +47,18 @@ def salvar_fin_no_banco(nome_tabela, df, ano):
             })
 
     try:
-        # Apaga os dados velhos desse ano para não duplicar
+        # Apaga o ano atual para substituir pelos dados novos
         supabase.table(nome_tabela).delete().eq("ano", ano).execute()
-        # Insere os dados novos no formato correto
-        supabase.table(nome_tabela).insert(dados_para_enviar).execute()
+        # Se tiver dados, insere no banco
+        if dados_para_enviar:
+            supabase.table(nome_tabela).insert(dados_para_enviar).execute()
         return True
     except Exception as e:
-        st.error(f"Erro ao salvar no banco: {e}")
+        st.error(f"Erro ao salvar no banco (Tabela {nome_tabela}): {e}")
         return False
 
 # =============================================================================
-# TELA FINANCEIRA
+# RENDERIZAÇÃO DA TELA
 # =============================================================================
 def renderizar():
     st.markdown('<div class="financeiro">', unsafe_allow_html=True)
@@ -102,7 +94,7 @@ def renderizar():
     contas_p = ['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS', 'IMÓVEIS', 'VEÍCULOS']
     contas_e = ['ECOCLIM', 'AIRNB', 'CONS INVESTIMENTOS', 'MAGGI CONSORCIOS']
     
-    # Aqui usamos a nossa NOVA função de carregamento
+    # Carrega os dados com a nossa função nova (Lê vertical e monta horizontal)
     if 'ano_dados_atual' not in st.session_state or st.session_state.ano_dados_atual != ano_fiscal:
         st.session_state.df_p = carregar_fin_do_banco('patrimonio', contas_p, ano_fiscal)
         st.session_state.df_e = carregar_fin_do_banco('entradas', contas_e, ano_fiscal)
@@ -113,17 +105,20 @@ def renderizar():
 
     st.markdown('<div class="container-tabelas">', unsafe_allow_html=True)
     
-    # --- PATRIMÔNIO ---
+    # --- 1. PATRIMÔNIO ---
     st.markdown("#### 🏛️ Posição Patrimonial e Investimentos")
     df_p_ed = st.data_editor(st.session_state.df_p[colunas_v], hide_index=True, column_config=col_cfg, use_container_width=True, key="editor_p")
 
+    # Verifica se você alterou algo na tabela de Patrimônio
     if not df_p_ed.equals(st.session_state.df_p[colunas_v]):
         for m in [c for c in colunas_v if c != "MESES"]:
             st.session_state.df_p[m] = pd.to_numeric(df_p_ed[m], errors='coerce').fillna(0.0)
-        salvar_fin_no_banco('patrimonio', st.session_state.df_p, ano_fiscal)
-        st.toast("✅ Patrimônio Salvo!", icon="💾")
+        
+        # Salva assim que você aperta ENTER
+        if salvar_fin_no_banco('patrimonio', st.session_state.df_p, ano_fiscal):
+            st.toast("✅ Patrimônio Salvo!", icon="💾")
+            st.rerun()
 
-    # Cálculos Patrimônio
     df_n = st.session_state.df_p.set_index('MESES').apply(pd.to_numeric, errors='coerce').fillna(0)
     pat_liq = df_n[df_n.index.isin(['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS'])].sum()
     pat_tot = pat_liq + df_n[df_n.index == 'IMÓVEIS'].sum() + df_n[df_n.index == 'VEÍCULOS'].sum()
@@ -136,15 +131,19 @@ def renderizar():
 
     st.markdown("---")
     
-    # --- RECEBIMENTOS ---
+    # --- 2. RECEBIMENTOS ---
     st.markdown("#### 💰 Recebimentos e Pró-labore")
     df_e_ed = st.data_editor(st.session_state.df_e[colunas_v], hide_index=True, column_config=col_cfg, use_container_width=True, key="ed_e")
 
+    # Verifica se você alterou algo na tabela de Recebimentos
     if not df_e_ed.equals(st.session_state.df_e[colunas_v]):
         for m in [c for c in colunas_v if c != "MESES"]:
             st.session_state.df_e[m] = pd.to_numeric(df_e_ed[m], errors='coerce').fillna(0.0)
-        salvar_fin_no_banco('entradas', st.session_state.df_e, ano_fiscal)
-        st.toast("✅ Recebimentos Salvos!", icon="💰")
+        
+        # Salva assim que você aperta ENTER
+        if salvar_fin_no_banco('entradas', st.session_state.df_e, ano_fiscal):
+            st.toast("✅ Recebimentos Salvos!", icon="💰")
+            st.rerun()
 
     tot_ent = st.session_state.df_e.set_index('MESES').apply(pd.to_numeric, errors='coerce').fillna(0).sum()
     df_res_e = pd.DataFrame({'MESES': ['TOTAL RECEBIMENTOS']})
@@ -152,6 +151,8 @@ def renderizar():
     st.dataframe(df_res_e[colunas_v].style.set_properties(**{'background-color': '#9BC2E6', 'font-weight': 'bold'}).format(lambda x: x if isinstance(x, str) else utils.to_br_currency(x, False)), hide_index=True, column_config=col_cfg, use_container_width=True)
 
     st.markdown("---")
+    
+    # --- 3. RENDIMENTOS E GRÁFICOS ---
     st.markdown("#### 📈 Rendimento Mensal (Investimentos)")
     
     xp_val = df_n[df_n.index == 'INVESTIMENTO XP'].sum()
@@ -170,7 +171,6 @@ def renderizar():
     st.dataframe(df_rend[colunas_v].style.apply(lambda row: [f'background-color: {"#FF9900" if row["MESES"] == "RENDIMENTO TOTAL" else "#FFF2CC" if "%" in row["MESES"] else "#9BC2E6" if "SALÁRIO" in row["MESES"] else "white"}; font-weight: bold' for _ in colunas_v], axis=1).format(lambda x: x if isinstance(x, str) else utils.to_br_currency(x, False)), hide_index=True, column_config=col_cfg, use_container_width=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # Métricas
     st.markdown("<br>", unsafe_allow_html=True)
     c1, c2, c3, c4 = st.columns(4)
     m_calc = utils.meses_pt[:utils.mes_hoje_idx] if ano_fiscal == utils.ano_atual else utils.meses_pt
