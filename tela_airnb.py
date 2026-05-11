@@ -37,7 +37,7 @@ def renderizar():
     st.markdown("### 🏡 Gestão AirBnb / Locações")
     
     with st.sidebar:
-        st.image("logo.png", width=120)
+        # Logo removida daqui, pois o app.py já cuida disso!
         ano_selecionado = st.selectbox("Ano", options=[2025, 2026, 2027, 2028], index=1, key="ano_airnb")
         st.markdown("---")
         if st.button("💾 SALVAR TUDO AGORA", type="primary", use_container_width=True):
