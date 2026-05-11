@@ -3,14 +3,55 @@ import pandas as pd
 import numpy as np
 import utils
 
+# =============================================================================
+# FUNÇÃO BLINDADA DE SALVAMENTO (EXCLUSIVA DO FINANCEIRO)
+# Resolve o problema de letras maiúsculas/minúsculas no Banco de Dados
+# =============================================================================
+def salvar_fin_no_banco(nome_tabela, df, ano):
+    supabase = st.session_state.supabase
+    
+    # Prepara os dados em formato Minúsculo (Padrão do Banco de Dados)
+    dados_min = []
+    for _, linha in df.iterrows():
+        reg = {"ano": ano, "meses": str(linha["MESES"])}
+        for m in utils.meses_pt:
+            reg[m.lower()] = float(linha[m]) if pd.notna(linha[m]) else 0.0
+        dados_min.append(reg)
+        
+    try:
+        # 1. Limpa o ano atual para evitar duplicatas
+        supabase.table(nome_tabela).delete().eq("ano", ano).execute()
+        
+        # 2. Tenta inserir em minúsculas
+        try:
+            supabase.table(nome_tabela).insert(dados_min).execute()
+        except Exception as e_min:
+            # Caso o banco tenha a coluna 'marco' sem cedilha
+            if 'março' in str(e_min).lower():
+                for d in dados_min: 
+                    d['marco'] = d.pop('março')
+                supabase.table(nome_tabela).insert(dados_min).execute()
+            else:
+                # Se falhar por outro motivo, tenta forçar em Maiúsculo como último recurso
+                dados_mai = []
+                for _, linha in df.iterrows():
+                    reg_m = {"ano": ano, "MESES": str(linha["MESES"])}
+                    for m in utils.meses_pt: reg_m[m] = float(linha[m]) if pd.notna(linha[m]) else 0.0
+                    dados_mai.append(reg_m)
+                supabase.table(nome_tabela).insert(dados_mai).execute()
+                
+    except Exception as e:
+        st.error(f"Erro crítico ao conectar com banco: {e}")
+
+# =============================================================================
+# RENDERIZAÇÃO DA TELA
+# =============================================================================
 def renderizar():
     st.markdown('<div class="financeiro">', unsafe_allow_html=True)
     
     with st.sidebar:
-        # A linha st.image("logo.png") foi removida daqui para não duplicar com o app.py
         ano_selecionado = st.selectbox("Ano Fiscal", options=[2025, 2026, 2027, 2028], index=1)
         
-        # Botão idêntico ao do AirBnb para garantir salvamento antes de trocar de ano
         st.write("---")
         if st.button("💾 SALVAR TUDO AGORA", type="primary", use_container_width=True):
             st.session_state.salvar_fin_clicado = True
@@ -48,7 +89,6 @@ def renderizar():
         for c in lista:
             if c not in df['MESES'].values:
                 df = pd.concat([df, pd.DataFrame([{"MESES": c, **{m: 0.0 for m in utils.meses_pt}}])], ignore_index=True)
-        # Ordenação 100% segura sem quebrar o banco de dados
         ordem = {val: idx for idx, val in enumerate(lista)}
         df['sort_idx'] = df['MESES'].map(ordem)
         df = df.sort_values('sort_idx').drop(columns=['sort_idx']).reset_index(drop=True)
@@ -64,7 +104,7 @@ def renderizar():
     st.markdown('<div class="container-tabelas">', unsafe_allow_html=True)
     
     # =========================================================================
-    # 1. TABELA PATRIMÔNIO (Com verificação célula a célula)
+    # 1. TABELA PATRIMÔNIO
     # =========================================================================
     st.markdown("#### 🏛️ Posição Patrimonial e Investimentos")
     df_p_editado = st.data_editor(st.session_state.df_p[colunas_visiveis], hide_index=True, column_config=col_cfg, use_container_width=True, key="editor_p")
@@ -73,19 +113,14 @@ def renderizar():
     for idx in df_p_editado.index:
         for m in [c for c in colunas_visiveis if c != "MESES"]:
             val_edit = pd.to_numeric(df_p_editado.at[idx, m], errors='coerce')
-            if pd.isna(val_edit): val_edit = 0.0
-            
             val_state = pd.to_numeric(st.session_state.df_p.at[idx, m], errors='coerce')
-            if pd.isna(val_state): val_state = 0.0
-            
-            # Se a diferença for detectada, atualiza a memória
-            if abs(val_edit - val_state) > 0.01:
+            if abs((val_edit if pd.notna(val_edit) else 0) - (val_state if pd.notna(val_state) else 0)) > 0.01:
                 st.session_state.df_p.at[idx, m] = val_edit
                 mudou_p = True
 
     if mudou_p:
-        utils.save_to_supabase('patrimonio', st.session_state.df_p, ano_selecionado)
-        st.toast("✅ Patrimônio salvo (Auto)!", icon="💾")
+        salvar_fin_no_banco('patrimonio', st.session_state.df_p, ano_selecionado)
+        st.toast("✅ Patrimônio atualizado!", icon="💾")
 
     df_n = st.session_state.df_p.set_index('MESES').apply(pd.to_numeric, errors='coerce').fillna(0)
     pat_liq = df_n[df_n.index.isin(['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS'])].sum()
@@ -100,7 +135,7 @@ def renderizar():
     st.markdown("---")
     
     # =========================================================================
-    # 2. TABELA RECEBIMENTOS (Com verificação célula a célula)
+    # 2. TABELA RECEBIMENTOS
     # =========================================================================
     st.markdown("#### 💰 Recebimentos e Pró-labore")
     df_e_editado = st.data_editor(st.session_state.df_e[colunas_visiveis], hide_index=True, column_config=col_cfg, use_container_width=True, key="ed_e")
@@ -109,18 +144,14 @@ def renderizar():
     for idx in df_e_editado.index:
         for m in [c for c in colunas_visiveis if c != "MESES"]:
             val_edit = pd.to_numeric(df_e_editado.at[idx, m], errors='coerce')
-            if pd.isna(val_edit): val_edit = 0.0
-            
             val_state = pd.to_numeric(st.session_state.df_e.at[idx, m], errors='coerce')
-            if pd.isna(val_state): val_state = 0.0
-            
-            if abs(val_edit - val_state) > 0.01:
+            if abs((val_edit if pd.notna(val_edit) else 0) - (val_state if pd.notna(val_state) else 0)) > 0.01:
                 st.session_state.df_e.at[idx, m] = val_edit
                 mudou_e = True
 
     if mudou_e:
-        utils.save_to_supabase('entradas', st.session_state.df_e, ano_selecionado)
-        st.toast("✅ Recebimentos salvos (Auto)!", icon="💰")
+        salvar_fin_no_banco('entradas', st.session_state.df_e, ano_selecionado)
+        st.toast("✅ Recebimentos atualizados!", icon="💰")
 
     tot_ent = st.session_state.df_e.set_index('MESES').apply(pd.to_numeric, errors='coerce').fillna(0).sum()
     df_res_e = pd.DataFrame({'MESES': ['TOTAL RECEBIMENTOS']})
@@ -128,11 +159,11 @@ def renderizar():
     st.dataframe(df_res_e[colunas_visiveis].style.set_properties(**{'background-color': '#9BC2E6', 'font-weight': 'bold'}).format(lambda x: x if isinstance(x, str) else utils.to_br_currency(x, False)), hide_index=True, column_config=col_cfg, use_container_width=True)
 
     # =========================================================================
-    # 3. LÓGICA DO BOTÃO "SALVAR TUDO AGORA" (Garante que nada seja perdido)
+    # 3. LÓGICA DO BOTÃO "SALVAR TUDO AGORA"
     # =========================================================================
     if st.session_state.get('salvar_fin_clicado', False):
-        utils.save_to_supabase('patrimonio', st.session_state.df_p, ano_selecionado)
-        utils.save_to_supabase('entradas', st.session_state.df_e, ano_selecionado)
+        salvar_fin_no_banco('patrimonio', st.session_state.df_p, ano_selecionado)
+        salvar_fin_no_banco('entradas', st.session_state.df_e, ano_selecionado)
         st.session_state.salvar_fin_clicado = False
         st.success("✅ Banco de Dados Atualizado com Sucesso!")
 
