@@ -7,7 +7,7 @@ def renderizar():
     st.markdown('<div class="financeiro">', unsafe_allow_html=True)
     
     with st.sidebar:
-        st.image("logo.png", width=150)
+        # A linha st.image("logo.png") foi removida daqui para não duplicar com o app.py
         ano_selecionado = st.selectbox("Ano Fiscal", options=[2025, 2026, 2027, 2028], index=1)
         
         # Botão idêntico ao do AirBnb para garantir salvamento antes de trocar de ano
