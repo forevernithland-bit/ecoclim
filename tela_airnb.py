@@ -3,6 +3,19 @@ import pandas as pd
 import datetime
 import utils
 
+def atualizar_e_salvar():
+    """Função centralizada para salvar os dados no Supabase"""
+    meses_atuais = st.session_state.meses_atuais_ref
+    ano = st.session_state.ano_airnb_atual
+    
+    # Puxa o que está na tela (editores) e mescla com a base
+    st.session_state.df_airnb_ent = atualizar_df_completo(st.session_state.df_airnb_ent, st.session_state.airnb_ent_ed, meses_atuais)
+    st.session_state.df_airnb_sai = atualizar_df_completo(st.session_state.df_airnb_sai, st.session_state.airnb_sai_ed, meses_atuais)
+    
+    utils.save_to_supabase('airnb_entradas', st.session_state.df_airnb_ent, ano)
+    utils.save_to_supabase('airnb_saidas', st.session_state.df_airnb_sai, ano)
+    st.toast("✅ Alterações salvas com sucesso!", icon="💾")
+
 def atualizar_df_completo(df_base, df_tela, meses_visiveis):
     df_tela = df_tela[df_tela['MESES'].astype(str).str.strip() != '']
     df_novo = pd.DataFrame({"MESES": df_tela["MESES"]})
@@ -24,24 +37,36 @@ def garantir_linhas(df, lista_contas):
     return df.sort_values('MESES').reset_index(drop=True)
 
 def renderizar():
-    st.markdown("## 🏡 Dashboard AirBnb e Locações")
+    # CSS para comprimir ainda mais o layout e remover espaços inúteis
+    st.markdown("""
+        <style>
+            .stTabs [data-baseweb="tab-list"] { gap: 8px; }
+            .stTabs [data-baseweb="tab"] { height: 40px; padding-top: 10px; }
+            div[data-testid="stVerticalBlock"] { gap: 0.5rem !important; }
+            .main .block-container { padding-top: 1rem !important; }
+        </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown("### 🏡 Gestão AirBnb / Locações")
     
     with st.sidebar:
-        st.image("logo.png", width=150)
-        ano_selecionado = st.selectbox("Ano de Referência", options=[2025, 2026, 2027, 2028], index=1, key="ano_airnb")
-        if st.button("💾 GRAVAR DADOS", type="primary", use_container_width=True):
-            st.session_state.salvar_clicado = True
+        st.image("logo.png", width=120)
+        ano_selecionado = st.selectbox("Ano", options=[2025, 2026, 2027, 2028], index=1, key="ano_airnb")
+        st.markdown("---")
+        if st.button("💾 SALVAR TUDO AGORA", type="primary", use_container_width=True):
+            atualizar_e_salvar()
 
-    # --- Lógica do Tempo ---
+    # --- Lógica de Tempo ---
     hoje = datetime.date.today()
     if ano_selecionado == hoje.year:
         mes_atual_idx = hoje.month - 1
         meses_atuais = [utils.meses_pt[mes_atual_idx - 1], utils.meses_pt[mes_atual_idx]] if mes_atual_idx > 0 else [utils.meses_pt[mes_atual_idx]]
-        meses_antigos = utils.meses_pt[:mes_atual_idx - 1] if mes_atual_idx > 0 else []
     else:
-        meses_atuais, meses_antigos = [], utils.meses_pt
+        meses_atuais = []
 
-    # --- Dados ---
+    st.session_state.meses_atuais_ref = meses_atuais
+
+    # --- Carga de Dados ---
     contas_ent = ['AIRNB', 'LOCAÇÕES POR FORA']
     contas_sai = ['LIMPEZA', 'LUZ', 'ÁGUA', 'INTERNET', 'PISCINEIRO', 'PRODUTOS DE LIMPEZA', 'OUTROS']
 
@@ -50,88 +75,48 @@ def renderizar():
         st.session_state.df_airnb_sai = garantir_linhas(utils.load_year_data('airnb_saidas', contas_sai, ano_selecionado), contas_sai)
         st.session_state.ano_airnb_atual = ano_selecionado
 
-    aba_atual, aba_antigos = st.tabs(["📊 Painel Mensal", "🕰️ Histórico"])
+    aba_p, aba_h = st.tabs(["📊 Painel Mensal", "🕰️ Histórico"])
 
-    with aba_atual:
+    with aba_p:
         if not meses_atuais:
-            st.info("Selecione o ano atual para ver o painel mensal.")
+            st.info("Selecione o ano atual para o painel.")
         else:
-            # DIVISÃO DA TELA: Tabelas na esquerda, Resultados na direita
-            col_dados, col_resumo = st.columns([1.4, 1])
+            col_dados, col_res = st.columns([1.5, 1])
 
             with col_dados:
-                cfg = {"MESES": st.column_config.TextColumn("CATEGORIA", width="medium")}
-                for m in meses_atuais: cfg[m] = st.column_config.NumberColumn(m, format="R$ %,.2f")
+                cfg = {"MESES": st.column_config.TextColumn("CATEGORIA", width="small")}
+                for m in meses_atuais: cfg[m] = st.column_config.NumberColumn(m, format="R$ %.2f")
 
-                # --- ENTRADAS ---
-                st.markdown("#### 📥 Entradas")
-                df_ent_edit = st.data_editor(st.session_state.df_airnb_ent[['MESES'] + meses_atuais], column_config=cfg, num_rows="fixed", hide_index=True, use_container_width=True, height=115, key="airnb_ent_ed")
+                st.write("**📥 Entradas**")
+                df_ent_ed = st.data_editor(st.session_state.df_airnb_ent[['MESES'] + meses_atuais], column_config=cfg, hide_index=True, use_container_width=True, height=110, key="airnb_ent_ed")
                 
-                for m in meses_atuais:
-                    v = pd.to_numeric(df_ent_edit[m], errors='coerce').fillna(0).sum()
-                    st.markdown(f"<div style='text-align: right; font-size: 13px; color: #004488;'><b>Total Entrada {m}:</b> {utils.to_br_currency(v)}</div>", unsafe_allow_html=True)
+                st.write("**📤 Saídas**")
+                df_sai_ed = st.data_editor(st.session_state.df_airnb_sai[['MESES'] + meses_atuais], column_config=cfg, hide_index=True, use_container_width=True, height=265, key="airnb_sai_ed")
 
-                st.markdown("<br>", unsafe_allow_html=True)
-
-                # --- SAÍDAS ---
-                st.markdown("#### 📤 Saídas (Custos)")
-                df_sai_edit = st.data_editor(st.session_state.df_airnb_sai[['MESES'] + meses_atuais], column_config=cfg, num_rows="fixed", hide_index=True, use_container_width=True, height=285, key="airnb_sai_ed")
-                
+            with col_res:
+                st.write("**💰 Resultado Líquido**")
                 for m in meses_atuais:
-                    v = pd.to_numeric(df_sai_edit[m], errors='coerce').fillna(0).sum()
-                    st.markdown(f"<div style='text-align: right; font-size: 13px; color: #cc0000;'><b>Custo Total {m}:</b> {utils.to_br_currency(v)}</div>", unsafe_allow_html=True)
-
-            with col_resumo:
-                st.markdown("#### 💰 Resultado Líquido")
-                for m in meses_atuais:
-                    e = pd.to_numeric(df_ent_edit[m], errors='coerce').fillna(0).sum()
-                    s = pd.to_numeric(df_sai_edit[m], errors='coerce').fillna(0).sum()
-                    liq = e - s
-                    breno = liq * 0.5
-                    eunice = liq * 0.5
+                    e_tot = pd.to_numeric(df_ent_ed[m], errors='coerce').fillna(0).sum()
+                    s_tot = pd.to_numeric(df_sai_ed[m], errors='coerce').fillna(0).sum()
+                    liq = e_tot - s_tot
                     cor = "#006600" if liq >= 0 else "#cc0000"
                     bg = "#e6ffe6" if liq >= 0 else "#ffe6e6"
 
                     st.markdown(f"""
-                        <div style="background-color: {bg}; padding: 15px; border-radius: 12px; border: 2px solid {cor}; text-align: center; margin-bottom: 20px;">
-                            <h3 style="color: {cor}; margin: 0; font-size: 20px;">{m}</h3>
-                            <h1 style="color: {cor}; margin: 10px 0; font-size: 38px;">{utils.to_br_currency(liq)}</h1>
-                            <div style="display: flex; justify-content: space-around; border-top: 1px solid {cor}; padding-top: 10px;">
-                                <div style="color: {cor}; font-size: 14px;"><b>Breno (50%):</b><br>{utils.to_br_currency(breno)}</div>
-                                <div style="color: {cor}; font-size: 14px;"><b>Eunice (50%):</b><br>{utils.to_br_currency(eunice)}</div>
+                        <div style="background-color: {bg}; padding: 10px; border-radius: 8px; border: 1px solid {cor}; text-align: center; margin-bottom: 8px;">
+                            <p style="color: {cor}; margin: 0; font-size: 14px; font-weight: bold;">{m}</p>
+                            <h2 style="color: {cor}; margin: 5px 0; font-size: 28px;">{utils.to_br_currency(liq)}</h2>
+                            <div style="display: flex; justify-content: space-between; border-top: 1px solid {cor}; padding-top: 5px; font-size: 12px; color: {cor};">
+                                <span>Breno: {utils.to_br_currency(liq*0.5)}</span>
+                                <span>Eunice: {utils.to_br_currency(liq*0.5)}</span>
                             </div>
                         </div>
                     """, unsafe_allow_html=True)
+                
+                if st.button("💾 GRAVAR ALTERAÇÕES", type="primary", use_container_width=True, key="btn_salvar_corpo"):
+                    atualizar_e_salvar()
 
-            # Lógica de Gravação Automática via botão da sidebar
-            if st.session_state.get('salvar_clicado', False):
-                st.session_state.df_airnb_ent = atualizar_df_completo(st.session_state.df_airnb_ent, df_ent_edit, meses_atuais)
-                st.session_state.df_airnb_sai = atualizar_df_completo(st.session_state.df_airnb_sai, df_sai_edit, meses_atuais)
-                utils.save_to_supabase('airnb_entradas', st.session_state.df_airnb_ent, ano_selecionado)
-                utils.save_to_supabase('airnb_saidas', st.session_state.df_airnb_sai, ano_selecionado)
-                st.session_state.salvar_clicado = False
-                st.success("Dados Salvos!")
-                st.rerun()
-
-    with aba_antigos:
-        if not meses_antigos:
-            st.info("Sem histórico.")
-        else:
-            cfg_a = get_col_config(meses_antigos)
-            st.markdown("#### Histórico de Entradas")
-            df_ent_a = st.data_editor(st.session_state.df_airnb_ent[['MESES'] + meses_antigos], column_config=cfg_a, use_container_width=True, key="ent_hist")
-            st.markdown("#### Histórico de Saídas")
-            df_sai_a = st.data_editor(st.session_state.df_airnb_sai[['MESES'] + meses_antigos], column_config=cfg_a, use_container_width=True, key="sai_hist")
-            
-            if st.button("💾 Gravar Histórico", use_container_width=True):
-                st.session_state.df_airnb_ent = atualizar_df_completo(st.session_state.df_airnb_ent, df_ent_a, meses_antigos)
-                st.session_state.df_airnb_sai = atualizar_df_completo(st.session_state.df_airnb_sai, df_sai_a, meses_antigos)
-                utils.save_to_supabase('airnb_entradas', st.session_state.df_airnb_ent, ano_selecionado)
-                utils.save_to_supabase('airnb_saidas', st.session_state.df_airnb_sai, ano_selecionado)
-                st.success("Histórico Salvo!")
-                st.rerun()
-
-def get_col_config(meses):
-    cfg = {"MESES": st.column_config.TextColumn("CATEGORIA", width="medium")}
-    for m in meses: cfg[m] = st.column_config.NumberColumn(m, format="R$ %,.2f")
-    return cfg
+    with aba_h:
+        st.markdown("#### Histórico do Ano")
+        st.dataframe(st.session_state.df_airnb_ent, use_container_width=True, hide_index=True)
+        st.dataframe(st.session_state.df_airnb_sai, use_container_width=True, hide_index=True)
