@@ -13,8 +13,20 @@ def renderizar():
         st.write("---")
         st.markdown("### 👁️ Linha do Tempo")
         
-        pref_inicio, pref_fim = utils.load_user_settings()
-        mes_inicio, mes_fim = st.select_slider("Período Visível na Tela:", options=utils.meses_pt, value=(pref_inicio, pref_fim))
+        # Correção 1: Controle de estado seguro para o Slider (substituindo função inexistente)
+        if 'mes_inicio_fin' not in st.session_state:
+            st.session_state.mes_inicio_fin = 'JANEIRO'
+            st.session_state.mes_fim_fin = 'DEZEMBRO'
+
+        mes_inicio, mes_fim = st.select_slider(
+            "Período Visível na Tela:", 
+            options=utils.meses_pt, 
+            value=(st.session_state.mes_inicio_fin, st.session_state.mes_fim_fin)
+        )
+        
+        # Atualiza a memória da sessão
+        st.session_state.mes_inicio_fin = mes_inicio
+        st.session_state.mes_fim_fin = mes_fim
             
         colunas_visiveis = ["MESES"] + utils.meses_pt[utils.meses_pt.index(mes_inicio):utils.meses_pt.index(mes_fim) + 1]
 
@@ -22,7 +34,6 @@ def renderizar():
             st.session_state.pop('ano_dados_atual', None)
             st.rerun()
 
-    # NOMES EXATOS DO SEU SUPABASE (CONFORME SEUS ÚLTIMOS PRINTS!)
     contas_p = ['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS', 'IMÓVEIS', 'VEÍCULOS']
     contas_e = ['ECOCLIM', 'AIRNB', 'CONS INVESTIMENTOS', 'MAGGI CONSORCIOS']
     
@@ -43,6 +54,11 @@ def renderizar():
     st.session_state.df_p = garantir_linhas(st.session_state.df_p, contas_p)
     st.session_state.df_e = garantir_linhas(st.session_state.df_e, contas_e)
 
+    # Correção 2: Blindagem matemática (Garante que tudo seja lido como número)
+    for m in utils.meses_pt:
+        st.session_state.df_p[m] = pd.to_numeric(st.session_state.df_p[m], errors='coerce').fillna(0.0)
+        st.session_state.df_e[m] = pd.to_numeric(st.session_state.df_e[m], errors='coerce').fillna(0.0)
+
     col_cfg = {"MESES": st.column_config.TextColumn("CONTA", width=220, disabled=True)}
     for m in utils.meses_pt: 
         col_cfg[m] = st.column_config.NumberColumn(m, width=100, format="R$ %,.2f") 
@@ -50,21 +66,24 @@ def renderizar():
     st.markdown('<div class="container-tabelas">', unsafe_allow_html=True)
     
     # --------------------------
-    # 9.1 PATRIMÔNIO
+    # 1. PATRIMÔNIO
     # --------------------------
     st.markdown("#### 🏛️ Posição Patrimonial e Investimentos")
-    df_p_editado = st.data_editor(st.session_state.df_p[colunas_visiveis], hide_index=True, column_config=col_cfg, use_container_width=True, height=295, key="editor_p")
+    
+    # Removido height fixo para evitar cortes visuais, o Streamlit ajusta automaticamente o tamanho
+    df_p_editado = st.data_editor(st.session_state.df_p[colunas_visiveis], hide_index=True, column_config=col_cfg, use_container_width=True, key="editor_p")
 
     if not df_p_editado.equals(st.session_state.df_p[colunas_visiveis]):
         for m in [c for c in colunas_visiveis if c != "MESES"]: 
-            st.session_state.df_p.loc[:, m] = df_p_editado[m]
+            st.session_state.df_p.loc[:, m] = pd.to_numeric(df_p_editado[m], errors='coerce').fillna(0.0)
         utils.save_to_supabase('patrimonio', st.session_state.df_p, ano_selecionado)
         st.rerun()
 
     df_n = st.session_state.df_p.set_index('MESES')
     pat_liq = df_n[df_n.index.isin(['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS'])].sum()
     pat_tot = pat_liq + df_n[df_n.index == 'IMÓVEIS'].sum() + df_n[df_n.index == 'VEÍCULOS'].sum()
-    var_abs = pat_tot.diff().fillna(0); var_pct = (pat_tot.pct_change().fillna(0) * 100).round(2)
+    var_abs = pat_tot.diff().fillna(0)
+    var_pct = (pat_tot.pct_change().replace([np.inf, -np.inf], 0).fillna(0) * 100).round(2) # Blindagem contra infinito
 
     df_res_p = pd.DataFrame({'MESES': ['PATRIMÔNIO LÍQUIDO', 'PATRIMÔNIO TOTAL', 'VAR. MENSAL (R$)', 'VAR. MENSAL (%)']})
     for m in utils.meses_pt: df_res_p[m] = [pat_liq.get(m, 0), pat_tot.get(m, 0), var_abs.get(m, 0), f"{var_pct.get(m, 0):.2f}%"]
@@ -84,10 +103,13 @@ def renderizar():
                 if idx: st.session_state.df_e.at[idx[0], utils.mes_atual_nome] = float(lucro)
         except: pass
 
-    df_e_edit = st.data_editor(st.session_state.df_e[colunas_visiveis], hide_index=True, column_config=col_cfg, use_container_width=True, height=190, key="ed_e")
+    df_e_edit = st.data_editor(st.session_state.df_e[colunas_visiveis], hide_index=True, column_config=col_cfg, use_container_width=True, key="ed_e")
+    
     if not df_e_edit.equals(st.session_state.df_e[colunas_visiveis]):
-        for m in [c for c in colunas_visiveis if c != "MESES"]: st.session_state.df_e.loc[:, m] = df_e_edit[m]
-        utils.save_to_supabase('entradas', st.session_state.df_e, ano_selecionado); st.rerun()
+        for m in [c for c in colunas_visiveis if c != "MESES"]: 
+            st.session_state.df_e.loc[:, m] = pd.to_numeric(df_e_edit[m], errors='coerce').fillna(0.0)
+        utils.save_to_supabase('entradas', st.session_state.df_e, ano_selecionado)
+        st.rerun()
 
     tot_ent = st.session_state.df_e.set_index('MESES').sum()
     df_res_e = pd.DataFrame({'MESES': ['TOTAL RECEBIMENTOS']})
@@ -113,13 +135,19 @@ def renderizar():
     st.dataframe(styled_rend.format(lambda x: x if isinstance(x, str) else utils.to_br_currency(x, False)), hide_index=True, column_config=col_cfg, use_container_width=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
+    # --------------------------
+    # 2. GRÁFICOS E MÉTRICAS
+    # --------------------------
     st.markdown("<br>", unsafe_allow_html=True)
     c1, c2, c3, c4 = st.columns(4)
     meses_calc = utils.meses_pt[:utils.mes_hoje_idx] if ano_selecionado == utils.ano_atual else utils.meses_pt
     media_ent = tot_ent[meses_calc].mean() if not tot_ent.empty else 0
     media_rend_r = rend_tot[meses_calc].mean() if not rend_tot.empty else 0
+    
+    # Tratamento seguro para divisão por zero na média percentual
     pb_safe = prev_bal[meses_calc].replace(0, np.nan)
-    media_rend_p = (rend_tot[meses_calc] / pb_safe).mean() * 100 if not pb_safe.isna().all() else 0
+    media_rend_p = (rend_tot[meses_calc] / pb_safe).mean() * 100 if not pb_safe.isna().all() else 0.0
+    
     idx_ref = 11 if ano_selecionado < utils.ano_atual else (utils.mes_hoje_idx - 1 if utils.mes_hoje_idx > 0 else 0)
     pat_atual = pat_tot.iloc[idx_ref] if len(pat_tot) > idx_ref else 0
 
@@ -130,12 +158,22 @@ def renderizar():
 
     st.write("---")
     g1, g2 = st.columns(2)
+    
+    # Forçar formato numérico para os gráficos não quebrarem
+    pat_chart = pd.to_numeric(pat_tot[utils.meses_pt], errors='coerce').fillna(0)
+    rend_chart = pd.to_numeric(rend_tot[utils.meses_pt], errors='coerce').fillna(0)
+    salario_chart = pd.to_numeric(tot_ent[utils.meses_pt] + rend_tot[utils.meses_pt], errors='coerce').fillna(0)
+    
+    eco_series = st.session_state.df_e.set_index('MESES')
+    eco_vals = pd.to_numeric(eco_series[eco_series.index == 'ECOCLIM'].sum()[utils.meses_pt], errors='coerce').fillna(0)
+
     with g1:
-        st.subheader("Aumento de Patrimônio Total"); st.line_chart(pat_tot[utils.meses_pt])
-        st.subheader("Rendimento Mensal (R$)"); st.bar_chart(rend_tot[utils.meses_pt])
+        st.subheader("Aumento de Patrimônio Total")
+        st.line_chart(pat_chart)
+        st.subheader("Rendimento Mensal (R$)")
+        st.bar_chart(rend_chart)
     with g2:
-        st.subheader("Salário + Rendimento Mensal"); st.area_chart(tot_ent[utils.meses_pt] + rend_tot[utils.meses_pt])
+        st.subheader("Salário + Rendimento Mensal")
+        st.area_chart(salario_chart)
         st.subheader("Faturamento Ecoclim")
-        eco_series = st.session_state.df_e.set_index('MESES')
-        eco_vals = eco_series[eco_series.index == 'ECOCLIM'].sum()
-        st.line_chart(eco_vals[utils.meses_pt])
+        st.line_chart(eco_vals)
