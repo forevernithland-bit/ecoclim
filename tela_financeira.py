@@ -4,7 +4,6 @@ import numpy as np
 import utils
 
 def renderizar():
-    # Mantemos a div para o CSS global do app.py funcionar (esconder cabeçalhos das tabelas de resumo)
     st.markdown('<div class="financeiro">', unsafe_allow_html=True)
     
     with st.sidebar:
@@ -40,15 +39,23 @@ def renderizar():
         st.session_state.df_e = utils.load_year_data('entradas', contas_e, ano_selecionado)
         st.session_state.ano_dados_atual = ano_selecionado
 
+    # Função anti-lixo blindada contra erros de tipagem no Supabase
     def garantir_linhas(df, lista_contas):
         if df.empty or 'MESES' not in df.columns:
             return pd.DataFrame({"MESES": lista_contas, **{m: 0.0 for m in utils.meses_pt}})
+        
+        # Converte para string antes de filtrar para evitar erros no banco de dados
+        df['MESES'] = df['MESES'].astype(str)
         df = df[df['MESES'].isin(lista_contas)].copy()
+        
         for c in lista_contas:
             if c not in df['MESES'].values:
                 df = pd.concat([df, pd.DataFrame([{"MESES": c, **{m: 0.0 for m in utils.meses_pt}}])], ignore_index=True)
-        df['MESES'] = pd.Categorical(df['MESES'], categories=lista_contas, ordered=True)
-        return df.sort_values('MESES').reset_index(drop=True)
+        
+        # Força a ordem sem usar Pandas Categorical (que quebra o Supabase)
+        df['sort_idx'] = df['MESES'].apply(lambda x: lista_contas.index(x) if x in lista_contas else 99)
+        df = df.sort_values('sort_idx').drop(columns=['sort_idx']).reset_index(drop=True)
+        return df
 
     st.session_state.df_p = garantir_linhas(st.session_state.df_p, contas_p)
     st.session_state.df_e = garantir_linhas(st.session_state.df_e, contas_e)
@@ -62,15 +69,25 @@ def renderizar():
 
     st.markdown('<div class="container-tabelas">', unsafe_allow_html=True)
     
-    # --- 1. PATRIMÔNIO (SALVAMENTO AUTOMÁTICO NO ENTER) ---
+    # --- 1. PATRIMÔNIO (Com detecção exata de alteração no ENTER) ---
     st.markdown("#### 🏛️ Posição Patrimonial e Investimentos")
     df_p_editado = st.data_editor(st.session_state.df_p[colunas_visiveis], hide_index=True, column_config=col_cfg, use_container_width=True, key="editor_p")
 
-    if not df_p_editado.equals(st.session_state.df_p[colunas_visiveis]):
+    mudou_p = False
+    for m in [c for c in colunas_visiveis if c != "MESES"]:
+        if not np.allclose(st.session_state.df_p[m].fillna(0), pd.to_numeric(df_p_editado[m], errors='coerce').fillna(0)):
+            mudou_p = True
+            break
+
+    if mudou_p:
         for m in [c for c in colunas_visiveis if c != "MESES"]: 
-            st.session_state.df_p.loc[:, m] = pd.to_numeric(df_p_editado[m], errors='coerce').fillna(0.0)
-        utils.save_to_supabase('patrimonio', st.session_state.df_p, ano_selecionado)
-        st.toast("✅ Patrimônio salvo!", icon="💾") # Feedback visual rápido
+            st.session_state.df_p[m] = pd.to_numeric(df_p_editado[m], errors='coerce').fillna(0.0)
+        
+        # Clona e garante que MESES seja texto antes de enviar para a nuvem
+        df_to_save_p = st.session_state.df_p.copy()
+        df_to_save_p['MESES'] = df_to_save_p['MESES'].astype(str)
+        utils.save_to_supabase('patrimonio', df_to_save_p, ano_selecionado)
+        st.toast("✅ Patrimônio gravado!", icon="💾")
         st.rerun()
 
     df_n = st.session_state.df_p.set_index('MESES')
@@ -86,25 +103,25 @@ def renderizar():
 
     st.markdown("---")
     
-    # --- 2. RECEBIMENTOS (SALVAMENTO AUTOMÁTICO NO ENTER) ---
+    # --- 2. RECEBIMENTOS (Automáticos ECOCLIM removidos) ---
     st.markdown("#### 💰 Recebimentos e Pró-labore")
-    if ano_selecionado == utils.ano_atual:
-        try:
-            res_serv = st.session_state.supabase.table('servicos_andamento').select('lucro_estimado, status_projeto').execute()
-            df_serv = pd.DataFrame(res_serv.data)
-            if not df_serv.empty:
-                lucro = df_serv[df_serv['status_projeto'].isin(['Em Andamento', 'Concluído PIX', 'Concluído CARTÃO'])]['lucro_estimado'].sum()
-                idx = st.session_state.df_e.index[st.session_state.df_e['MESES'] == 'ECOCLIM'].tolist()
-                if idx: st.session_state.df_e.at[idx[0], utils.mes_atual_nome] = float(lucro)
-        except: pass
 
-    df_e_edit = st.data_editor(st.session_state.df_e[colunas_visiveis], hide_index=True, column_config=col_cfg, use_container_width=True, key="ed_e")
+    df_e_editado = st.data_editor(st.session_state.df_e[colunas_visiveis], hide_index=True, column_config=col_cfg, use_container_width=True, key="ed_e")
     
-    if not df_e_edit.equals(st.session_state.df_e[colunas_visiveis]):
+    mudou_e = False
+    for m in [c for c in colunas_visiveis if c != "MESES"]:
+        if not np.allclose(st.session_state.df_e[m].fillna(0), pd.to_numeric(df_e_editado[m], errors='coerce').fillna(0)):
+            mudou_e = True
+            break
+
+    if mudou_e:
         for m in [c for c in colunas_visiveis if c != "MESES"]: 
-            st.session_state.df_e.loc[:, m] = pd.to_numeric(df_e_edit[m], errors='coerce').fillna(0.0)
-        utils.save_to_supabase('entradas', st.session_state.df_e, ano_selecionado)
-        st.toast("✅ Recebimentos salvos!", icon="💰")
+            st.session_state.df_e[m] = pd.to_numeric(df_e_editado[m], errors='coerce').fillna(0.0)
+        
+        df_to_save_e = st.session_state.df_e.copy()
+        df_to_save_e['MESES'] = df_to_save_e['MESES'].astype(str)
+        utils.save_to_supabase('entradas', df_to_save_e, ano_selecionado)
+        st.toast("✅ Recebimentos gravados!", icon="💰")
         st.rerun()
 
     tot_ent = st.session_state.df_e.set_index('MESES').sum()
@@ -128,7 +145,9 @@ def renderizar():
             df_rend[m] = [xp_var.get(m, 0), inter_var.get(m, 0), rt, f"{pct:.2f}%", tot_ent.get(m, 0) + rt]
             
     styled_rend = df_rend[colunas_visiveis].style.apply(lambda row: [f'background-color: {"#FF9900" if row["MESES"] == "RENDIMENTO TOTAL" else "#FFF2CC" if "%" in row["MESES"] else "#9BC2E6" if "SALÁRIO" in row["MESES"] else "white"}; color: black; font-weight: bold' for _ in colunas_visiveis], axis=1)
-    st.dataframe(styled_rend.format(lambda x: x if isinstance(x, str) else utils.to_br_currency(x, False)), hide_index=True, column_config=col_cfg, use_container_width=True)
+    
+    # Renderização liberta do "R$" na coluna das percentagens
+    st.dataframe(styled_rend.format(lambda x: x if isinstance(x, str) else utils.to_br_currency(x, False)), hide_index=True, use_container_width=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
