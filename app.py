@@ -18,7 +18,7 @@ import tela_orcamentos
 import tela_servicos
 import tela_financeira
 import tela_configuracoes
-import tela_airnb  # <--- NOVO MÓDULO ADICIONADO
+import tela_airnb
 
 # =============================================================================
 # 3. CONEXÃO COM O BANCO DE DADOS
@@ -109,15 +109,15 @@ else:
         
         st.write("### Menu Principal")
         
-        # Opções de navegação atualizadas com o novo módulo AirBnb
+        # Menu reordenado conforme solicitado
         menu = st.radio(
             "Navegação", 
             [
                 "Página Inicial", 
+                "Controle Financeiro", 
                 "Orçamentos", 
                 "Serviços em Andamento", 
-                "Controle Financeiro", 
-                "AirBnb e Locações",  # <--- OPÇÃO ADICIONADA
+                "AirBnb e Locações",
                 "Configurações"
             ],
             label_visibility="collapsed"
@@ -144,21 +144,24 @@ else:
         c3, c4 = st.columns(2)
         
         with c1:
-            if st.button("📝\n\nFazer Novo Orçamento", use_container_width=True):
-                st.session_state.pagina_atual = "Orçamentos"
-                st.rerun()
-        with c2:
-            if st.button("🛠️\n\nServiços em Andamento", use_container_width=True):
-                st.session_state.pagina_atual = "Serviços em Andamento"
-                st.rerun()
-        with c3:
             if st.button("📊\n\nControle Financeiro", use_container_width=True):
                 st.session_state.pagina_atual = "Controle Financeiro"
                 st.rerun()
-        with c4:
-            if st.button("⚙️\n\nConfigurações de Itens", use_container_width=True):
-                st.session_state.pagina_atual = "Configurações"
+        with c2:
+            if st.button("📝\n\nFazer Novo Orçamento", use_container_width=True):
+                st.session_state.pagina_atual = "Orçamentos"
                 st.rerun()
+        with c3:
+            if st.button("🛠️\n\nServiços em Andamento", use_container_width=True):
+                st.session_state.pagina_atual = "Serviços em Andamento"
+                st.rerun()
+        with c4:
+            if st.button("🏡\n\nAirBnb e Locações", use_container_width=True):
+                st.session_state.pagina_atual = "AirBnb e Locações"
+                st.rerun()
+
+    elif st.session_state.pagina_atual == "Controle Financeiro":
+        tela_financeira.renderizar()
 
     elif st.session_state.pagina_atual == "Orçamentos":
         tela_orcamentos.renderizar()
@@ -166,10 +169,7 @@ else:
     elif st.session_state.pagina_atual == "Serviços em Andamento":
         tela_servicos.renderizar()
 
-    elif st.session_state.pagina_atual == "Controle Financeiro":
-        tela_financeira.renderizar()
-
-    elif st.session_state.pagina_atual == "AirBnb e Locações":  # <--- ROTEAMENTO ADICIONADO
+    elif st.session_state.pagina_atual == "AirBnb e Locações":
         tela_airnb.renderizar()
 
     elif st.session_state.pagina_atual == "Configurações":
