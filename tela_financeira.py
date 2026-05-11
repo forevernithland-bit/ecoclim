@@ -13,7 +13,7 @@ def renderizar():
         st.write("---")
         st.markdown("### 👁️ Linha do Tempo")
         
-        # Correção 1: Controle de estado seguro para o Slider (substituindo função inexistente)
+        # Controle de estado seguro para o Slider
         if 'mes_inicio_fin' not in st.session_state:
             st.session_state.mes_inicio_fin = 'JANEIRO'
             st.session_state.mes_fim_fin = 'DEZEMBRO'
@@ -42,19 +42,30 @@ def renderizar():
         st.session_state.df_e = utils.load_year_data('entradas', contas_e, ano_selecionado)
         st.session_state.ano_dados_atual = ano_selecionado
 
+    # --- FILTRO ANTILIXO: BLINDAGEM CONTRA LINHAS VAZIAS ---
     def garantir_linhas(df, lista_contas):
         if df.empty or 'MESES' not in df.columns:
             return pd.DataFrame({"MESES": lista_contas, **{m: 0.0 for m in utils.meses_pt}})
+        
+        # 1. Filtra removendo tudo que estiver vazio ou não pertencer à lista oficial
+        df = df[df['MESES'].isin(lista_contas)].copy()
+        
+        # 2. Garante que todas as contas da lista estejam presentes
         for c in lista_contas:
             if c not in df['MESES'].values:
                 nova_linha = {"MESES": c, **{m: 0.0 for m in utils.meses_pt}}
                 df = pd.concat([df, pd.DataFrame([nova_linha])], ignore_index=True)
+                
+        # 3. Força a ordem exata das linhas conforme definido em contas_p e contas_e
+        df['MESES'] = pd.Categorical(df['MESES'], categories=lista_contas, ordered=True)
+        df = df.sort_values('MESES').reset_index(drop=True)
+        
         return df
 
     st.session_state.df_p = garantir_linhas(st.session_state.df_p, contas_p)
     st.session_state.df_e = garantir_linhas(st.session_state.df_e, contas_e)
 
-    # Correção 2: Blindagem matemática (Garante que tudo seja lido como número)
+    # Blindagem matemática (Garante que tudo seja lido como número)
     for m in utils.meses_pt:
         st.session_state.df_p[m] = pd.to_numeric(st.session_state.df_p[m], errors='coerce').fillna(0.0)
         st.session_state.df_e[m] = pd.to_numeric(st.session_state.df_e[m], errors='coerce').fillna(0.0)
@@ -70,7 +81,6 @@ def renderizar():
     # --------------------------
     st.markdown("#### 🏛️ Posição Patrimonial e Investimentos")
     
-    # Removido height fixo para evitar cortes visuais, o Streamlit ajusta automaticamente o tamanho
     df_p_editado = st.data_editor(st.session_state.df_p[colunas_visiveis], hide_index=True, column_config=col_cfg, use_container_width=True, key="editor_p")
 
     if not df_p_editado.equals(st.session_state.df_p[colunas_visiveis]):
@@ -83,7 +93,7 @@ def renderizar():
     pat_liq = df_n[df_n.index.isin(['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS'])].sum()
     pat_tot = pat_liq + df_n[df_n.index == 'IMÓVEIS'].sum() + df_n[df_n.index == 'VEÍCULOS'].sum()
     var_abs = pat_tot.diff().fillna(0)
-    var_pct = (pat_tot.pct_change().replace([np.inf, -np.inf], 0).fillna(0) * 100).round(2) # Blindagem contra infinito
+    var_pct = (pat_tot.pct_change().replace([np.inf, -np.inf], 0).fillna(0) * 100).round(2)
 
     df_res_p = pd.DataFrame({'MESES': ['PATRIMÔNIO LÍQUIDO', 'PATRIMÔNIO TOTAL', 'VAR. MENSAL (R$)', 'VAR. MENSAL (%)']})
     for m in utils.meses_pt: df_res_p[m] = [pat_liq.get(m, 0), pat_tot.get(m, 0), var_abs.get(m, 0), f"{var_pct.get(m, 0):.2f}%"]
@@ -144,7 +154,6 @@ def renderizar():
     media_ent = tot_ent[meses_calc].mean() if not tot_ent.empty else 0
     media_rend_r = rend_tot[meses_calc].mean() if not rend_tot.empty else 0
     
-    # Tratamento seguro para divisão por zero na média percentual
     pb_safe = prev_bal[meses_calc].replace(0, np.nan)
     media_rend_p = (rend_tot[meses_calc] / pb_safe).mean() * 100 if not pb_safe.isna().all() else 0.0
     
@@ -159,7 +168,6 @@ def renderizar():
     st.write("---")
     g1, g2 = st.columns(2)
     
-    # Forçar formato numérico para os gráficos não quebrarem
     pat_chart = pd.to_numeric(pat_tot[utils.meses_pt], errors='coerce').fillna(0)
     rend_chart = pd.to_numeric(rend_tot[utils.meses_pt], errors='coerce').fillna(0)
     salario_chart = pd.to_numeric(tot_ent[utils.meses_pt] + rend_tot[utils.meses_pt], errors='coerce').fillna(0)
