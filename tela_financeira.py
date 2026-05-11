@@ -4,54 +4,62 @@ import numpy as np
 import utils
 
 # =============================================================================
-# FUNÇÃO DE SALVAMENTO BLINDADA (EXCLUSIVA DO FINANCEIRO)
-# Resolve o erro PGRST204 (Coluna não encontrada no cache)
+# NOVAS FUNÇÕES DE BANCO DE DADOS (BASEADO NO SEU PRINT)
+# Converte a visualização da tela (Horizontal) para o banco de dados (Vertical)
 # =============================================================================
-def salvar_fin_blindado(nome_tabela, df, ano):
+
+def carregar_fin_do_banco(nome_tabela, contas_padrao, ano):
+    """Puxa os dados verticais do Supabase e monta a tabela horizontal pra tela"""
     supabase = st.session_state.supabase
     
-    # Lista de meses para conversão
-    meses_lista = ['JANEIRO', 'FEVEREIRO', 'MARÇO', 'ABRIL', 'MAIO', 'JUNHO', 
-                   'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO']
-    
+    # Cria o dataframe vazio com todas as contas e meses zerados
+    df_novo = pd.DataFrame({"MESES": contas_padrao})
+    for m in utils.meses_pt:
+        df_novo[m] = 0.0
+
+    try:
+        # Puxa os dados do ano específico
+        res = supabase.table(nome_tabela).select("*").eq("ano", ano).execute()
+        dados_banco = res.data
+        
+        # Se tiver dados, preenche o dataframe nos lugares certos
+        if dados_banco:
+            for d in dados_banco:
+                conta = d.get("conta")
+                mes = d.get("mes")
+                valor = float(d.get("valor", 0.0))
+                
+                # Se a conta e o mês baterem com o nosso padrão, atualiza o valor na célula
+                if conta in contas_padrao and mes in utils.meses_pt:
+                    df_novo.loc[df_novo["MESES"] == conta, mes] = valor
+    except Exception as e:
+        pass # Se falhar, retorna o dataframe zerado mesmo
+        
+    return df_novo
+
+def salvar_fin_no_banco(nome_tabela, df, ano):
+    """Desmonta a tabela horizontal da tela e salva no formato vertical do Supabase"""
+    supabase = st.session_state.supabase
     dados_para_enviar = []
     
     for _, linha in df.iterrows():
-        # Criamos o registro com nomes de colunas em MINÚSCULAS (Padrão Supabase)
-        registro = {
-            "ano": int(ano),
-            "meses": str(linha["MESES"]).strip()
-        }
-        
-        for m in meses_lista:
-            # Converte o nome do mês para minúsculo para bater com o banco
-            col_banco = m.lower()
+        conta = str(linha["MESES"]).strip()
+        for m in utils.meses_pt:
+            valor = float(linha[m]) if pd.notna(linha[m]) else 0.0
             
-            # Caso especial: Se o seu banco estiver como 'marco' (sem cedilha)
-            if col_banco == 'março':
-                # Tentamos enviar como 'março', se der erro o bloco try/except abaixo trata
-                pass 
-                
-            registro[col_banco] = float(linha[m]) if pd.notna(linha[m]) else 0.0
-            
-        dados_para_enviar.append(registro)
+            # Monta o pacote EXATAMENTE como está no seu print
+            dados_para_enviar.append({
+                "conta": conta,
+                "mes": m,
+                "ano": int(ano),
+                "valor": valor
+            })
 
     try:
-        # 1. Deleta os registros antigos do ano para evitar erro de duplicata
+        # Apaga os dados velhos desse ano para não duplicar
         supabase.table(nome_tabela).delete().eq("ano", ano).execute()
-        
-        # 2. Tenta inserir os novos dados
-        try:
-            supabase.table(nome_tabela).insert(dados_para_enviar).execute()
-        except Exception as e_insert:
-            # Plano B: Se falhar por causa da cedilha em 'março', tentamos 'marco'
-            if 'março' in str(e_insert).lower():
-                for d in dados_para_enviar:
-                    if 'março' in d: d['marco'] = d.pop('março')
-                supabase.table(nome_tabela).insert(dados_para_enviar).execute()
-            else:
-                raise e_insert
-                
+        # Insere os dados novos no formato correto
+        supabase.table(nome_tabela).insert(dados_para_enviar).execute()
         return True
     except Exception as e:
         st.error(f"Erro ao salvar no banco: {e}")
@@ -68,8 +76,8 @@ def renderizar():
         
         st.write("---")
         if st.button("💾 SALVAR TUDO AGORA", type="primary", use_container_width=True):
-            res_p = salvar_fin_blindado('patrimonio', st.session_state.df_p, ano_fiscal)
-            res_e = salvar_fin_blindado('entradas', st.session_state.df_e, ano_fiscal)
+            res_p = salvar_fin_no_banco('patrimonio', st.session_state.df_p, ano_fiscal)
+            res_e = salvar_fin_no_banco('entradas', st.session_state.df_e, ano_fiscal)
             if res_p and res_e:
                 st.success("✅ Tudo salvo com sucesso!")
 
@@ -94,24 +102,11 @@ def renderizar():
     contas_p = ['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS', 'IMÓVEIS', 'VEÍCULOS']
     contas_e = ['ECOCLIM', 'AIRNB', 'CONS INVESTIMENTOS', 'MAGGI CONSORCIOS']
     
+    # Aqui usamos a nossa NOVA função de carregamento
     if 'ano_dados_atual' not in st.session_state or st.session_state.ano_dados_atual != ano_fiscal:
-        st.session_state.df_p = utils.load_year_data('patrimonio', contas_p, ano_fiscal)
-        st.session_state.df_e = utils.load_year_data('entradas', contas_e, ano_fiscal)
+        st.session_state.df_p = carregar_fin_do_banco('patrimonio', contas_p, ano_fiscal)
+        st.session_state.df_e = carregar_fin_do_banco('entradas', contas_e, ano_fiscal)
         st.session_state.ano_dados_atual = ano_fiscal
-
-    # Limpeza de linhas vazias
-    def limpar(df, lista):
-        df['MESES'] = df['MESES'].astype(str).str.strip()
-        df = df[df['MESES'].isin(lista)].copy()
-        for c in lista:
-            if c not in df['MESES'].values:
-                df = pd.concat([df, pd.DataFrame([{"MESES": c, **{m: 0.0 for m in utils.meses_pt}}])], ignore_index=True)
-        ordem = {v: i for i, v in enumerate(lista)}
-        df['ordem'] = df['MESES'].map(ordem)
-        return df.sort_values('ordem').drop(columns=['ordem']).reset_index(drop=True)
-
-    st.session_state.df_p = limpar(st.session_state.df_p, contas_p)
-    st.session_state.df_e = limpar(st.session_state.df_e, contas_e)
 
     col_cfg = {"MESES": st.column_config.TextColumn("CONTA", width=220, disabled=True)}
     for m in utils.meses_pt: col_cfg[m] = st.column_config.NumberColumn(m, width=110, format="R$ %,.2f") 
@@ -125,10 +120,10 @@ def renderizar():
     if not df_p_ed.equals(st.session_state.df_p[colunas_v]):
         for m in [c for c in colunas_v if c != "MESES"]:
             st.session_state.df_p[m] = pd.to_numeric(df_p_ed[m], errors='coerce').fillna(0.0)
-        salvar_fin_blindado('patrimonio', st.session_state.df_p, ano_fiscal)
+        salvar_fin_no_banco('patrimonio', st.session_state.df_p, ano_fiscal)
         st.toast("✅ Patrimônio Salvo!", icon="💾")
 
-    # Cálculos
+    # Cálculos Patrimônio
     df_n = st.session_state.df_p.set_index('MESES').apply(pd.to_numeric, errors='coerce').fillna(0)
     pat_liq = df_n[df_n.index.isin(['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS'])].sum()
     pat_tot = pat_liq + df_n[df_n.index == 'IMÓVEIS'].sum() + df_n[df_n.index == 'VEÍCULOS'].sum()
@@ -148,7 +143,7 @@ def renderizar():
     if not df_e_ed.equals(st.session_state.df_e[colunas_v]):
         for m in [c for c in colunas_v if c != "MESES"]:
             st.session_state.df_e[m] = pd.to_numeric(df_e_ed[m], errors='coerce').fillna(0.0)
-        salvar_fin_blindado('entradas', st.session_state.df_e, ano_fiscal)
+        salvar_fin_no_banco('entradas', st.session_state.df_e, ano_fiscal)
         st.toast("✅ Recebimentos Salvos!", icon="💰")
 
     tot_ent = st.session_state.df_e.set_index('MESES').apply(pd.to_numeric, errors='coerce').fillna(0).sum()
@@ -190,3 +185,14 @@ def renderizar():
     c2.metric("🎯 LIMITE DE GASTO", utils.to_br_currency(media_rend_r))
     c3.metric("📈 MÉDIA RETORNO (%)", f"{media_rend_p:.2f}%".replace(".", ","))
     c4.metric("🏛️ PATRIMÔNIO ATUAL", utils.to_br_currency(pat_at))
+
+    st.write("---")
+    g1, g2 = st.columns(2)
+    with g1:
+        st.subheader("Aumento de Patrimônio Total"); st.line_chart(pat_tot[utils.meses_pt])
+        st.subheader("Rendimento Mensal (R$)"); st.bar_chart(rend_tot[utils.meses_pt])
+    with g2:
+        st.subheader("Salário + Rendimento Mensal"); st.area_chart(tot_ent[utils.meses_pt] + rend_tot[utils.meses_pt])
+        eco_series = st.session_state.df_e.set_index('MESES')
+        eco_vals = pd.to_numeric(eco_series[eco_series.index == 'ECOCLIM'].sum()[utils.meses_pt], errors='coerce').fillna(0)
+        st.subheader("Faturamento Ecoclim"); st.line_chart(eco_vals)
