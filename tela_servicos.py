@@ -19,7 +19,6 @@ def deve_ir_para_finalizados(status, data_conc_str):
     try:
         data_conc = pd.to_datetime(data_conc_str).date()
         hoje = datetime.date.today()
-        # Verifica se o mês/ano atual é maior que o mês/ano da conclusão
         if hoje.year > data_conc.year or (hoje.year == data_conc.year and hoje.month > data_conc.month):
             return True
         return False
@@ -35,7 +34,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
     # --- STATUS ---
     status_atual = projeto_selecionado.get('status_projeto', 'Orçamento Enviado')
     
-    # Compatibilidade com status antigos para não quebrar o que já existe no banco
+    # Compatibilidade com status antigos
     if status_atual == "Cancelado": status_atual = "Orçamento Cancelado"
     if status_atual == "Aguardando Peças": status_atual = "Aguardando Pagamento"
 
@@ -67,15 +66,13 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
     for col in ['Item', 'Qtd', 'Custo Un.', 'Venda Un.']:
         if col not in df_itens.columns: df_itens[col] = 0.0 if 'Un.' in col or 'Qtd' in col else ""
 
-    # Busca automática de custo se estiver zerado
     if not df_produtos.empty:
         for idx, row in df_itens.iterrows():
             if safe_float(row.get('Custo Un.')) == 0.0:
                 nome_procurado = str(row.get('Item', '')).strip().upper()
                 for _, prod_row in df_produtos.iterrows():
                     if str(prod_row.get('Item', '')).strip().upper() == nome_procurado:
-                        c_val = prod_row.get('Custo', prod_row.get('Custo (R$)', 0))
-                        df_itens.at[idx, 'Custo Un.'] = safe_float(c_val)
+                        df_itens.at[idx, 'Custo Un.'] = safe_float(prod_row.get('Custo', prod_row.get('Custo (R$)', 0)))
                         break
 
     config_itens = {
@@ -88,18 +85,17 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
     
     custo_total_produtos = (pd.to_numeric(df_itens_final['Custo Un.'], errors='coerce').fillna(0) * pd.to_numeric(df_itens_final['Qtd'], errors='coerce').fillna(0)).sum()
 
-    # --- 2. SIMULADOR FINANCEIRO (100% DIGITÁVEL) ---
+    # --- 2. SIMULADOR FINANCEIRO ---
     st.markdown("#### 🧮 Abatimentos e Impostos")
     with st.container(border=True):
         f_col1, f_col2, f_col3 = st.columns(3)
         
         venda_final = f_col1.number_input("Valor da Venda (R$)", value=safe_float(projeto_selecionado.get('valor_venda_total')), format="%.2f", key=f"venda_{prefix_key}")
         
-        # IMPOSTO
         emite_nf = f_col2.radio("Nota Fiscal?", ["Não", "Sim"], index=1 if safe_float(projeto_selecionado.get('custo_impostos')) > 0 else 0, key=f"nf_{prefix_key}")
         valor_nf = 0.0
         if emite_nf == "Sim":
-            taxa_nf_pct = 6.0 # Padrão
+            taxa_nf_pct = 6.0
             if not df_taxas_config.empty:
                 for _, t_row in df_taxas_config.iterrows():
                     if "NOTA FISCAL" in str(t_row.get('Item', '')).upper() or "NF" in str(t_row.get('Item', '')).upper():
@@ -108,19 +104,11 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             valor_nf = venda_final * (taxa_nf_pct / 100)
             f_col2.caption(f"Imposto ({taxa_nf_pct}%): - {utils.to_br_currency(valor_nf)}")
         
-        # TAXA DE RECEBIMENTO (CARTÃO/PIX - DIRETO EM %)
         custo_c_salvo = safe_float(projeto_selecionado.get('custo_cartao'))
         perc_previo = (custo_c_salvo / venda_final * 100) if venda_final > 0 else 0.0
-        
         taxa_manual_pct = f_col3.number_input("Taxa de Recebimento (%)", value=float(perc_previo), format="%.2f", step=0.01, key=f"taxa_man_{prefix_key}")
         valor_cartao_taxa = venda_final * (taxa_manual_pct / 100)
         f_col3.caption(f"Desconto Recebimento: - {utils.to_br_currency(valor_cartao_taxa)}")
-        
-        with f_col3.expander("📋 Ver Tabela de Taxas"):
-            if not df_taxas_config.empty:
-                st.dataframe(df_taxas_config[['Item', 'Taxa (%)']], hide_index=True, use_container_width=True)
-            else: 
-                st.warning("Sem taxas cadastradas.")
 
         st.markdown("---")
         f_col4, f_col5, f_col6 = st.columns(3)
@@ -133,7 +121,6 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         custo_ext = f_col5.number_input("Materiais Extras (R$)", value=safe_float(projeto_selecionado.get('custo_adicional_materiais')), format="%.2f", key=f"mat_{prefix_key}")
         custo_mo = f_col6.number_input("Mão de Obra / Terceiros (R$)", value=safe_float(projeto_selecionado.get('custo_terceirizados')), format="%.2f", key=f"mao_{prefix_key}")
 
-        # Lógica final de lucro
         abatimentos = valor_nf + valor_cartao_taxa + valor_comissao + custo_ext + custo_mo
         lucro_final = venda_final - custo_total_produtos - abatimentos
         
@@ -145,22 +132,18 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
 
     notas = st.text_area("Observações", value=str(projeto_selecionado.get('notas_internas', '')) if str(projeto_selecionado.get('notas_internas', '')) != 'nan' else '', key=f"notas_{prefix_key}")
 
-    # --- AÇÕES FINAIS (PDF E SALVAMENTO) ---
+    # --- AÇÕES FINAIS E GERAÇÃO DE ARQUIVOS ---
     st.markdown("<br>", unsafe_allow_html=True)
     
     with st.expander("📄 GERAR PDF DO ORÇAMENTO"):
         col_pdf1, col_pdf2 = st.columns([1, 1])
         modelo_capa = col_pdf1.selectbox("Modelo para Capa", [
-            "Aquecedor Solar Tradicional", 
-            "Aquecedor Solar a Vácuo Acoplado", 
-            "Aquecedor Solar Modular", 
-            "Aquecedor de Piscina - Tradicional", 
-            "Aquecedor de Piscina - Trocador de Calor", 
-            "Sistema de Pressurização"
+            "Aquecedor Solar Tradicional", "Aquecedor Solar a Vácuo Acoplado", 
+            "Aquecedor Solar Modular", "Aquecedor de Piscina - Tradicional", 
+            "Aquecedor de Piscina - Trocador de Calor", "Sistema de Pressurização"
         ], index=3, key=f"capa_{prefix_key}")
         
         if col_pdf2.button("GERAR PRÉVIA DO PDF", use_container_width=True, key=f"btn_pdf_{prefix_key}"):
-            # Reconstruindo os dados para o PDF
             itens_pdf = projeto_selecionado.get('detalhamento_itens', [])
             df_pdf = pd.DataFrame(itens_pdf)
             if not df_pdf.empty:
@@ -172,22 +155,64 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             else:
                 df_pdf = pd.DataFrame(columns=['Quantidade', 'Produto da Base', 'Produto Manual', 'Venda Total', 'Descrição'])
             
-            nome_c = projeto_selecionado.get('nome_cliente', 'Cliente')
-            tel_c = projeto_selecionado.get('telefone_cliente', '')
-            serv_text = str(projeto_selecionado.get('servicos_adquiridos', ''))
-            if serv_text == 'nan': serv_text = ""
-            val_tot = safe_float(projeto_selecionado.get('valor_venda_total'))
             obs_pdf = str(projeto_selecionado.get('notas_internas', 'Material Hidráulico não incluído na proposta'))
             if obs_pdf == 'nan' or obs_pdf.strip() == '': obs_pdf = "Material Hidráulico não incluído na proposta"
 
             pdf_bytes = utils.gerar_pdf_orcamento(
-                nome=nome_c, tel=tel_c, capa=modelo_capa, df_items=df_pdf, 
-                d_s=serv_text, v_s=0.0, d_o="", v_o=0.0, total=val_tot, obs=obs_pdf, mostrar_un=False
+                nome=projeto_selecionado.get('nome_cliente', 'Cliente'), 
+                tel=projeto_selecionado.get('telefone_cliente', ''), 
+                capa=modelo_capa, df_items=df_pdf, 
+                d_s=str(projeto_selecionado.get('servicos_adquiridos', '')).replace('nan',''), v_s=0.0, d_o="", v_o=0.0, 
+                total=safe_float(projeto_selecionado.get('valor_venda_total')), obs=obs_pdf, mostrar_un=False
             )
             st.session_state[f'pdf_gerado_{prefix_key}'] = pdf_bytes
             
         if f'pdf_gerado_{prefix_key}' in st.session_state:
             st.download_button("📥 BAIXAR PDF DO ORÇAMENTO", data=st.session_state[f'pdf_gerado_{prefix_key}'], file_name=f"ORCAMENTO_{projeto_selecionado.get('nome_cliente', 'Cliente')}.pdf", mime="application/pdf", use_container_width=True, key=f"dl_pdf_{prefix_key}")
+
+    # --- NOVO: GERAR CONTRATO (LÓGICA CONDICIONAL) ---
+    status_contrato_permitido = ["Em Andamento", "Aguardando Pagamento", "Concluído PIX", "Concluído CARTÃO"]
+    if novo_status in status_contrato_permitido:
+        st.markdown("<br>", unsafe_allow_html=True)
+        with st.expander("📝 GERAR CONTRATO"):
+            st.markdown("#### Dados do Cliente para o Contrato")
+            c_nome = st.text_input("Nome Completo", value=projeto_selecionado.get('nome_cliente', ''), key=f"ct_nome_{prefix_key}")
+            c_cpf = st.text_input("CPF / CNPJ", key=f"ct_cpf_{prefix_key}")
+
+            st.markdown("#### Endereço do Cliente")
+            col_cep1, col_cep2 = st.columns([1, 2])
+            c_cep = col_cep1.text_input("CEP", placeholder="00000-000", key=f"ct_cep_{prefix_key}")
+
+            if col_cep2.button("🔍 Buscar CEP", key=f"btn_cep_{prefix_key}"):
+                end_dados = utils.buscar_cep(c_cep)
+                if end_dados:
+                    st.session_state[f'rua_{prefix_key}'] = end_dados.get('logradouro', '')
+                    st.session_state[f'bairro_{prefix_key}'] = end_dados.get('bairro', '')
+                    st.session_state[f'cidade_{prefix_key}'] = end_dados.get('localidade', '')
+                    st.session_state[f'uf_{prefix_key}'] = end_dados.get('uf', '')
+                else:
+                    st.error("CEP não encontrado ou inválido.")
+
+            c_rua = st.text_input("Rua / Logradouro", value=st.session_state.get(f'rua_{prefix_key}', ''), key=f"ct_rua_{prefix_key}")
+            col_num, col_bairro = st.columns([1, 2])
+            c_num = col_num.text_input("Número", key=f"ct_num_{prefix_key}")
+            c_bairro = col_bairro.text_input("Bairro", value=st.session_state.get(f'bairro_{prefix_key}', ''), key=f"ct_bairro_{prefix_key}")
+
+            col_cid, col_uf = st.columns([2, 1])
+            c_cidade = col_cid.text_input("Cidade", value=st.session_state.get(f'cidade_{prefix_key}', ''), key=f"ct_cid_{prefix_key}")
+            c_uf = col_uf.text_input("Estado (UF)", value=st.session_state.get(f'uf_{prefix_key}', ''), key=f"ct_uf_{prefix_key}")
+
+            st.markdown("#### Pagamento")
+            c_pagamento = st.selectbox("Forma de Pagamento Acordada", ["PIX", "Cartão de Crédito", "Cartão de Débito", "Boleto", "Dinheiro", "Transferência Bancária"], key=f"ct_pag_{prefix_key}")
+
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("📄 CONFIRMAR DADOS E GERAR CONTRATO", type="primary", use_container_width=True, key=f"btn_gerar_ct_{prefix_key}"):
+                if not c_nome or not c_cpf or not c_rua:
+                    st.warning("Por favor, preencha o Nome, CPF e Endereço para gerar o contrato.")
+                else:
+                    # Aqui ficará a chamada para o gerador de PDF no futuro
+                    st.success(f"✅ Dados de {c_nome} validados! (No próximo passo iremos programar o PDF do contrato com estes dados).")
+
 
     st.markdown("<br>", unsafe_allow_html=True)
     
@@ -241,9 +266,11 @@ def renderizar():
     df_taxas = utils.load_taxas()
     df_produtos = utils.load_catalog('catalogo_produtos')
     
+    # Converte as datas para o formato correto (datetime) para o Streamlit formatar como DD/MM/YYYY
+    df['data_conclusao'] = pd.to_datetime(df['data_conclusao'], errors='coerce')
+    
     df['ir_finalizados'] = df.apply(lambda x: deve_ir_para_finalizados(x['status_projeto'], x['data_conclusao']), axis=1)
 
-    # Considera os status ativos (Incluindo os antigos para evitar bugs)
     ativos_status = ["Em Andamento", "Aguardando Pagamento", "Aguardando Peças", "Concluído PIX", "Concluído CARTÃO"]
     
     df_orc = df[~df['status_projeto'].isin(ativos_status)].reset_index(drop=True)
@@ -261,7 +288,7 @@ def renderizar():
         "status_projeto": "Status",
         "valor_venda_total": st.column_config.NumberColumn("Venda Total", format="R$ %.2f"),
         "lucro_estimado": st.column_config.NumberColumn("Lucro Líquido", format="R$ %.2f"),
-        "data_conclusao": "Data"
+        "data_conclusao": st.column_config.DateColumn("Data", format="DD/MM/YYYY") # <--- AQUI A MÁGICA DA DATA!
     }
     
     with aba1:
@@ -270,7 +297,6 @@ def renderizar():
         total_lucro_atv = pd.to_numeric(df_atv['lucro_estimado'], errors='coerce').fillna(0).sum()
         st.markdown(f"<div style='text-align: right; color: #004488; font-size: 18px; font-weight: bold; margin-bottom: 20px;'>Total Lucro Líquido Estimado: {utils.to_br_currency(total_lucro_atv)}</div>", unsafe_allow_html=True)
         
-        # Trava de Segurança
         if sel.selection.rows and len(df_atv) > sel.selection.rows[0]: 
             exibir_painel_detalhado(df_atv.iloc[sel.selection.rows[0]], supabase, df_taxas, df_produtos, f"atv_{df_atv.iloc[sel.selection.rows[0]]['id']}")
     
@@ -280,7 +306,6 @@ def renderizar():
         total_lucro_orc = pd.to_numeric(df_orc['lucro_estimado'], errors='coerce').fillna(0).sum()
         st.markdown(f"<div style='text-align: right; color: #004488; font-size: 18px; font-weight: bold; margin-bottom: 20px;'>Total Lucro Líquido Estimado: {utils.to_br_currency(total_lucro_orc)}</div>", unsafe_allow_html=True)
         
-        # Trava de Segurança
         if sel.selection.rows and len(df_orc) > sel.selection.rows[0]: 
             exibir_painel_detalhado(df_orc.iloc[sel.selection.rows[0]], supabase, df_taxas, df_produtos, f"orc_{df_orc.iloc[sel.selection.rows[0]]['id']}")
 
@@ -291,6 +316,5 @@ def renderizar():
         total_lucro_fin = pd.to_numeric(df_fin['lucro_estimado'], errors='coerce').fillna(0).sum()
         st.markdown(f"<div style='text-align: right; color: #004488; font-size: 18px; font-weight: bold; margin-bottom: 20px;'>Total Lucro Líquido Realizado: {utils.to_br_currency(total_lucro_fin)}</div>", unsafe_allow_html=True)
         
-        # Trava de Segurança
         if sel.selection.rows and len(df_fin) > sel.selection.rows[0]: 
             exibir_painel_detalhado(df_fin.iloc[sel.selection.rows[0]], supabase, df_taxas, df_produtos, f"fin_{df_fin.iloc[sel.selection.rows[0]]['id']}")
