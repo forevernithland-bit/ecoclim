@@ -219,3 +219,24 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
     p.save()
     buffer.seek(0)
     return buffer
+# ==========================================
+# BUSCA DE CEP AUTOMÁTICA
+# ==========================================
+import urllib.request
+import json
+
+def buscar_cep(cep):
+    """Busca o endereço na API pública do ViaCEP"""
+    cep = str(cep).replace('-', '').replace('.', '').strip()
+    if len(cep) != 8:
+        return None
+    try:
+        url = f"https://viacep.com.br/ws/{cep}/json/"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req) as response:
+            dados = json.loads(response.read().decode('utf-8'))
+            if "erro" not in dados:
+                return dados
+    except:
+        pass
+    return None
