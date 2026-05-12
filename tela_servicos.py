@@ -179,10 +179,8 @@ def renderizar():
 
     aba1, aba2, aba3 = st.tabs(["🚀 Em Andamento", "📝 Orçamentos", "✅ Finalizados"])
     
-    # Define as colunas a serem exibidas incluindo o lucro_estimado
     colunas_visiveis = ['id', 'numero_orcamento', 'nome_cliente', 'status_projeto', 'valor_venda_total', 'lucro_estimado', 'data_conclusao']
     
-    # Configuração para formatar os valores em Reais (R$) na grade do Streamlit
     config_colunas = {
         "id": "ID",
         "numero_orcamento": "Nº Orçamento",
@@ -196,30 +194,30 @@ def renderizar():
     with aba1:
         sel = st.dataframe(df_atv[colunas_visiveis], use_container_width=True, on_select="rerun", selection_mode="single-row", hide_index=True, column_config=config_colunas, key="g_atv")
         
-        # Somatório do lucro da aba Em Andamento
         total_lucro_atv = pd.to_numeric(df_atv['lucro_estimado'], errors='coerce').fillna(0).sum()
         st.markdown(f"<div style='text-align: right; color: #004488; font-size: 18px; font-weight: bold; margin-bottom: 20px;'>Total Lucro Líquido Estimado: {utils.to_br_currency(total_lucro_atv)}</div>", unsafe_allow_html=True)
         
-        if sel.selection.rows: 
+        # Trava de segurança inserida aqui:
+        if sel.selection.rows and len(df_atv) > sel.selection.rows[0]: 
             exibir_painel_detalhado(df_atv.iloc[sel.selection.rows[0]], supabase, df_taxas, df_produtos, f"atv_{df_atv.iloc[sel.selection.rows[0]]['id']}")
     
     with aba2:
         sel = st.dataframe(df_orc[colunas_visiveis], use_container_width=True, on_select="rerun", selection_mode="single-row", hide_index=True, column_config=config_colunas, key="g_orc")
         
-        # Somatório do lucro da aba Orçamentos
         total_lucro_orc = pd.to_numeric(df_orc['lucro_estimado'], errors='coerce').fillna(0).sum()
         st.markdown(f"<div style='text-align: right; color: #004488; font-size: 18px; font-weight: bold; margin-bottom: 20px;'>Total Lucro Líquido Estimado: {utils.to_br_currency(total_lucro_orc)}</div>", unsafe_allow_html=True)
         
-        if sel.selection.rows: 
+        # Trava de segurança inserida aqui:
+        if sel.selection.rows and len(df_orc) > sel.selection.rows[0]: 
             exibir_painel_detalhado(df_orc.iloc[sel.selection.rows[0]], supabase, df_taxas, df_produtos, f"orc_{df_orc.iloc[sel.selection.rows[0]]['id']}")
 
     with aba3:
         st.caption("Serviços concluídos em meses anteriores.")
         sel = st.dataframe(df_fin[colunas_visiveis], use_container_width=True, on_select="rerun", selection_mode="single-row", hide_index=True, column_config=config_colunas, key="g_fin")
         
-        # Somatório do lucro da aba Finalizados
         total_lucro_fin = pd.to_numeric(df_fin['lucro_estimado'], errors='coerce').fillna(0).sum()
         st.markdown(f"<div style='text-align: right; color: #004488; font-size: 18px; font-weight: bold; margin-bottom: 20px;'>Total Lucro Líquido Realizado: {utils.to_br_currency(total_lucro_fin)}</div>", unsafe_allow_html=True)
         
-        if sel.selection.rows: 
+        # Trava de segurança inserida aqui:
+        if sel.selection.rows and len(df_fin) > sel.selection.rows[0]: 
             exibir_painel_detalhado(df_fin.iloc[sel.selection.rows[0]], supabase, df_taxas, df_produtos, f"fin_{df_fin.iloc[sel.selection.rows[0]]['id']}")
