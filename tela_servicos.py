@@ -170,7 +170,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         if f'pdf_gerado_{prefix_key}' in st.session_state:
             st.download_button("📥 BAIXAR PDF DO ORÇAMENTO", data=st.session_state[f'pdf_gerado_{prefix_key}'], file_name=f"ORCAMENTO_{projeto_selecionado.get('nome_cliente', 'Cliente')}.pdf", mime="application/pdf", use_container_width=True, key=f"dl_pdf_{prefix_key}")
 
-    # --- NOVO: GERAR CONTRATO (LÓGICA CONDICIONAL) ---
+    # --- NOVO: GERAR CONTRATO (LÓGICA CONDICIONAL E BUSCA DE CEP) ---
     status_contrato_permitido = ["Em Andamento", "Aguardando Pagamento", "Concluído PIX", "Concluído CARTÃO"]
     if novo_status in status_contrato_permitido:
         st.markdown("<br>", unsafe_allow_html=True)
@@ -186,21 +186,24 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             if col_cep2.button("🔍 Buscar CEP", key=f"btn_cep_{prefix_key}"):
                 end_dados = utils.buscar_cep(c_cep)
                 if end_dados:
-                    st.session_state[f'rua_{prefix_key}'] = end_dados.get('logradouro', '')
-                    st.session_state[f'bairro_{prefix_key}'] = end_dados.get('bairro', '')
-                    st.session_state[f'cidade_{prefix_key}'] = end_dados.get('localidade', '')
-                    st.session_state[f'uf_{prefix_key}'] = end_dados.get('uf', '')
+                    # O "Pulo do Gato": Atualizamos direto a chave (key) dos text_inputs!
+                    st.session_state[f"ct_rua_{prefix_key}"] = end_dados.get('logradouro', '')
+                    st.session_state[f"ct_bairro_{prefix_key}"] = end_dados.get('bairro', '')
+                    st.session_state[f"ct_cid_{prefix_key}"] = end_dados.get('localidade', '')
+                    st.session_state[f"ct_uf_{prefix_key}"] = end_dados.get('uf', '')
+                    st.rerun() # Força a tela a piscar e mostrar o endereço preenchido
                 else:
                     st.error("CEP não encontrado ou inválido.")
 
-            c_rua = st.text_input("Rua / Logradouro", value=st.session_state.get(f'rua_{prefix_key}', ''), key=f"ct_rua_{prefix_key}")
+            # Como usamos a chave (key), não precisamos mais do 'value=' aqui
+            c_rua = st.text_input("Rua / Logradouro", key=f"ct_rua_{prefix_key}")
             col_num, col_bairro = st.columns([1, 2])
             c_num = col_num.text_input("Número", key=f"ct_num_{prefix_key}")
-            c_bairro = col_bairro.text_input("Bairro", value=st.session_state.get(f'bairro_{prefix_key}', ''), key=f"ct_bairro_{prefix_key}")
+            c_bairro = col_bairro.text_input("Bairro", key=f"ct_bairro_{prefix_key}")
 
             col_cid, col_uf = st.columns([2, 1])
-            c_cidade = col_cid.text_input("Cidade", value=st.session_state.get(f'cidade_{prefix_key}', ''), key=f"ct_cid_{prefix_key}")
-            c_uf = col_uf.text_input("Estado (UF)", value=st.session_state.get(f'uf_{prefix_key}', ''), key=f"ct_uf_{prefix_key}")
+            c_cidade = col_cid.text_input("Cidade", key=f"ct_cid_{prefix_key}")
+            c_uf = col_uf.text_input("Estado (UF)", key=f"ct_uf_{prefix_key}")
 
             st.markdown("#### Pagamento")
             c_pagamento = st.selectbox("Forma de Pagamento Acordada", ["PIX", "Cartão de Crédito", "Cartão de Débito", "Boleto", "Dinheiro", "Transferência Bancária"], key=f"ct_pag_{prefix_key}")
@@ -210,7 +213,6 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                 if not c_nome or not c_cpf or not c_rua:
                     st.warning("Por favor, preencha o Nome, CPF e Endereço para gerar o contrato.")
                 else:
-                    # Aqui ficará a chamada para o gerador de PDF no futuro
                     st.success(f"✅ Dados de {c_nome} validados! (No próximo passo iremos programar o PDF do contrato com estes dados).")
 
 
@@ -266,9 +268,7 @@ def renderizar():
     df_taxas = utils.load_taxas()
     df_produtos = utils.load_catalog('catalogo_produtos')
     
-    # Converte as datas para o formato correto (datetime) para o Streamlit formatar como DD/MM/YYYY
     df['data_conclusao'] = pd.to_datetime(df['data_conclusao'], errors='coerce')
-    
     df['ir_finalizados'] = df.apply(lambda x: deve_ir_para_finalizados(x['status_projeto'], x['data_conclusao']), axis=1)
 
     ativos_status = ["Em Andamento", "Aguardando Pagamento", "Aguardando Peças", "Concluído PIX", "Concluído CARTÃO"]
@@ -287,34 +287,4 @@ def renderizar():
         "nome_cliente": "Cliente",
         "status_projeto": "Status",
         "valor_venda_total": st.column_config.NumberColumn("Venda Total", format="R$ %.2f"),
-        "lucro_estimado": st.column_config.NumberColumn("Lucro Líquido", format="R$ %.2f"),
-        "data_conclusao": st.column_config.DateColumn("Data", format="DD/MM/YYYY") # <--- AQUI A MÁGICA DA DATA!
-    }
-    
-    with aba1:
-        sel = st.dataframe(df_atv[colunas_visiveis], use_container_width=True, on_select="rerun", selection_mode="single-row", hide_index=True, column_config=config_colunas, key="g_atv")
-        
-        total_lucro_atv = pd.to_numeric(df_atv['lucro_estimado'], errors='coerce').fillna(0).sum()
-        st.markdown(f"<div style='text-align: right; color: #004488; font-size: 18px; font-weight: bold; margin-bottom: 20px;'>Total Lucro Líquido Estimado: {utils.to_br_currency(total_lucro_atv)}</div>", unsafe_allow_html=True)
-        
-        if sel.selection.rows and len(df_atv) > sel.selection.rows[0]: 
-            exibir_painel_detalhado(df_atv.iloc[sel.selection.rows[0]], supabase, df_taxas, df_produtos, f"atv_{df_atv.iloc[sel.selection.rows[0]]['id']}")
-    
-    with aba2:
-        sel = st.dataframe(df_orc[colunas_visiveis], use_container_width=True, on_select="rerun", selection_mode="single-row", hide_index=True, column_config=config_colunas, key="g_orc")
-        
-        total_lucro_orc = pd.to_numeric(df_orc['lucro_estimado'], errors='coerce').fillna(0).sum()
-        st.markdown(f"<div style='text-align: right; color: #004488; font-size: 18px; font-weight: bold; margin-bottom: 20px;'>Total Lucro Líquido Estimado: {utils.to_br_currency(total_lucro_orc)}</div>", unsafe_allow_html=True)
-        
-        if sel.selection.rows and len(df_orc) > sel.selection.rows[0]: 
-            exibir_painel_detalhado(df_orc.iloc[sel.selection.rows[0]], supabase, df_taxas, df_produtos, f"orc_{df_orc.iloc[sel.selection.rows[0]]['id']}")
-
-    with aba3:
-        st.caption("Serviços concluídos em meses anteriores.")
-        sel = st.dataframe(df_fin[colunas_visiveis], use_container_width=True, on_select="rerun", selection_mode="single-row", hide_index=True, column_config=config_colunas, key="g_fin")
-        
-        total_lucro_fin = pd.to_numeric(df_fin['lucro_estimado'], errors='coerce').fillna(0).sum()
-        st.markdown(f"<div style='text-align: right; color: #004488; font-size: 18px; font-weight: bold; margin-bottom: 20px;'>Total Lucro Líquido Realizado: {utils.to_br_currency(total_lucro_fin)}</div>", unsafe_allow_html=True)
-        
-        if sel.selection.rows and len(df_fin) > sel.selection.rows[0]: 
-            exibir_painel_detalhado(df_fin.iloc[sel.selection.rows[0]], supabase, df_taxas, df_produtos, f"fin_{df_fin.iloc[sel.selection.rows[0]]['id']}")
+        "lucro_estimado": st.column_config.NumberColumn("Lucro Líqu
