@@ -35,12 +35,40 @@ def salvar_periodo_visivel(m_ini, m_fim):
     except:
         pass
 
+def limpar_e_garantir_linhas(df, lista_contas):
+    """Função blindada: Remove linhas fantasmas, garante as reais e ordena perfeitamente."""
+    # 1. Remover lixo (linhas em branco ou nulas)
+    if not df.empty and 'MESES' in df.columns:
+        df = df[df['MESES'].astype(str).str.strip() != '']
+        df = df[df['MESES'].notna()]
+    else:
+        df = pd.DataFrame(columns=["MESES"] + utils.meses_pt)
+        
+    # 2. Garantir que todas as contas oficiais existam
+    contas_existentes = df['MESES'].tolist()
+    linhas_novas = []
+    for c in lista_contas:
+        if c not in contas_existentes:
+            linhas_novas.append({"MESES": c, **{m: 0.0 for m in utils.meses_pt}})
+    
+    if linhas_novas:
+        df = pd.concat([df, pd.DataFrame(linhas_novas)], ignore_index=True)
+        
+    # 3. Forçar a ordem exata e remover possíveis duplicatas
+    df = df.drop_duplicates(subset=['MESES'], keep='last')
+    df['MESES'] = pd.Categorical(df['MESES'], categories=lista_contas, ordered=True)
+    df = df.sort_values('MESES').reset_index(drop=True)
+    return df
+
+def get_dec_val(series):
+    """Função auxiliar segura para extrair Dezembro"""
+    return series.get('DEZEMBRO', 0) if 'DEZEMBRO' in series else 0
+
 def renderizar():
     st.markdown('<div class="financeiro">', unsafe_allow_html=True)
     st.subheader("📊 Controle Financeiro e Patrimônio")
     
     with st.sidebar:
-        # A logo repetida foi removida daqui!
         ano_selecionado = st.selectbox("Ano Fiscal", options=[2025, 2026, 2027, 2028], index=1)
         st.write("---")
         st.markdown("### 👁️ Linha do Tempo")
@@ -66,31 +94,25 @@ def renderizar():
         st.session_state.df_e = utils.load_year_data('entradas', contas_e, ano_selecionado)
         st.session_state.ano_dados_atual = ano_selecionado
 
-    # --- REGRA DO ANO PASSADO: Busca dados de Dezembro do ano anterior ---
+    # --- REGRA DO ANO PASSADO (Dezembro Herdeiro) ---
     df_p_prev = utils.load_year_data('patrimonio', contas_p, ano_selecionado - 1)
+    df_p_prev = limpar_e_garantir_linhas(df_p_prev, contas_p)
     df_n_prev = df_p_prev.set_index('MESES')
+    
     pat_liq_prev = df_n_prev[df_n_prev.index.isin(['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS'])].sum()
-    pat_tot_prev_dec = pat_liq_prev.get('DEZEMBRO', 0) + df_n_prev[df_n_prev.index == 'IMÓVEIS'].sum().get('DEZEMBRO', 0) + df_n_prev[df_n_prev.index == 'VEÍCULOS'].sum().get('DEZEMBRO', 0)
-    xp_val_prev_dec = df_n_prev[df_n_prev.index == 'INVESTIMENTO XP'].sum().get('DEZEMBRO', 0)
-    inter_val_prev_dec = df_n_prev[df_n_prev.index == 'CONTA INTER'].sum().get('DEZEMBRO', 0)
+    pat_tot_prev_dec = get_dec_val(pat_liq_prev) + get_dec_val(df_n_prev[df_n_prev.index == 'IMÓVEIS'].sum()) + get_dec_val(df_n_prev[df_n_prev.index == 'VEÍCULOS'].sum())
+    xp_val_prev_dec = get_dec_val(df_n_prev[df_n_prev.index == 'INVESTIMENTO XP'].sum())
+    inter_val_prev_dec = get_dec_val(df_n_prev[df_n_prev.index == 'CONTA INTER'].sum())
 
-    def garantir_linhas(df, lista_contas):
-        if df.empty or 'MESES' not in df.columns:
-            return pd.DataFrame({"MESES": lista_contas, **{m: 0.0 for m in utils.meses_pt}})
-        for c in lista_contas:
-            if c not in df['MESES'].values:
-                df = pd.concat([df, pd.DataFrame([{"MESES": c, **{m: 0.0 for m in utils.meses_pt}}])], ignore_index=True)
-        return df
+    # Aplica a faxina nas tabelas atuais
+    st.session_state.df_p = limpar_e_garantir_linhas(st.session_state.df_p, contas_p)
+    st.session_state.df_e = limpar_e_garantir_linhas(st.session_state.df_e, contas_e)
 
-    st.session_state.df_p = garantir_linhas(st.session_state.df_p, contas_p)
-    st.session_state.df_e = garantir_linhas(st.session_state.df_e, contas_e)
-
-    # Configuração de larguras para os Editores de Dados
+    # Configuração de larguras (Régua oficial)
     col_cfg = {"MESES": st.column_config.TextColumn("CONTA", width=220, disabled=True)}
     for m in utils.meses_pt: 
         col_cfg[m] = st.column_config.NumberColumn(m, width=100, format="R$ %,.2f") 
         
-    # Régua para forçar a largura igual nas tabelas de Resumo (Texto)
     col_cfg_text = {"MESES": st.column_config.TextColumn("CONTA", width=220, disabled=True)}
     for m in utils.meses_pt:
         col_cfg_text[m] = st.column_config.TextColumn(m, width=100, disabled=True)
@@ -103,9 +125,22 @@ def renderizar():
     st.markdown("#### 🏛️ Posição Patrimonial e Investimentos")
     df_p_editado = st.data_editor(st.session_state.df_p[colunas_visiveis], hide_index=True, column_config=col_cfg, use_container_width=True, height=295, key="editor_p")
 
-    if not df_p_editado.equals(st.session_state.df_p[colunas_visiveis]):
-        for m in [c for c in colunas_visiveis if c != "MESES"]: 
-            st.session_state.df_p.loc[:, m] = df_p_editado[m]
+    # Salvamento super seguro (Apenas se houver diferença real)
+    mudou_p = False
+    for _, row in df_p_editado.iterrows():
+        conta = row['MESES']
+        idx_real = st.session_state.df_p.index[st.session_state.df_p['MESES'] == conta].tolist()
+        if idx_real:
+            idx = idx_real[0]
+            for m in colunas_visiveis:
+                if m != 'MESES':
+                    val_novo = float(row[m]) if pd.notna(row[m]) else 0.0
+                    val_antigo = float(st.session_state.df_p.at[idx, m]) if pd.notna(st.session_state.df_p.at[idx, m]) else 0.0
+                    if abs(val_novo - val_antigo) > 0.01:
+                        st.session_state.df_p.at[idx, m] = val_novo
+                        mudou_p = True
+
+    if mudou_p:
         utils.save_to_supabase('patrimonio', st.session_state.df_p, ano_selecionado)
         st.rerun()
 
@@ -141,7 +176,6 @@ def renderizar():
     df_res_p = pd.DataFrame(dict_res_p)
     styled_res_p = df_res_p[colunas_visiveis].style.apply(lambda row: [f'background-color: {"#FF9900" if row["MESES"] == "PATRIMÔNIO TOTAL" else "#FFF2CC" if "LÍQUIDO" in row["MESES"] else "white"}; color: black; font-weight: bold' for _ in colunas_visiveis], axis=1)
     
-    # Renderizamos com a régua de colunas para alinhar
     st.dataframe(styled_res_p, hide_index=True, column_config=col_cfg_text, use_container_width=True)
 
     st.markdown("---")
@@ -158,8 +192,22 @@ def renderizar():
         except: pass
 
     df_e_edit = st.data_editor(st.session_state.df_e[colunas_visiveis], hide_index=True, column_config=col_cfg, use_container_width=True, height=190, key="ed_e")
-    if not df_e_edit.equals(st.session_state.df_e[colunas_visiveis]):
-        for m in [c for c in colunas_visiveis if c != "MESES"]: st.session_state.df_e.loc[:, m] = df_e_edit[m]
+    
+    mudou_e = False
+    for _, row in df_e_edit.iterrows():
+        conta = row['MESES']
+        idx_real = st.session_state.df_e.index[st.session_state.df_e['MESES'] == conta].tolist()
+        if idx_real:
+            idx = idx_real[0]
+            for m in colunas_visiveis:
+                if m != 'MESES':
+                    val_novo = float(row[m]) if pd.notna(row[m]) else 0.0
+                    val_antigo = float(st.session_state.df_e.at[idx, m]) if pd.notna(st.session_state.df_e.at[idx, m]) else 0.0
+                    if abs(val_novo - val_antigo) > 0.01:
+                        st.session_state.df_e.at[idx, m] = val_novo
+                        mudou_e = True
+
+    if mudou_e:
         utils.save_to_supabase('entradas', st.session_state.df_e, ano_selecionado)
         st.rerun()
 
