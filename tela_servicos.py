@@ -34,7 +34,21 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
     
     # --- STATUS ---
     status_atual = projeto_selecionado.get('status_projeto', 'Orçamento Enviado')
-    todas_opcoes = ["Orçamento Enviado", "Em Andamento", "Aguardando Peças", "Concluído PIX", "Concluído CARTÃO", "Cancelado"]
+    
+    # Compatibilidade com status antigos para não quebrar o que já existe no banco
+    if status_atual == "Cancelado": status_atual = "Orçamento Cancelado"
+    if status_atual == "Aguardando Peças": status_atual = "Aguardando Pagamento"
+
+    todas_opcoes = [
+        "Orçamento Enviado", 
+        "Orçamento Cancelado", 
+        "Em Andamento", 
+        "Aguardando Pagamento", 
+        "Concluído PIX", 
+        "Concluído CARTÃO", 
+        "Excluir"
+    ]
+    
     novo_status = col_esq.selectbox("Alterar Status", todas_opcoes, index=todas_opcoes.index(status_atual) if status_atual in todas_opcoes else 0, key=f"status_{prefix_key}")
     
     # --- DATA (Blindada) ---
@@ -131,26 +145,83 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
 
     notas = st.text_area("Observações", value=str(projeto_selecionado.get('notas_internas', '')) if str(projeto_selecionado.get('notas_internas', '')) != 'nan' else '', key=f"notas_{prefix_key}")
 
-    if st.button("💾 SALVAR PROJETO", type="primary", use_container_width=True, key=f"save_{prefix_key}"):
-        dados = {
-            "status_projeto": novo_status, 
-            "data_conclusao": nova_data.strftime('%Y-%m-%d'),
-            "detalhamento_itens": df_itens_final.to_dict('records'),
-            "custo_adicional_materiais": custo_ext, 
-            "custo_terceirizados": custo_mo,
-            "custo_comissao": valor_comissao, 
-            "custo_impostos": valor_nf,
-            "custo_cartao": valor_cartao_taxa, 
-            "valor_venda_total": venda_final,
-            "lucro_estimado": lucro_final, 
-            "notas_internas": notas
-        }
-        try:
-            supabase.table('servicos_andamento').update(dados).eq('id', int(projeto_selecionado['id'])).execute()
-            st.success("✅ Atualizado com sucesso!")
-            st.rerun()
-        except Exception as e: 
-            st.error(f"Erro ao salvar: {e}")
+    # --- AÇÕES FINAIS (PDF E SALVAMENTO) ---
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    with st.expander("📄 GERAR PDF DO ORÇAMENTO"):
+        col_pdf1, col_pdf2 = st.columns([1, 1])
+        modelo_capa = col_pdf1.selectbox("Modelo para Capa", [
+            "Aquecedor Solar Tradicional", 
+            "Aquecedor Solar a Vácuo Acoplado", 
+            "Aquecedor Solar Modular", 
+            "Aquecedor de Piscina - Tradicional", 
+            "Aquecedor de Piscina - Trocador de Calor", 
+            "Sistema de Pressurização"
+        ], index=3, key=f"capa_{prefix_key}")
+        
+        if col_pdf2.button("GERAR PRÉVIA DO PDF", use_container_width=True, key=f"btn_pdf_{prefix_key}"):
+            # Reconstruindo os dados para o PDF
+            itens_pdf = projeto_selecionado.get('detalhamento_itens', [])
+            df_pdf = pd.DataFrame(itens_pdf)
+            if not df_pdf.empty:
+                df_pdf['Quantidade'] = df_pdf.get('Qtd', 0)
+                df_pdf['Produto da Base'] = df_pdf.get('Item', '')
+                df_pdf['Produto Manual'] = ""
+                df_pdf['Venda Total'] = df_pdf['Quantidade'] * df_pdf.get('Venda Un.', 0)
+                df_pdf['Descrição'] = df_pdf.get('Descrição', "")
+            else:
+                df_pdf = pd.DataFrame(columns=['Quantidade', 'Produto da Base', 'Produto Manual', 'Venda Total', 'Descrição'])
+            
+            nome_c = projeto_selecionado.get('nome_cliente', 'Cliente')
+            tel_c = projeto_selecionado.get('telefone_cliente', '')
+            serv_text = str(projeto_selecionado.get('servicos_adquiridos', ''))
+            if serv_text == 'nan': serv_text = ""
+            val_tot = safe_float(projeto_selecionado.get('valor_venda_total'))
+            obs_pdf = str(projeto_selecionado.get('notas_internas', 'Material Hidráulico não incluído na proposta'))
+            if obs_pdf == 'nan' or obs_pdf.strip() == '': obs_pdf = "Material Hidráulico não incluído na proposta"
+
+            pdf_bytes = utils.gerar_pdf_orcamento(
+                nome=nome_c, tel=tel_c, capa=modelo_capa, df_items=df_pdf, 
+                d_s=serv_text, v_s=0.0, d_o="", v_o=0.0, total=val_tot, obs=obs_pdf, mostrar_un=False
+            )
+            st.session_state[f'pdf_gerado_{prefix_key}'] = pdf_bytes
+            
+        if f'pdf_gerado_{prefix_key}' in st.session_state:
+            st.download_button("📥 BAIXAR PDF DO ORÇAMENTO", data=st.session_state[f'pdf_gerado_{prefix_key}'], file_name=f"ORCAMENTO_{projeto_selecionado.get('nome_cliente', 'Cliente')}.pdf", mime="application/pdf", use_container_width=True, key=f"dl_pdf_{prefix_key}")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Lógica de Exclusão vs Salvamento
+    if novo_status == "Excluir":
+        st.error("⚠️ **ATENÇÃO:** Você selecionou a opção de Excluir. Isso apagará permanentemente este cliente e orçamento do sistema.")
+        if st.button("🗑️ CONFIRMAR EXCLUSÃO", type="primary", use_container_width=True, key=f"del_{prefix_key}"):
+            try:
+                supabase.table('servicos_andamento').delete().eq('id', int(projeto_selecionado['id'])).execute()
+                st.success("✅ Orçamento excluído com sucesso!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Erro ao excluir: {e}")
+    else:
+        if st.button("💾 SALVAR PROJETO", type="primary", use_container_width=True, key=f"save_{prefix_key}"):
+            dados = {
+                "status_projeto": novo_status, 
+                "data_conclusao": nova_data.strftime('%Y-%m-%d'),
+                "detalhamento_itens": df_itens_final.to_dict('records'),
+                "custo_adicional_materiais": custo_ext, 
+                "custo_terceirizados": custo_mo,
+                "custo_comissao": valor_comissao, 
+                "custo_impostos": valor_nf,
+                "custo_cartao": valor_cartao_taxa, 
+                "valor_venda_total": venda_final,
+                "lucro_estimado": lucro_final, 
+                "notas_internas": notas
+            }
+            try:
+                supabase.table('servicos_andamento').update(dados).eq('id', int(projeto_selecionado['id'])).execute()
+                st.success("✅ Atualizado com sucesso!")
+                st.rerun()
+            except Exception as e: 
+                st.error(f"Erro ao salvar: {e}")
 
 def renderizar():
     st.markdown("## 📋 Gestão de Serviços")
@@ -172,7 +243,9 @@ def renderizar():
     
     df['ir_finalizados'] = df.apply(lambda x: deve_ir_para_finalizados(x['status_projeto'], x['data_conclusao']), axis=1)
 
-    ativos_status = ["Em Andamento", "Aguardando Peças", "Concluído PIX", "Concluído CARTÃO"]
+    # Considera os status ativos (Incluindo os antigos para evitar bugs)
+    ativos_status = ["Em Andamento", "Aguardando Pagamento", "Aguardando Peças", "Concluído PIX", "Concluído CARTÃO"]
+    
     df_orc = df[~df['status_projeto'].isin(ativos_status)].reset_index(drop=True)
     df_fin = df[df['ir_finalizados'] == True].reset_index(drop=True)
     df_atv = df[(df['status_projeto'].isin(ativos_status)) & (df['ir_finalizados'] == False)].reset_index(drop=True)
@@ -197,7 +270,7 @@ def renderizar():
         total_lucro_atv = pd.to_numeric(df_atv['lucro_estimado'], errors='coerce').fillna(0).sum()
         st.markdown(f"<div style='text-align: right; color: #004488; font-size: 18px; font-weight: bold; margin-bottom: 20px;'>Total Lucro Líquido Estimado: {utils.to_br_currency(total_lucro_atv)}</div>", unsafe_allow_html=True)
         
-        # Trava de segurança inserida aqui:
+        # Trava de Segurança
         if sel.selection.rows and len(df_atv) > sel.selection.rows[0]: 
             exibir_painel_detalhado(df_atv.iloc[sel.selection.rows[0]], supabase, df_taxas, df_produtos, f"atv_{df_atv.iloc[sel.selection.rows[0]]['id']}")
     
@@ -207,7 +280,7 @@ def renderizar():
         total_lucro_orc = pd.to_numeric(df_orc['lucro_estimado'], errors='coerce').fillna(0).sum()
         st.markdown(f"<div style='text-align: right; color: #004488; font-size: 18px; font-weight: bold; margin-bottom: 20px;'>Total Lucro Líquido Estimado: {utils.to_br_currency(total_lucro_orc)}</div>", unsafe_allow_html=True)
         
-        # Trava de segurança inserida aqui:
+        # Trava de Segurança
         if sel.selection.rows and len(df_orc) > sel.selection.rows[0]: 
             exibir_painel_detalhado(df_orc.iloc[sel.selection.rows[0]], supabase, df_taxas, df_produtos, f"orc_{df_orc.iloc[sel.selection.rows[0]]['id']}")
 
@@ -218,6 +291,6 @@ def renderizar():
         total_lucro_fin = pd.to_numeric(df_fin['lucro_estimado'], errors='coerce').fillna(0).sum()
         st.markdown(f"<div style='text-align: right; color: #004488; font-size: 18px; font-weight: bold; margin-bottom: 20px;'>Total Lucro Líquido Realizado: {utils.to_br_currency(total_lucro_fin)}</div>", unsafe_allow_html=True)
         
-        # Trava de segurança inserida aqui:
+        # Trava de Segurança
         if sel.selection.rows and len(df_fin) > sel.selection.rows[0]: 
             exibir_painel_detalhado(df_fin.iloc[sel.selection.rows[0]], supabase, df_taxas, df_produtos, f"fin_{df_fin.iloc[sel.selection.rows[0]]['id']}")
