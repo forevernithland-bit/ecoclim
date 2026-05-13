@@ -190,19 +190,34 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
 
             st.markdown("#### Estrutura do Contrato")
             c_objeto = st.text_area("Objeto do Contrato (Opcional - Ex: Fornecimento de 1 sistema solar na cidade X)", height=80, key=f"ct_obj_{prefix_key}")
-            c_mat = st.radio("Materiais Hidráulicos Inclusos?", ["Não", "Sim"], horizontal=True, key=f"ct_mat_{prefix_key}")
             c_data_term = st.date_input("Data de Término do Serviço (Para base da Garantia)", value=datetime.date.today(), format="DD/MM/YYYY", key=f"ct_term_{prefix_key}")
+            c_mat = st.radio("Materiais Hidráulicos Inclusos na Proposta?", ["Não", "Sim"], horizontal=True, key=f"ct_mat_{prefix_key}")
+            
+            st.markdown("#### Valores e Pagamento")
+            col_val1, col_val2 = st.columns(2)
+            c_val_base = col_val1.number_input("Valor Base / Equipamentos (R$)", value=float(venda_final), format="%.2f", key=f"ct_val_base_{prefix_key}")
+            c_val_inst = col_val2.number_input("Valor da Instalação (R$ - Opcional)", value=0.0, format="%.2f", key=f"ct_val_inst_{prefix_key}")
+            
+            col_val3, col_val4 = st.columns(2)
+            c_val_hidr = col_val3.number_input("Valor Materiais Hidráulicos (R$ - Opcional)", value=0.0, format="%.2f", key=f"ct_val_hidr_{prefix_key}")
+            c_val_outros = col_val4.number_input("Valor Outros Serviços (R$ - Opcional)", value=0.0, format="%.2f", key=f"ct_val_outros_{prefix_key}")
+            
+            c_desc_outros = ""
+            if c_val_outros > 0:
+                c_desc_outros = st.text_input("Descrição dos Outros Serviços", key=f"ct_desc_outros_{prefix_key}")
+
             c_pagamento = st.selectbox("Forma de Pagamento Acordada", ["PIX", "Cartão de Crédito", "Cartão de Débito", "Boleto", "Dinheiro", "Transferência Bancária"], key=f"ct_pag_{prefix_key}")
+
+            total_ct = c_val_base + c_val_inst + c_val_hidr + c_val_outros
+            st.markdown(f"<span style='color:#004488; font-weight:bold;'>Total do Contrato: {utils.to_br_currency(total_ct)}</span>", unsafe_allow_html=True)
 
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button("📄 GERAR PDF DO CONTRATO", type="primary", use_container_width=True, key=f"btn_gerar_ct_{prefix_key}"):
                 if not c_nome or not c_cpf or not c_rua or not c_num:
                     st.warning("Preencha Nome, CPF/CNPJ, Rua e Número para gerar o contrato!")
                 else:
-                    # Junta o endereço
                     end_completo = f"{c_rua}, nº {c_num} - {c_bairro}, {c_cidade} - {c_uf}, CEP: {c_cep}"
                     
-                    # Puxa os dados dos itens com a descrição rica do Catálogo
                     df_ct_itens = df_itens_final.copy()
                     descricoes = []
                     for _, r in df_ct_itens.iterrows():
@@ -213,14 +228,15 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     pdf_ct_bytes = utils.gerar_pdf_contrato(
                         nome=c_nome, doc=c_cpf, tipo_cliente=c_tipo, endereco=end_completo,
                         objeto=c_objeto, df_items=df_ct_itens, mat_inclusos=c_mat,
-                        total=venda_final, forma_pagamento=c_pagamento, data_termino=c_data_term
+                        forma_pagamento=c_pagamento, data_termino=c_data_term,
+                        val_base=c_val_base, val_inst=c_val_inst, val_hidr=c_val_hidr, 
+                        val_outros=c_val_outros, desc_outros=c_desc_outros
                     )
                     st.session_state[f'pdf_contrato_{prefix_key}'] = pdf_ct_bytes
                     st.success("✅ Contrato gerado! Clique no botão abaixo para baixar.")
 
             if f'pdf_contrato_{prefix_key}' in st.session_state:
                 st.download_button("📥 BAIXAR CONTRATO", data=st.session_state[f'pdf_contrato_{prefix_key}'], file_name=f"CONTRATO_{c_nome.split()[0]}.pdf", mime="application/pdf", use_container_width=True, key=f"dl_ct_{prefix_key}")
-
 
     st.markdown("<br>", unsafe_allow_html=True)
     
