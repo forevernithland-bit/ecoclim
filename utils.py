@@ -13,8 +13,17 @@ import urllib.request
 import json
 
 # ==========================================
-# VARIÁVEIS GLOBAIS DE DATA
+# FUNÇÕES DE SEGURANÇA E DATA
 # ==========================================
+def safe_float(val):
+    """Escudo contra erros de valores nulos ou textos vazios em cálculos"""
+    try:
+        if pd.isna(val) or val is None or str(val).strip() == '': 
+            return 0.0
+        return float(val)
+    except:
+        return 0.0
+
 hoje = datetime.date.today()
 ano_atual = hoje.year
 meses_pt = ['JANEIRO', 'FEVEREIRO', 'MARÇO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO']
