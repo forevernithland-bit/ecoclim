@@ -179,14 +179,24 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
     y -= 0.8*cm
     
     for _, row in df_items.iterrows():
-        if row['Quantidade'] > 0:
-            item = row['Produto da Base'] if row['Produto da Base'] != "OUTRO" else row['Produto Manual']
+        if row.get('Quantidade', 0) > 0:
+            # ---> CORREÇÃO AQUI: Avalia se a base é vazia, nula ou OUTRO
+            p_base = str(row.get('Produto da Base', '')).strip()
+            if p_base.upper() in ['', 'NONE', 'NAN', 'OUTRO']:
+                item = str(row.get('Produto Manual', '')).strip()
+            else:
+                item = p_base
+                
+            if not item: 
+                item = str(row.get('Item', '')).strip()
+            # <--- FIM DA CORREÇÃO
+            
             p.setFont("Helvetica-Bold", 9); p.drawString(2.3*cm, y, str(item)[:60])
-            p.setFont("Helvetica", 9); p.drawString(12.8*cm, y, str(int(row['Quantidade'])))
+            p.setFont("Helvetica", 9); p.drawString(12.8*cm, y, str(int(row.get('Quantidade', 0))))
             p.drawRightString(largura - 2.3*cm, y, to_br_currency(row.get('Venda Total', 0)))
             y -= 0.4*cm
             desc = str(row.get('Descrição', ""))
-            if desc and desc != "nan":
+            if desc and desc.lower() != "nan":
                 p.setFont("Helvetica", 8); p.setFillColor(colors.grey)
                 for l in desc.split('\n'): p.drawString(2.3*cm, y, l.strip()); y -= 0.35*cm
                 p.setFillColor(colors.black)
