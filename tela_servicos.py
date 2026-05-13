@@ -159,14 +159,27 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
     if novo_status in status_contrato_permitido:
         st.markdown("<br>", unsafe_allow_html=True)
         with st.expander("📝 GERAR CONTRATO"):
+            
+            # Puxa os dados salvos previamente, se houverem
+            d_ct = projeto_selecionado.get('dados_contrato')
+            if not isinstance(d_ct, dict): d_ct = {}
+
             st.markdown("#### Dados do Cliente para o Contrato")
-            c_tipo = st.radio("Tipo de Cliente", ["Pessoa Física", "Pessoa Jurídica"], horizontal=True, key=f"ct_tipo_{prefix_key}")
-            c_nome = st.text_input("Nome Completo / Razão Social", value=projeto_selecionado.get('nome_cliente', ''), key=f"ct_nome_{prefix_key}")
-            c_cpf = st.text_input("CPF" if c_tipo == "Pessoa Física" else "CNPJ", key=f"ct_cpf_{prefix_key}")
+            c_tipo = st.radio("Tipo de Cliente", ["Pessoa Física", "Pessoa Jurídica"], horizontal=True, index=0 if d_ct.get('tipo', 'Pessoa Física') == 'Pessoa Física' else 1, key=f"ct_tipo_{prefix_key}")
+            c_nome = st.text_input("Nome Completo / Razão Social", value=d_ct.get('nome', projeto_selecionado.get('nome_cliente', '')), key=f"ct_nome_{prefix_key}")
+            c_cpf = st.text_input("CPF" if c_tipo == "Pessoa Física" else "CNPJ", value=d_ct.get('cpf', ''), key=f"ct_cpf_{prefix_key}")
 
             st.markdown("#### Endereço do Cliente")
             col_cep1, col_cep2 = st.columns([1, 2])
-            c_cep = col_cep1.text_input("CEP", placeholder="00000-000", key=f"ct_cep_{prefix_key}")
+            
+            # Para o CEP e Rua precisarem funcionar bem com o Botão de Busca, alimentamos o st.session_state
+            if f"ct_rua_{prefix_key}" not in st.session_state: st.session_state[f"ct_rua_{prefix_key}"] = d_ct.get('rua', '')
+            if f"ct_num_{prefix_key}" not in st.session_state: st.session_state[f"ct_num_{prefix_key}"] = d_ct.get('num', '')
+            if f"ct_bairro_{prefix_key}" not in st.session_state: st.session_state[f"ct_bairro_{prefix_key}"] = d_ct.get('bairro', '')
+            if f"ct_cid_{prefix_key}" not in st.session_state: st.session_state[f"ct_cid_{prefix_key}"] = d_ct.get('cidade', '')
+            if f"ct_uf_{prefix_key}" not in st.session_state: st.session_state[f"ct_uf_{prefix_key}"] = d_ct.get('uf', '')
+
+            c_cep = col_cep1.text_input("CEP", placeholder="00000-000", value=d_ct.get('cep', ''), key=f"ct_cep_{prefix_key}")
 
             if col_cep2.button("🔍 Buscar CEP", key=f"btn_cep_{prefix_key}"):
                 end_dados = utils.buscar_cep(c_cep)
@@ -189,30 +202,55 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             c_uf = col_uf.text_input("Estado (UF)", key=f"ct_uf_{prefix_key}")
 
             st.markdown("#### Estrutura do Contrato")
-            c_objeto = st.text_area("Objeto do Contrato (Opcional - Ex: Fornecimento de 1 sistema solar na cidade X)", height=80, key=f"ct_obj_{prefix_key}")
-            c_data_term = st.date_input("Data de Término do Serviço (Para base da Garantia)", value=datetime.date.today(), format="DD/MM/YYYY", key=f"ct_term_{prefix_key}")
-            c_mat = st.radio("Materiais Hidráulicos Inclusos na Proposta?", ["Não", "Sim"], horizontal=True, key=f"ct_mat_{prefix_key}")
+            c_objeto = st.text_area("Objeto do Contrato (Opcional)", value=d_ct.get('objeto', ''), height=80, key=f"ct_obj_{prefix_key}")
+            c_mat = st.radio("Materiais Hidráulicos Inclusos na Proposta?", ["Não", "Sim"], index=0 if d_ct.get('mat_inclusos', 'Não') == 'Não' else 1, horizontal=True, key=f"ct_mat_{prefix_key}")
+            
+            data_t = datetime.date.today()
+            if d_ct.get('data_termino'):
+                try: data_t = datetime.datetime.strptime(d_ct.get('data_termino'), "%Y-%m-%d").date()
+                except: pass
+            c_data_term = st.date_input("Data de Término do Serviço (Para base da Garantia)", value=data_t, format="DD/MM/YYYY", key=f"ct_term_{prefix_key}")
             
             st.markdown("#### Valores e Pagamento")
             col_val1, col_val2 = st.columns(2)
-            c_val_base = col_val1.number_input("Valor Base / Equipamentos (R$)", value=float(venda_final), format="%.2f", key=f"ct_val_base_{prefix_key}")
-            c_val_inst = col_val2.number_input("Valor da Instalação (R$ - Opcional)", value=0.0, format="%.2f", key=f"ct_val_inst_{prefix_key}")
+            c_val_base = col_val1.number_input("Valor Base / Equipamentos (R$)", value=float(d_ct.get('val_base', venda_final)), format="%.2f", key=f"ct_val_base_{prefix_key}")
+            c_val_inst = col_val2.number_input("Valor da Instalação (R$ - Opcional)", value=float(d_ct.get('val_inst', 0.0)), format="%.2f", key=f"ct_val_inst_{prefix_key}")
             
             col_val3, col_val4 = st.columns(2)
-            c_val_hidr = col_val3.number_input("Valor Materiais Hidráulicos (R$ - Opcional)", value=0.0, format="%.2f", key=f"ct_val_hidr_{prefix_key}")
-            c_val_outros = col_val4.number_input("Valor Outros Serviços (R$ - Opcional)", value=0.0, format="%.2f", key=f"ct_val_outros_{prefix_key}")
+            c_val_hidr = col_val3.number_input("Valor Materiais Hidráulicos (R$ - Opcional)", value=float(d_ct.get('val_hidr', 0.0)), format="%.2f", key=f"ct_val_hidr_{prefix_key}")
+            c_val_outros = col_val4.number_input("Valor Outros Serviços (R$ - Opcional)", value=float(d_ct.get('val_outros', 0.0)), format="%.2f", key=f"ct_val_outros_{prefix_key}")
             
             c_desc_outros = ""
             if c_val_outros > 0:
-                c_desc_outros = st.text_input("Descrição dos Outros Serviços", key=f"ct_desc_outros_{prefix_key}")
+                c_desc_outros = st.text_input("Descrição dos Outros Serviços", value=d_ct.get('desc_outros', ''), key=f"ct_desc_outros_{prefix_key}")
 
-            c_pagamento = st.selectbox("Forma de Pagamento Acordada", ["PIX", "Cartão de Crédito", "Cartão de Débito", "Boleto", "Dinheiro", "Transferência Bancária"], key=f"ct_pag_{prefix_key}")
+            lista_pag = ["PIX", "Cartão de Crédito", "Cartão de Débito", "Boleto", "Dinheiro", "Transferência Bancária"]
+            c_pagamento = st.selectbox("Forma de Pagamento Acordada", lista_pag, index=lista_pag.index(d_ct.get('pagamento', 'PIX')), key=f"ct_pag_{prefix_key}")
+            c_obs_pag = st.text_input("Observações do Pagamento (Opcional)", value=d_ct.get('obs_pagamento', ''), key=f"ct_obs_pag_{prefix_key}")
 
             total_ct = c_val_base + c_val_inst + c_val_hidr + c_val_outros
             st.markdown(f"<span style='color:#004488; font-weight:bold;'>Total do Contrato: {utils.to_br_currency(total_ct)}</span>", unsafe_allow_html=True)
 
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("📄 GERAR PDF DO CONTRATO", type="primary", use_container_width=True, key=f"btn_gerar_ct_{prefix_key}"):
+            
+            # Botões
+            col_b1, col_b2 = st.columns(2)
+            
+            if col_b1.button("💾 SALVAR DADOS DO CONTRATO", use_container_width=True, key=f"btn_sv_ct_{prefix_key}"):
+                payload = {
+                    "tipo": c_tipo, "nome": c_nome, "cpf": c_cpf, "cep": c_cep, "rua": c_rua, "num": c_num, 
+                    "bairro": c_bairro, "cidade": c_cidade, "uf": c_uf, "objeto": c_objeto, "mat_inclusos": c_mat, 
+                    "data_termino": c_data_term.strftime("%Y-%m-%d"), "pagamento": c_pagamento, "obs_pagamento": c_obs_pag, 
+                    "val_base": c_val_base, "val_inst": c_val_inst, "val_hidr": c_val_hidr, 
+                    "val_outros": c_val_outros, "desc_outros": c_desc_outros
+                }
+                try:
+                    supabase.table('servicos_andamento').update({"dados_contrato": payload}).eq('id', int(projeto_selecionado['id'])).execute()
+                    st.success("✅ Dados do contrato salvos com sucesso!")
+                except Exception as e:
+                    st.error("⚠️ ERRO: Para o botão Salvar funcionar, vá no Supabase > Tabela 'servicos_andamento' e crie uma nova coluna chamada 'dados_contrato' do tipo 'jsonb'.")
+
+            if col_b2.button("📄 GERAR PDF DO CONTRATO", type="primary", use_container_width=True, key=f"btn_gerar_pdf_ct_{prefix_key}"):
                 if not c_nome or not c_cpf or not c_rua or not c_num:
                     st.warning("Preencha Nome, CPF/CNPJ, Rua e Número para gerar o contrato!")
                 else:
@@ -228,7 +266,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     pdf_ct_bytes = utils.gerar_pdf_contrato(
                         nome=c_nome, doc=c_cpf, tipo_cliente=c_tipo, endereco=end_completo,
                         objeto=c_objeto, df_items=df_ct_itens, mat_inclusos=c_mat,
-                        forma_pagamento=c_pagamento, data_termino=c_data_term,
+                        forma_pagamento=c_pagamento, obs_pagamento=c_obs_pag, data_termino=c_data_term,
                         val_base=c_val_base, val_inst=c_val_inst, val_hidr=c_val_hidr, 
                         val_outros=c_val_outros, desc_outros=c_desc_outros
                     )
@@ -236,11 +274,11 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     st.success("✅ Contrato gerado! Clique no botão abaixo para baixar.")
 
             if f'pdf_contrato_{prefix_key}' in st.session_state:
-                st.download_button("📥 BAIXAR CONTRATO", data=st.session_state[f'pdf_contrato_{prefix_key}'], file_name=f"CONTRATO_{c_nome.split()[0]}.pdf", mime="application/pdf", use_container_width=True, key=f"dl_ct_{prefix_key}")
+                st.download_button("📥 BAIXAR CONTRATO (PDF)", data=st.session_state[f'pdf_contrato_{prefix_key}'], file_name=f"CONTRATO_{c_nome.split()[0]}.pdf", mime="application/pdf", use_container_width=True, key=f"dl_ct_{prefix_key}")
 
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # ------------------ 3. SALVAMENTO E EXCLUSÃO ------------------
+    # ------------------ 3. SALVAMENTO E EXCLUSÃO DO PROJETO ------------------
     if novo_status == "Excluir":
         st.error("⚠️ **ATENÇÃO:** Você selecionou a opção de Excluir. Isso apagará permanentemente este cliente e orçamento do sistema.")
         if st.button("🗑️ CONFIRMAR EXCLUSÃO", type="primary", use_container_width=True, key=f"del_{prefix_key}"):
