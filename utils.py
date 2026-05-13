@@ -226,7 +226,7 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
 # ==========================================
 # GERAÇÃO DE PDF (CONTRATO INTELIGENTE)
 # ==========================================
-def gerar_pdf_contrato(nome, doc, tipo_cliente, endereco, objeto, df_items, mat_inclusos, forma_pagamento, data_termino, val_base, val_inst, val_hidr, val_outros, desc_outros):
+def gerar_pdf_contrato(nome, doc, tipo_cliente, endereco, objeto, df_items, mat_inclusos, forma_pagamento, obs_pagamento, data_termino, val_base, val_inst, val_hidr, val_outros, desc_outros):
     buffer = BytesIO()
     doc_pdf = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=2*cm, leftMargin=2*cm, topMargin=2*cm, bottomMargin=2*cm)
     styles = getSampleStyleSheet()
@@ -295,7 +295,12 @@ def gerar_pdf_contrato(nome, doc, tipo_cliente, endereco, objeto, df_items, mat_
         
     story.append(Spacer(1, 0.2*cm))
     story.append(Paragraph(f"O valor total do presente contrato é de <b>{to_br_currency(total_contrato)}</b>.", style_normal))
+    
+    # NOVOS CAMPOS: Pagamento e PIX
     story.append(Paragraph(f"Forma de pagamento acordada: <b>{forma_pagamento}</b>.", style_normal))
+    if obs_pagamento:
+        story.append(Paragraph(f"Observações do Pagamento: {obs_pagamento}", style_normal))
+    story.append(Paragraph("Nosso PIX é o CNPJ: <b>40.111.279/0001-03</b>", style_normal))
 
     # 6. EXECUÇÃO DE SERVIÇOS E GARANTIA
     story.append(Paragraph("<b>4. EXECUÇÃO DE SERVIÇOS E GARANTIA</b>", style_h3))
@@ -343,21 +348,21 @@ def gerar_pdf_contrato(nome, doc, tipo_cliente, endereco, objeto, df_items, mat_
     story.append(Paragraph("<b>CLÁUSULA 8 – DO FORO</b>", style_h3))
     story.append(Paragraph("Fica eleito o foro da Comarca de Santa Luzia/MG para dirimir quaisquer controvérsias oriundas deste contrato, com renúncia expressa a qualquer outro, por mais privilegiado que seja.", style_normal))
 
-    # 11. ASSINATURAS (COM IMAGEM PRÉ-ASSINADA)
+    # 11. ASSINATURAS (COM IMAGEM AUMENTADA E TEXTO REMOVIDO)
     story.append(Spacer(1, 1.0*cm))
     story.append(Paragraph(f"Santa Luzia, MG, {datetime.date.today().strftime('%d de %B de %Y').lower()}.", style_normal))
     story.append(Spacer(1, 1.5*cm))
     
     try:
-        # A magia da assinatura aqui!
-        img_ass = RLImage("assinatura.png", width=4*cm, height=2.2*cm)
+        # Assinatura aumentada (6cm x 3.3cm)
+        img_ass = RLImage("assinatura.png", width=6.0*cm, height=3.3*cm)
         img_ass.hAlign = 'CENTER'
     except:
-        img_ass = "______________________________________________"
+        img_ass = "______________________________________________\nCONTRATADA\nECOCLIM SOLUÇÕES SUSTENTÁVEIS"
         
     t_data = [
         ["______________________________________________", img_ass],
-        [f"CONTRATANTE\n{nome}", "CONTRATADA\nECOCLIM SOLUÇÕES SUSTENTÁVEIS"]
+        [f"CONTRATANTE\n{nome}", ""] # Texto da CONTRATADA removido daqui
     ]
     t = Table(t_data, colWidths=[8.5*cm, 8.5*cm])
     t.setStyle(TableStyle([
