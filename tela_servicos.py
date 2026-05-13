@@ -3,7 +3,6 @@ import pandas as pd
 import datetime
 import utils
 
-# Escudo contra erros de valores nulos do banco de dados
 def safe_float(val):
     try:
         if pd.isna(val) or val is None or str(val).strip() == '': 
@@ -12,7 +11,6 @@ def safe_float(val):
     except:
         return 0.0
 
-# Regra: Só vai para a aba Finalizados se o status for Concluído E o mês já tiver virado
 def deve_ir_para_finalizados(status, data_conc_str):
     if status not in ["Concluído PIX", "Concluído CARTÃO"]:
         return False
@@ -31,38 +29,26 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
     
     col_esq, col_dir = st.columns(2)
     
-    # --- STATUS ---
     status_atual = projeto_selecionado.get('status_projeto', 'Orçamento Enviado')
-    
-    # Compatibilidade com status antigos
     if status_atual == "Cancelado": status_atual = "Orçamento Cancelado"
     if status_atual == "Aguardando Peças": status_atual = "Aguardando Pagamento"
 
     todas_opcoes = [
-        "Orçamento Enviado", 
-        "Orçamento Cancelado", 
-        "Em Andamento", 
-        "Aguardando Pagamento", 
-        "Concluído PIX", 
-        "Concluído CARTÃO", 
-        "Excluir"
+        "Orçamento Enviado", "Orçamento Cancelado", "Em Andamento", 
+        "Aguardando Pagamento", "Concluído PIX", "Concluído CARTÃO", "Excluir"
     ]
-    
     novo_status = col_esq.selectbox("Alterar Status", todas_opcoes, index=todas_opcoes.index(status_atual) if status_atual in todas_opcoes else 0, key=f"status_{prefix_key}")
     
-    # --- DATA (Blindada) ---
     data_banco = projeto_selecionado.get('data_conclusao')
     data_inicial = datetime.date.today()
     if pd.notna(data_banco) and str(data_banco).lower() not in ['none', 'nan', 'nat', '']:
         try: data_inicial = pd.to_datetime(data_banco).date()
         except: pass
-    nova_data = col_dir.date_input("Previsão / Data de Conclusão", value=data_inicial, key=f"data_{prefix_key}")
+    nova_data = col_dir.date_input("Previsão / Data de Conclusão", value=data_inicial, format="DD/MM/YYYY", key=f"data_{prefix_key}")
 
-    # --- 1. PRODUTOS DO ORÇAMENTO ---
     st.markdown("#### 🛒 Itens Vendidos (Ajuste Quantidades e Custos)")
     itens_json = projeto_selecionado.get('detalhamento_itens', [])
     df_itens = pd.DataFrame(itens_json) if (isinstance(itens_json, list) and len(itens_json) > 0) else pd.DataFrame(columns=['Item', 'Qtd', 'Custo Un.', 'Venda Un.'])
-    
     for col in ['Item', 'Qtd', 'Custo Un.', 'Venda Un.']:
         if col not in df_itens.columns: df_itens[col] = 0.0 if 'Un.' in col or 'Qtd' in col else ""
 
@@ -82,14 +68,11 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         "Venda Un.": st.column_config.NumberColumn("Venda (Un.)", format="R$ %.2f")
     }
     df_itens_final = st.data_editor(df_itens, column_config=config_itens, num_rows="dynamic", use_container_width=True, key=f"edit_itens_{prefix_key}")
-    
     custo_total_produtos = (pd.to_numeric(df_itens_final['Custo Un.'], errors='coerce').fillna(0) * pd.to_numeric(df_itens_final['Qtd'], errors='coerce').fillna(0)).sum()
 
-    # --- 2. SIMULADOR FINANCEIRO ---
     st.markdown("#### 🧮 Abatimentos e Impostos")
     with st.container(border=True):
         f_col1, f_col2, f_col3 = st.columns(3)
-        
         venda_final = f_col1.number_input("Valor da Venda (R$)", value=safe_float(projeto_selecionado.get('valor_venda_total')), format="%.2f", key=f"venda_{prefix_key}")
         
         emite_nf = f_col2.radio("Nota Fiscal?", ["Não", "Sim"], index=1 if safe_float(projeto_selecionado.get('custo_impostos')) > 0 else 0, key=f"nf_{prefix_key}")
@@ -132,9 +115,12 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
 
     notas = st.text_area("Observações", value=str(projeto_selecionado.get('notas_internas', '')) if str(projeto_selecionado.get('notas_internas', '')) != 'nan' else '', key=f"notas_{prefix_key}")
 
-    # --- AÇÕES FINAIS E GERAÇÃO DE ARQUIVOS ---
+    # ==============================================================
+    # AÇÕES FINAIS E GERAÇÃO DE ARQUIVOS
+    # ==============================================================
     st.markdown("<br>", unsafe_allow_html=True)
     
+    # ------------------ 1. GERAR ORÇAMENTO ------------------
     with st.expander("📄 GERAR PDF DO ORÇAMENTO"):
         col_pdf1, col_pdf2 = st.columns([1, 1])
         modelo_capa = col_pdf1.selectbox("Modelo para Capa", [
@@ -159,25 +145,24 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             if obs_pdf == 'nan' or obs_pdf.strip() == '': obs_pdf = "Material Hidráulico não incluído na proposta"
 
             pdf_bytes = utils.gerar_pdf_orcamento(
-                nome=projeto_selecionado.get('nome_cliente', 'Cliente'), 
-                tel=projeto_selecionado.get('telefone_cliente', ''), 
-                capa=modelo_capa, df_items=df_pdf, 
-                d_s=str(projeto_selecionado.get('servicos_adquiridos', '')).replace('nan',''), v_s=0.0, d_o="", v_o=0.0, 
-                total=safe_float(projeto_selecionado.get('valor_venda_total')), obs=obs_pdf, mostrar_un=False
+                nome=projeto_selecionado.get('nome_cliente', 'Cliente'), tel=projeto_selecionado.get('telefone_cliente', ''), 
+                capa=modelo_capa, df_items=df_pdf, d_s=str(projeto_selecionado.get('servicos_adquiridos', '')).replace('nan',''), 
+                v_s=0.0, d_o="", v_o=0.0, total=safe_float(projeto_selecionado.get('valor_venda_total')), obs=obs_pdf, mostrar_un=False
             )
             st.session_state[f'pdf_gerado_{prefix_key}'] = pdf_bytes
             
         if f'pdf_gerado_{prefix_key}' in st.session_state:
             st.download_button("📥 BAIXAR PDF DO ORÇAMENTO", data=st.session_state[f'pdf_gerado_{prefix_key}'], file_name=f"ORCAMENTO_{projeto_selecionado.get('nome_cliente', 'Cliente')}.pdf", mime="application/pdf", use_container_width=True, key=f"dl_pdf_{prefix_key}")
 
-    # --- NOVO: GERAR CONTRATO (LÓGICA CONDICIONAL E BUSCA DE CEP) ---
+    # ------------------ 2. GERAR CONTRATO INTELIGENTE ------------------
     status_contrato_permitido = ["Em Andamento", "Aguardando Pagamento", "Concluído PIX", "Concluído CARTÃO"]
     if novo_status in status_contrato_permitido:
         st.markdown("<br>", unsafe_allow_html=True)
         with st.expander("📝 GERAR CONTRATO"):
             st.markdown("#### Dados do Cliente para o Contrato")
-            c_nome = st.text_input("Nome Completo", value=projeto_selecionado.get('nome_cliente', ''), key=f"ct_nome_{prefix_key}")
-            c_cpf = st.text_input("CPF / CNPJ", key=f"ct_cpf_{prefix_key}")
+            c_tipo = st.radio("Tipo de Cliente", ["Pessoa Física", "Pessoa Jurídica"], horizontal=True, key=f"ct_tipo_{prefix_key}")
+            c_nome = st.text_input("Nome Completo / Razão Social", value=projeto_selecionado.get('nome_cliente', ''), key=f"ct_nome_{prefix_key}")
+            c_cpf = st.text_input("CPF" if c_tipo == "Pessoa Física" else "CNPJ", key=f"ct_cpf_{prefix_key}")
 
             st.markdown("#### Endereço do Cliente")
             col_cep1, col_cep2 = st.columns([1, 2])
@@ -186,16 +171,14 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             if col_cep2.button("🔍 Buscar CEP", key=f"btn_cep_{prefix_key}"):
                 end_dados = utils.buscar_cep(c_cep)
                 if end_dados:
-                    # O "Pulo do Gato": Atualizamos direto a chave (key) dos text_inputs!
                     st.session_state[f"ct_rua_{prefix_key}"] = end_dados.get('logradouro', '')
                     st.session_state[f"ct_bairro_{prefix_key}"] = end_dados.get('bairro', '')
                     st.session_state[f"ct_cid_{prefix_key}"] = end_dados.get('localidade', '')
                     st.session_state[f"ct_uf_{prefix_key}"] = end_dados.get('uf', '')
-                    st.rerun() # Força a tela a piscar e mostrar o endereço preenchido
+                    st.rerun() 
                 else:
                     st.error("CEP não encontrado ou inválido.")
 
-            # Como usamos a chave (key), não precisamos mais do 'value=' aqui
             c_rua = st.text_input("Rua / Logradouro", key=f"ct_rua_{prefix_key}")
             col_num, col_bairro = st.columns([1, 2])
             c_num = col_num.text_input("Número", key=f"ct_num_{prefix_key}")
@@ -205,20 +188,43 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             c_cidade = col_cid.text_input("Cidade", key=f"ct_cid_{prefix_key}")
             c_uf = col_uf.text_input("Estado (UF)", key=f"ct_uf_{prefix_key}")
 
-            st.markdown("#### Pagamento")
+            st.markdown("#### Estrutura do Contrato")
+            c_objeto = st.text_area("Objeto do Contrato (Opcional - Ex: Fornecimento de 1 sistema solar na cidade X)", height=80, key=f"ct_obj_{prefix_key}")
+            c_mat = st.radio("Materiais Hidráulicos Inclusos?", ["Não", "Sim"], horizontal=True, key=f"ct_mat_{prefix_key}")
+            c_data_term = st.date_input("Data de Término do Serviço (Para base da Garantia)", value=datetime.date.today(), format="DD/MM/YYYY", key=f"ct_term_{prefix_key}")
             c_pagamento = st.selectbox("Forma de Pagamento Acordada", ["PIX", "Cartão de Crédito", "Cartão de Débito", "Boleto", "Dinheiro", "Transferência Bancária"], key=f"ct_pag_{prefix_key}")
 
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("📄 CONFIRMAR DADOS E GERAR CONTRATO", type="primary", use_container_width=True, key=f"btn_gerar_ct_{prefix_key}"):
-                if not c_nome or not c_cpf or not c_rua:
-                    st.warning("Por favor, preencha o Nome, CPF e Endereço para gerar o contrato.")
+            if st.button("📄 GERAR PDF DO CONTRATO", type="primary", use_container_width=True, key=f"btn_gerar_ct_{prefix_key}"):
+                if not c_nome or not c_cpf or not c_rua or not c_num:
+                    st.warning("Preencha Nome, CPF/CNPJ, Rua e Número para gerar o contrato!")
                 else:
-                    st.success(f"✅ Dados de {c_nome} validados! (No próximo passo iremos programar o PDF do contrato com estes dados).")
+                    # Junta o endereço
+                    end_completo = f"{c_rua}, nº {c_num} - {c_bairro}, {c_cidade} - {c_uf}, CEP: {c_cep}"
+                    
+                    # Puxa os dados dos itens com a descrição rica do Catálogo
+                    df_ct_itens = df_itens_final.copy()
+                    descricoes = []
+                    for _, r in df_ct_itens.iterrows():
+                        match = df_produtos[df_produtos['Item'] == r['Item']]
+                        descricoes.append(match['Descrição'].values[0] if not match.empty else "")
+                    df_ct_itens['Descrição'] = descricoes
+
+                    pdf_ct_bytes = utils.gerar_pdf_contrato(
+                        nome=c_nome, doc=c_cpf, tipo_cliente=c_tipo, endereco=end_completo,
+                        objeto=c_objeto, df_items=df_ct_itens, mat_inclusos=c_mat,
+                        total=venda_final, forma_pagamento=c_pagamento, data_termino=c_data_term
+                    )
+                    st.session_state[f'pdf_contrato_{prefix_key}'] = pdf_ct_bytes
+                    st.success("✅ Contrato gerado! Clique no botão abaixo para baixar.")
+
+            if f'pdf_contrato_{prefix_key}' in st.session_state:
+                st.download_button("📥 BAIXAR CONTRATO", data=st.session_state[f'pdf_contrato_{prefix_key}'], file_name=f"CONTRATO_{c_nome.split()[0]}.pdf", mime="application/pdf", use_container_width=True, key=f"dl_ct_{prefix_key}")
 
 
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # Lógica de Exclusão vs Salvamento
+    # ------------------ 3. SALVAMENTO E EXCLUSÃO ------------------
     if novo_status == "Excluir":
         st.error("⚠️ **ATENÇÃO:** Você selecionou a opção de Excluir. Isso apagará permanentemente este cliente e orçamento do sistema.")
         if st.button("🗑️ CONFIRMAR EXCLUSÃO", type="primary", use_container_width=True, key=f"del_{prefix_key}"):
@@ -282,9 +288,30 @@ def renderizar():
     colunas_visiveis = ['id', 'numero_orcamento', 'nome_cliente', 'status_projeto', 'valor_venda_total', 'lucro_estimado', 'data_conclusao']
     
     config_colunas = {
-        "id": "ID",
-        "numero_orcamento": "Nº Orçamento",
-        "nome_cliente": "Cliente",
-        "status_projeto": "Status",
+        "id": "ID", "numero_orcamento": "Nº Orçamento", "nome_cliente": "Cliente", "status_projeto": "Status",
         "valor_venda_total": st.column_config.NumberColumn("Venda Total", format="R$ %.2f"),
-        "lucro_estimado": st.column_config.NumberColumn("Lucro Líqu
+        "lucro_estimado": st.column_config.NumberColumn("Lucro Líquido", format="R$ %.2f"),
+        "data_conclusao": st.column_config.DateColumn("Data", format="DD/MM/YYYY") 
+    }
+    
+    with aba1:
+        sel = st.dataframe(df_atv[colunas_visiveis], use_container_width=True, on_select="rerun", selection_mode="single-row", hide_index=True, column_config=config_colunas, key="g_atv")
+        total_lucro_atv = pd.to_numeric(df_atv['lucro_estimado'], errors='coerce').fillna(0).sum()
+        st.markdown(f"<div style='text-align: right; color: #004488; font-size: 18px; font-weight: bold; margin-bottom: 20px;'>Total Lucro Líquido Estimado: {utils.to_br_currency(total_lucro_atv)}</div>", unsafe_allow_html=True)
+        if sel.selection.rows and len(df_atv) > sel.selection.rows[0]: 
+            exibir_painel_detalhado(df_atv.iloc[sel.selection.rows[0]], supabase, df_taxas, df_produtos, f"atv_{df_atv.iloc[sel.selection.rows[0]]['id']}")
+    
+    with aba2:
+        sel = st.dataframe(df_orc[colunas_visiveis], use_container_width=True, on_select="rerun", selection_mode="single-row", hide_index=True, column_config=config_colunas, key="g_orc")
+        total_lucro_orc = pd.to_numeric(df_orc['lucro_estimado'], errors='coerce').fillna(0).sum()
+        st.markdown(f"<div style='text-align: right; color: #004488; font-size: 18px; font-weight: bold; margin-bottom: 20px;'>Total Lucro Líquido Estimado: {utils.to_br_currency(total_lucro_orc)}</div>", unsafe_allow_html=True)
+        if sel.selection.rows and len(df_orc) > sel.selection.rows[0]: 
+            exibir_painel_detalhado(df_orc.iloc[sel.selection.rows[0]], supabase, df_taxas, df_produtos, f"orc_{df_orc.iloc[sel.selection.rows[0]]['id']}")
+
+    with aba3:
+        st.caption("Serviços concluídos em meses anteriores.")
+        sel = st.dataframe(df_fin[colunas_visiveis], use_container_width=True, on_select="rerun", selection_mode="single-row", hide_index=True, column_config=config_colunas, key="g_fin")
+        total_lucro_fin = pd.to_numeric(df_fin['lucro_estimado'], errors='coerce').fillna(0).sum()
+        st.markdown(f"<div style='text-align: right; color: #004488; font-size: 18px; font-weight: bold; margin-bottom: 20px;'>Total Lucro Líquido Realizado: {utils.to_br_currency(total_lucro_fin)}</div>", unsafe_allow_html=True)
+        if sel.selection.rows and len(df_fin) > sel.selection.rows[0]: 
+            exibir_painel_detalhado(df_fin.iloc[sel.selection.rows[0]], supabase, df_taxas, df_produtos, f"fin_{df_fin.iloc[sel.selection.rows[0]]['id']}")
