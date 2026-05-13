@@ -16,7 +16,6 @@ import json
 # FUNÇÕES DE SEGURANÇA E DATA
 # ==========================================
 def safe_float(val):
-    """Escudo contra erros de valores nulos ou textos vazios em cálculos"""
     try:
         if pd.isna(val) or val is None or str(val).strip() == '': 
             return 0.0
@@ -227,7 +226,7 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
 # ==========================================
 # GERAÇÃO DE PDF (CONTRATO INTELIGENTE)
 # ==========================================
-def gerar_pdf_contrato(nome, doc, tipo_cliente, endereco, objeto, df_items, mat_inclusos, total, forma_pagamento, data_termino):
+def gerar_pdf_contrato(nome, doc, tipo_cliente, endereco, objeto, df_items, mat_inclusos, forma_pagamento, data_termino, val_base, val_inst, val_hidr, val_outros, desc_outros):
     buffer = BytesIO()
     doc_pdf = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=2*cm, leftMargin=2*cm, topMargin=2*cm, bottomMargin=2*cm)
     styles = getSampleStyleSheet()
@@ -279,9 +278,23 @@ def gerar_pdf_contrato(nome, doc, tipo_cliente, endereco, objeto, df_items, mat_
     story.append(Spacer(1, 0.2*cm))
     story.append(Paragraph(f"<i>{mat_txt}</i>", style_normal))
 
-    # 5. VALOR DO CONTRATO
+    # 5. VALOR DO CONTRATO (COM NOVO DETALHAMENTO)
     story.append(Paragraph("<b>3. VALOR DO CONTRATO</b>", style_h3))
-    story.append(Paragraph(f"O valor total do presente contrato é de <b>{to_br_currency(total)}</b>, abrangendo os itens e serviços acima descritos.", style_normal))
+    total_contrato = val_base + val_inst + val_hidr + val_outros
+    
+    story.append(Paragraph("Abaixo a discriminação dos valores presentes neste contrato:", style_normal))
+    story.append(Paragraph(f"• Equipamentos / Valor Base: <b>{to_br_currency(val_base)}</b>", style_bullet))
+    
+    if val_inst > 0:
+        story.append(Paragraph(f"• Instalação: <b>{to_br_currency(val_inst)}</b>", style_bullet))
+    if val_hidr > 0:
+        story.append(Paragraph(f"• Materiais Hidráulicos: <b>{to_br_currency(val_hidr)}</b>", style_bullet))
+    if val_outros > 0:
+        desc_text = f" ({desc_outros})" if desc_outros else ""
+        story.append(Paragraph(f"• Outros Serviços{desc_text}: <b>{to_br_currency(val_outros)}</b>", style_bullet))
+        
+    story.append(Spacer(1, 0.2*cm))
+    story.append(Paragraph(f"O valor total do presente contrato é de <b>{to_br_currency(total_contrato)}</b>.", style_normal))
     story.append(Paragraph(f"Forma de pagamento acordada: <b>{forma_pagamento}</b>.", style_normal))
 
     # 6. EXECUÇÃO DE SERVIÇOS E GARANTIA
@@ -330,19 +343,26 @@ def gerar_pdf_contrato(nome, doc, tipo_cliente, endereco, objeto, df_items, mat_
     story.append(Paragraph("<b>CLÁUSULA 8 – DO FORO</b>", style_h3))
     story.append(Paragraph("Fica eleito o foro da Comarca de Santa Luzia/MG para dirimir quaisquer controvérsias oriundas deste contrato, com renúncia expressa a qualquer outro, por mais privilegiado que seja.", style_normal))
 
-    # 11. ASSINATURAS
-    story.append(Spacer(1, 1.5*cm))
+    # 11. ASSINATURAS (COM IMAGEM PRÉ-ASSINADA)
+    story.append(Spacer(1, 1.0*cm))
     story.append(Paragraph(f"Santa Luzia, MG, {datetime.date.today().strftime('%d de %B de %Y').lower()}.", style_normal))
-    story.append(Spacer(1, 2.5*cm))
+    story.append(Spacer(1, 1.5*cm))
     
+    try:
+        # A magia da assinatura aqui!
+        img_ass = RLImage("assinatura.png", width=4*cm, height=2.2*cm)
+        img_ass.hAlign = 'CENTER'
+    except:
+        img_ass = "______________________________________________"
+        
     t_data = [
-        ["______________________________________________", "______________________________________________"],
+        ["______________________________________________", img_ass],
         [f"CONTRATANTE\n{nome}", "CONTRATADA\nECOCLIM SOLUÇÕES SUSTENTÁVEIS"]
     ]
     t = Table(t_data, colWidths=[8.5*cm, 8.5*cm])
     t.setStyle(TableStyle([
         ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('VALIGN', (0,0), (-1,-1), 'BOTTOM'),
         ('FONTNAME', (0,0), (-1,-1), 'Helvetica-Bold'),
         ('FONTSIZE', (0,0), (-1,-1), 9),
     ]))
