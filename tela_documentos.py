@@ -109,7 +109,9 @@ def renderizar_aba(nome_principal, subpastas=None, usa_busca=False):
         st.markdown("<hr style='margin: 0px; border-color: #f0f0f0;'>", unsafe_allow_html=True)
 
 def renderizar():
-    # Removemos o título superior e as descrições para manter a tela super limpa e direta!
+    # Adicionando duas quebras de linha invisíveis para descer o menu das abas
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    
     abas = st.tabs(["📝 Orçamentos", "🤝 Contratos", "🧾 Boletos", "🖼️ Imagens", "📊 Notas Fiscais (NF)"])
     
     with abas[0]: 
