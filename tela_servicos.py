@@ -46,6 +46,26 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         except: pass
     nova_data = col_dir.date_input("Previsão / Data de Conclusão", value=data_inicial, format="DD/MM/YYYY", key=f"data_{prefix_key}")
 
+    # ==============================================================
+    # NOVOS CAMPOS CONDICIONAIS: NF DE ENTRADA E VENCIMENTO BOLETO
+    # ==============================================================
+    nova_nf_entrada = ""
+    novo_venc_boleto = None
+
+    if novo_status not in ["Orçamento Enviado", "Orçamento Cancelado", "Excluir"]:
+        nf_entrada_banco = projeto_selecionado.get('nf_entrada', '')
+        venc_boleto_banco = projeto_selecionado.get('vencimento_boleto')
+        
+        venc_boleto_inicial = None
+        if pd.notna(venc_boleto_banco) and str(venc_boleto_banco).lower() not in ['none', 'nan', 'nat', '']:
+            try: venc_boleto_inicial = pd.to_datetime(venc_boleto_banco).date()
+            except: pass
+        
+        # Ocupa o exato quadrado vermelho desenhado na imagem (dentro da col_dir)
+        c_nf, c_venc = col_dir.columns(2)
+        nova_nf_entrada = c_nf.text_input("NF de Entrada", value=str(nf_entrada_banco) if str(nf_entrada_banco) != 'nan' else '', placeholder="Opcional", key=f"nf_ent_{prefix_key}")
+        novo_venc_boleto = c_venc.date_input("Vencimento Boleto", value=venc_boleto_inicial, format="DD/MM/YYYY", key=f"venc_bol_{prefix_key}")
+
     st.markdown("#### 🛒 Itens Vendidos (Ajuste Quantidades e Custos)")
     itens_json = projeto_selecionado.get('detalhamento_itens', [])
     df_itens = pd.DataFrame(itens_json) if (isinstance(itens_json, list) and len(itens_json) > 0) else pd.DataFrame(columns=['Item', 'Qtd', 'Custo Un.', 'Venda Un.'])
@@ -160,7 +180,6 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         st.markdown("<br>", unsafe_allow_html=True)
         with st.expander("📝 GERAR CONTRATO"):
             
-            # Puxa os dados salvos previamente, se houverem
             d_ct = projeto_selecionado.get('dados_contrato')
             if not isinstance(d_ct, dict): d_ct = {}
 
@@ -172,7 +191,6 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             st.markdown("#### Endereço do Cliente")
             col_cep1, col_cep2 = st.columns([1, 2])
             
-            # Para o CEP e Rua precisarem funcionar bem com o Botão de Busca, alimentamos o st.session_state
             if f"ct_rua_{prefix_key}" not in st.session_state: st.session_state[f"ct_rua_{prefix_key}"] = d_ct.get('rua', '')
             if f"ct_num_{prefix_key}" not in st.session_state: st.session_state[f"ct_num_{prefix_key}"] = d_ct.get('num', '')
             if f"ct_bairro_{prefix_key}" not in st.session_state: st.session_state[f"ct_bairro_{prefix_key}"] = d_ct.get('bairro', '')
@@ -233,7 +251,6 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
 
             st.markdown("<br>", unsafe_allow_html=True)
             
-            # Botões
             col_b1, col_b2 = st.columns(2)
             
             if col_b1.button("💾 SALVAR DADOS DO CONTRATO", use_container_width=True, key=f"btn_sv_ct_{prefix_key}"):
@@ -248,7 +265,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     supabase.table('servicos_andamento').update({"dados_contrato": payload}).eq('id', int(projeto_selecionado['id'])).execute()
                     st.success("✅ Dados do contrato salvos com sucesso!")
                 except Exception as e:
-                    st.error("⚠️ ERRO: Para o botão Salvar funcionar, vá no Supabase > Tabela 'servicos_andamento' e crie uma nova coluna chamada 'dados_contrato' do tipo 'jsonb'.")
+                    st.error("⚠️ ERRO: Certifique-se de que a coluna 'dados_contrato' existe no Supabase.")
 
             if col_b2.button("📄 GERAR PDF DO CONTRATO", type="primary", use_container_width=True, key=f"btn_gerar_pdf_ct_{prefix_key}"):
                 if not c_nome or not c_cpf or not c_rua or not c_num:
@@ -301,14 +318,16 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                 "custo_cartao": valor_cartao_taxa, 
                 "valor_venda_total": venda_final,
                 "lucro_estimado": lucro_final, 
-                "notas_internas": notas
+                "notas_internas": notas,
+                "nf_entrada": nova_nf_entrada,
+                "vencimento_boleto": novo_venc_boleto.strftime('%Y-%m-%d') if novo_venc_boleto else None
             }
             try:
                 supabase.table('servicos_andamento').update(dados).eq('id', int(projeto_selecionado['id'])).execute()
                 st.success("✅ Atualizado com sucesso!")
                 st.rerun()
             except Exception as e: 
-                st.error(f"Erro ao salvar: {e}")
+                st.error(f"Erro ao salvar. Verifique se as colunas 'nf_entrada' e 'vencimento_boleto' foram criadas no Supabase. Detalhe: {e}")
 
 def renderizar():
     st.markdown("## 📋 Gestão de Serviços")
@@ -339,7 +358,8 @@ def renderizar():
 
     aba1, aba2, aba3 = st.tabs(["🚀 Em Andamento", "📝 Orçamentos", "✅ Finalizados"])
     
-    colunas_visiveis = ['id', 'numero_orcamento', 'nome_cliente', 'status_projeto', 'valor_venda_total', 'lucro_estimado', 'data_conclusao']
+    # === AQUI: REMOVIDA A COLUNA 'id' DA VISUALIZAÇÃO ===
+    colunas_visiveis = ['numero_orcamento', 'nome_cliente', 'status_projeto', 'valor_venda_total', 'lucro_estimado', 'data_conclusao']
     
     config_colunas = {
         "id": "ID", "numero_orcamento": "Nº Orçamento", "nome_cliente": "Cliente", "status_projeto": "Status",
