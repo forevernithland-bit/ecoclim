@@ -19,6 +19,7 @@ import tela_servicos
 import tela_financeira
 import tela_configuracoes
 import tela_airnb
+import tela_documentos  # <--- NOVO MÓDULO ADICIONADO AQUI
 
 # =============================================================================
 # 3. CONEXÃO COM O BANCO DE DADOS
@@ -109,7 +110,7 @@ else:
         
         st.write("### Menu Principal")
         
-        # Menu reordenado conforme solicitado
+        # Menu reordenado conforme solicitado com Documentos incluso
         menu = st.radio(
             "Navegação", 
             [
@@ -117,6 +118,7 @@ else:
                 "Controle Financeiro", 
                 "Orçamentos", 
                 "Serviços em Andamento", 
+                "Documentos",             # <--- NOVO MENU ADICIONADO AQUI
                 "AirBnb e Locações",
                 "Configurações"
             ],
@@ -168,6 +170,9 @@ else:
 
     elif st.session_state.pagina_atual == "Serviços em Andamento":
         tela_servicos.renderizar()
+
+    elif st.session_state.pagina_atual == "Documentos":  # <--- ROTA ADICIONADA AQUI
+        tela_documentos.renderizar()
 
     elif st.session_state.pagina_atual == "AirBnb e Locações":
         tela_airnb.renderizar()
