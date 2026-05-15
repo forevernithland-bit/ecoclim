@@ -31,7 +31,6 @@ def renderizar_aba(nome_principal, subpastas=None, usa_busca=False):
             termo_busca = st.text_input(f"🔍 Buscar em {nome_principal}...", key=f"busca_{nome_principal}").lower()
 
     with col_up:
-        # Pula uma linha apenas se houver o selectbox para alinhar certinho
         if subpastas and not usa_busca: st.markdown("<br>", unsafe_allow_html=True)
         
         with st.expander("📤 Upload de Arquivos"):
@@ -41,17 +40,26 @@ def renderizar_aba(nome_principal, subpastas=None, usa_busca=False):
                 key=f"up_{nome_principal}_{path_atual[-1] if subpastas else ''}", 
                 label_visibility="collapsed"
             )
+            
+            # --- O DETETIVE DE ERROS AQUI ---
             if arquivos_enviados and st.button("🚀 Enviar", key=f"btn_env_{nome_principal}", type="primary", use_container_width=True):
                 with st.spinner("Enviando para o Google Drive..."):
+                    erros = []
                     for arq in arquivos_enviados:
-                        utils.upload_to_drive(arq, arq.name, arq.type, path_atual)
-                st.success("Arquivos enviados com sucesso!")
-                st.rerun()
+                        sucesso, msg = utils.upload_to_drive(arq, arq.name, arq.type, path_atual)
+                        if not sucesso:
+                            erros.append(f"{arq.name}: {msg}")
+                    
+                    if erros:
+                        st.error(f"⚠️ Ocorreu um erro no envio: {', '.join(erros)}")
+                    else:
+                        st.success("✅ Arquivos enviados com sucesso para o Drive!")
+                        st.rerun()
 
     st.markdown("---")
     
     # ---------------------------------------------
-    # LISTAGEM DE ARQUIVOS (Layout Limpo)
+    # LISTAGEM DE ARQUIVOS
     # ---------------------------------------------
     arquivos = utils.list_drive_files(path_atual)
     
@@ -65,7 +73,6 @@ def renderizar_aba(nome_principal, subpastas=None, usa_busca=False):
             st.warning("Nenhum arquivo corresponde à sua busca.")
             return
 
-    # Cabeçalho da Lista
     st.markdown("""
         <div style='display: flex; font-weight: bold; color: #004488; padding-bottom: 5px; border-bottom: 2px solid #ddd; margin-bottom: 10px;'>
             <div style='flex: 5;'>Nome do Arquivo</div>
@@ -75,7 +82,6 @@ def renderizar_aba(nome_principal, subpastas=None, usa_busca=False):
         </div>
     """, unsafe_allow_html=True)
 
-    # Linhas da Lista
     for arq in arquivos:
         c1, c2, c3, c4 = st.columns([5, 2, 1.5, 1.5])
         
@@ -93,7 +99,6 @@ def renderizar_aba(nome_principal, subpastas=None, usa_busca=False):
         if c_del.button("🗑️", key=f"del_{arq['id']}", help="Excluir arquivo"):
             st.session_state[f"confirm_del_{arq['id']}"] = True
             
-        # Alerta de confirmação de exclusão
         if st.session_state.get(f"confirm_del_{arq['id']}", False):
             st.error("Deseja mesmo apagar este arquivo do Google Drive?")
             cx1, cx2 = c1.columns(2)
@@ -109,7 +114,6 @@ def renderizar_aba(nome_principal, subpastas=None, usa_busca=False):
         st.markdown("<hr style='margin: 0px; border-color: #f0f0f0;'>", unsafe_allow_html=True)
 
 def renderizar():
-    # Adicionando duas quebras de linha invisíveis para descer o menu das abas
     st.markdown("<br><br>", unsafe_allow_html=True)
     
     abas = st.tabs(["📝 Orçamentos", "🤝 Contratos", "🧾 Boletos", "🖼️ Imagens", "📊 Notas Fiscais (NF)"])
