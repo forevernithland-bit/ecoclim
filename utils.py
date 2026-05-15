@@ -12,6 +12,11 @@ from reportlab.lib.enums import TA_JUSTIFY, TA_CENTER
 import urllib.request
 import json
 
+# IMPORTAÇÕES DO GOOGLE DRIVE
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseUpload
+
 # ==========================================
 # FUNÇÕES DE SEGURANÇA E DATA
 # ==========================================
@@ -34,6 +39,66 @@ def init_connection():
     url = st.secrets["SUPABASE_URL"]
     key = st.secrets["SUPABASE_KEY"]
     return create_client(url, key)
+
+# ==========================================
+# INTEGRAÇÃO GOOGLE DRIVE (AGORA SUPORTA SUBPASTAS)
+# ==========================================
+MAIN_DRIVE_FOLDER_ID = '1rdCO-d0CTF4UPQ1Vddxr0loCgqYaXE2l'
+SCOPES = ['https://www.googleapis.com/auth/drive']
+
+def get_drive_service():
+    creds_dict = dict(st.secrets["gcp_service_account"])
+    creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+    return build('drive', 'v3', credentials=creds)
+
+def get_or_create_nested_folder(service, parent_id, path_list):
+    """Navega ou cria pastas e subpastas de forma inteligente"""
+    current_id = parent_id
+    for folder_name in path_list:
+        query = f"'{current_id}' in parents and name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+        response = service.files().list(q=query, spaces='drive', fields='files(id, name)').execute()
+        files = response.get('files', [])
+        if files:
+            current_id = files[0].get('id')
+        else:
+            folder_metadata = {'name': folder_name, 'parents': [current_id], 'mimeType': 'application/vnd.google-apps.folder'}
+            folder = service.files().create(body=folder_metadata, fields='id').execute()
+            current_id = folder.get('id')
+    return current_id
+
+def upload_to_drive(file_buffer, filename, mimetype, folder_path):
+    try:
+        service = get_drive_service()
+        if isinstance(folder_path, str): folder_path = [folder_path]
+        subfolder_id = get_or_create_nested_folder(service, MAIN_DRIVE_FOLDER_ID, folder_path)
+        
+        file_metadata = {'name': filename, 'parents': [subfolder_id]}
+        media = MediaIoBaseUpload(file_buffer, mimetype=mimetype, resumable=True)
+        uploaded_file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+        return True, uploaded_file.get('id')
+    except Exception as e:
+        return False, str(e)
+
+def list_drive_files(folder_path):
+    try:
+        service = get_drive_service()
+        if isinstance(folder_path, str): folder_path = [folder_path]
+        subfolder_id = get_or_create_nested_folder(service, MAIN_DRIVE_FOLDER_ID, folder_path)
+        
+        # Só traz arquivos (ignora pastas na lista)
+        query = f"'{subfolder_id}' in parents and trashed=false and mimeType != 'application/vnd.google-apps.folder'"
+        response = service.files().list(q=query, spaces='drive', fields='files(id, name, size, createdTime, webViewLink)').execute()
+        return response.get('files', [])
+    except:
+        return []
+
+def delete_drive_file(file_id):
+    try:
+        service = get_drive_service()
+        service.files().delete(fileId=file_id).execute()
+        return True
+    except:
+        return False
 
 # ==========================================
 # FUNÇÕES FINANCEIRAS
@@ -180,7 +245,6 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
     
     for _, row in df_items.iterrows():
         if row.get('Quantidade', 0) > 0:
-            # ---> CORREÇÃO AQUI: Avalia se a base é vazia, nula ou OUTRO
             p_base = str(row.get('Produto da Base', '')).strip()
             if p_base.upper() in ['', 'NONE', 'NAN', 'OUTRO']:
                 item = str(row.get('Produto Manual', '')).strip()
@@ -189,7 +253,6 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
                 
             if not item: 
                 item = str(row.get('Item', '')).strip()
-            # <--- FIM DA CORREÇÃO
             
             p.setFont("Helvetica-Bold", 9); p.drawString(2.3*cm, y, str(item)[:60])
             p.setFont("Helvetica", 9); p.drawString(12.8*cm, y, str(int(row.get('Quantidade', 0))))
@@ -248,7 +311,6 @@ def gerar_pdf_contrato(nome, doc, tipo_cliente, endereco, objeto, df_items, mat_
 
     story = []
 
-    # 1. LOGO E CABEÇALHO
     try: 
         img = RLImage("logo.png", width=4.5*cm, height=2.2*cm)
         img.hAlign = 'CENTER'
@@ -259,22 +321,17 @@ def gerar_pdf_contrato(nome, doc, tipo_cliente, endereco, objeto, df_items, mat_
 
     story.append(Paragraph("<b>CONTRATO DE FORNECIMENTO E PRESTAÇÃO DE SERVIÇOS</b>", style_title))
     
-    # 2. QUALIFICAÇÃO DAS PARTES
     story.append(Paragraph("Pelo presente instrumento particular, as partes abaixo qualificadas firmam o presente CONTRATO:", style_normal))
-    
     story.append(Paragraph("A <b>ECOCLIM</b> com sede na cidade de Santa Luzia, MG, Av. Brasília, 2731 - Duquesa I, no CNPJ 40.111.279/0001-03, endereço eletrônico: comercial@ecoclim.com.br, doravante designada <b>CONTRATADA</b> e de outro lado;", style_normal))
     
     doc_tipo = "inscrito sob o CPF" if tipo_cliente == "Pessoa Física" else "inscrita sob o CNPJ"
     story.append(Paragraph(f"<b>{nome}</b>, {tipo_cliente.lower()}, {doc_tipo} {doc}, situada na {endereco}, doravante designado(a) <b>CONTRATANTE</b>.", style_normal))
 
-    # 3. OBJETO DO CONTRATO
     if objeto.strip():
         story.append(Paragraph("<b>1. OBJETO DO CONTRATO</b>", style_h3))
         story.append(Paragraph(objeto.strip(), style_normal))
 
-    # 4. EQUIPAMENTOS E SERVIÇOS FORNECIDOS
     story.append(Paragraph("<b>2. EQUIPAMENTOS E SERVIÇOS FORNECIDOS</b>", style_h3))
-    
     for _, row in df_items.iterrows():
         qtd = safe_float(row.get('Qtd', 0))
         if qtd > 0:
@@ -288,31 +345,24 @@ def gerar_pdf_contrato(nome, doc, tipo_cliente, endereco, objeto, df_items, mat_
     story.append(Spacer(1, 0.2*cm))
     story.append(Paragraph(f"<i>{mat_txt}</i>", style_normal))
 
-    # 5. VALOR DO CONTRATO (COM NOVO DETALHAMENTO)
     story.append(Paragraph("<b>3. VALOR DO CONTRATO</b>", style_h3))
     total_contrato = val_base + val_inst + val_hidr + val_outros
     
     story.append(Paragraph("Abaixo a discriminação dos valores presentes neste contrato:", style_normal))
     story.append(Paragraph(f"• Equipamentos / Valor Base: <b>{to_br_currency(val_base)}</b>", style_bullet))
     
-    if val_inst > 0:
-        story.append(Paragraph(f"• Instalação: <b>{to_br_currency(val_inst)}</b>", style_bullet))
-    if val_hidr > 0:
-        story.append(Paragraph(f"• Materiais Hidráulicos: <b>{to_br_currency(val_hidr)}</b>", style_bullet))
+    if val_inst > 0: story.append(Paragraph(f"• Instalação: <b>{to_br_currency(val_inst)}</b>", style_bullet))
+    if val_hidr > 0: story.append(Paragraph(f"• Materiais Hidráulicos: <b>{to_br_currency(val_hidr)}</b>", style_bullet))
     if val_outros > 0:
         desc_text = f" ({desc_outros})" if desc_outros else ""
         story.append(Paragraph(f"• Outros Serviços{desc_text}: <b>{to_br_currency(val_outros)}</b>", style_bullet))
         
     story.append(Spacer(1, 0.2*cm))
     story.append(Paragraph(f"O valor total do presente contrato é de <b>{to_br_currency(total_contrato)}</b>.", style_normal))
-    
-    # NOVOS CAMPOS: Pagamento e PIX
     story.append(Paragraph(f"Forma de pagamento acordada: <b>{forma_pagamento}</b>.", style_normal))
-    if obs_pagamento:
-        story.append(Paragraph(f"Observações do Pagamento: {obs_pagamento}", style_normal))
+    if obs_pagamento: story.append(Paragraph(f"Observações do Pagamento: {obs_pagamento}", style_normal))
     story.append(Paragraph("Nosso PIX é o CNPJ: <b>40.111.279/0001-03</b>", style_normal))
 
-    # 6. EXECUÇÃO DE SERVIÇOS E GARANTIA
     story.append(Paragraph("<b>4. EXECUÇÃO DE SERVIÇOS E GARANTIA</b>", style_h3))
     for _, row in df_items.iterrows():
         qtd = safe_float(row.get('Qtd', 0))
@@ -325,25 +375,22 @@ def gerar_pdf_contrato(nome, doc, tipo_cliente, endereco, objeto, df_items, mat_
     dt_term_str = data_termino.strftime('%d/%m/%Y') if data_termino else "conclusão da obra"
     story.append(Paragraph(f"• <b>Serviço de instalação:</b> Garantia de 90 dias a contar da data de término da instalação ({dt_term_str}).", style_bullet))
 
-    # 7. CLÁUSULA 5
     story.append(Paragraph("<b>CLÁUSULA 5 – DAS OBRIGAÇÕES E RESPONSABILIDADES DO CONTRATANTE</b>", style_h3))
     story.append(Paragraph("Para a viabilização da instalação e o bom funcionamento do sistema, o CONTRATANTE compromete-se a:", style_normal))
     obs_list = [
         "<b>Acompanhamento Técnico:</b> Manter no local da obra, durante o período de execução, um representante capaz, com autorização para fornecer instruções e dar aceite ao final do serviço.",
-        "<b>Infraestrutura Elétrica e Hidráulica:</b> Disponibilizar, sob sua exclusiva responsabilidade e custo, os pontos de energia para o sistema de pressurização e resistência de apoio (se necessário), bem como os pontos hidráulicos necessários.",
-        "<b>Autorizações e Condomínios:</b> Providenciar todas as autorizações junto à administração do condomínio (se aplicável), isentando a CONTRATADA de multas por falta de comunicação prévia.",
+        "<b>Infraestrutura Elétrica e Hidráulica:</b> Disponibilizar, sob sua exclusiva responsabilidade e custo, os pontos de energia para o sistema de pressurização e resistência de apoio.",
+        "<b>Autorizações e Condomínios:</b> Providenciar todas as autorizações junto à administração do condomínio.",
         "<b>Logística de Materiais:</b> Informar e disponibilizar espaço adequado para o içamento de materiais e equipamentos.",
-        "<b>Descarte de Resíduos:</b> Providenciar caçamba ou local adequado para descarte de embalagens e entulhos de obra.",
-        "<b>Reposição de Telhas:</b> Disponibilizar telhas de reserva para substituição em caso de trincas ou quebras inevitáveis durante o trânsito sobre o telhado.",
+        "<b>Descarte de Resíduos:</b> Providenciar caçamba ou local adequado para descarte de embalagens.",
+        "<b>Reposição de Telhas:</b> Disponibilizar telhas de reserva para substituição em caso de trincas.",
         "<b>Testes e Entrega:</b> Realizar o teste final de funcionamento em conjunto com a equipe técnica da CONTRATADA."
     ]
     for obs in obs_list: story.append(Paragraph(f"• {obs}", style_bullet))
 
-    # 8. CLÁUSULA 6
     story.append(Paragraph("<b>CLÁUSULA 6 – DOS PAGAMENTOS E PENALIDADES</b>", style_h3))
     story.append(Paragraph("<b>Mora e Multa:</b> O atraso em qualquer das parcelas pactuadas de pagamento sujeitará o CONTRATANTE ao pagamento de multa moratória de 2% (dois por cento) sobre o valor da parcela vencida, acrescida de juros de mora de 1% (um por cento) ao mês e correção monetária pelo índice IGPM.", style_bullet))
 
-    # 9. CLÁUSULA 7
     story.append(Paragraph("<b>CLÁUSULA 7 – DA GARANTIA E LIMITAÇÃO DE RESPONSABILIDADE</b>", style_h3))
     g_list = [
         "<b>Garantia dos Equipamentos:</b> A garantia dos produtos é de responsabilidade exclusiva do fabricante, conforme manuais disponíveis. Validade condicionada à instalação correta.",
@@ -354,17 +401,14 @@ def gerar_pdf_contrato(nome, doc, tipo_cliente, endereco, objeto, df_items, mat_
     ]
     for g in g_list: story.append(Paragraph(f"• {g}", style_bullet))
 
-    # 10. CLÁUSULA 8
     story.append(Paragraph("<b>CLÁUSULA 8 – DO FORO</b>", style_h3))
     story.append(Paragraph("Fica eleito o foro da Comarca de Santa Luzia/MG para dirimir quaisquer controvérsias oriundas deste contrato, com renúncia expressa a qualquer outro, por mais privilegiado que seja.", style_normal))
 
-    # 11. ASSINATURAS (COM IMAGEM AUMENTADA E TEXTO REMOVIDO)
     story.append(Spacer(1, 1.0*cm))
     story.append(Paragraph(f"Santa Luzia, MG, {datetime.date.today().strftime('%d de %B de %Y').lower()}.", style_normal))
     story.append(Spacer(1, 1.5*cm))
     
     try:
-        # Assinatura aumentada (6cm x 3.3cm)
         img_ass = RLImage("assinatura.png", width=6.0*cm, height=3.3*cm)
         img_ass.hAlign = 'CENTER'
     except:
@@ -372,7 +416,7 @@ def gerar_pdf_contrato(nome, doc, tipo_cliente, endereco, objeto, df_items, mat_
         
     t_data = [
         ["______________________________________________", img_ass],
-        [f"CONTRATANTE\n{nome}", ""] # Texto da CONTRATADA removido daqui
+        [f"CONTRATANTE\n{nome}", ""]
     ]
     t = Table(t_data, colWidths=[8.5*cm, 8.5*cm])
     t.setStyle(TableStyle([
