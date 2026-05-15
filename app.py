@@ -19,7 +19,7 @@ import tela_servicos
 import tela_financeira
 import tela_configuracoes
 import tela_airnb
-import tela_documentos  # <--- NOVO MÓDULO ADICIONADO AQUI
+import tela_documentos  # <--- IMPORTAÇÃO DO MÓDULO NOVO DE DOCUMENTOS
 
 # =============================================================================
 # 3. CONEXÃO COM O BANCO DE DADOS
@@ -110,7 +110,7 @@ else:
         
         st.write("### Menu Principal")
         
-        # Menu reordenado conforme solicitado com Documentos incluso
+        # Menu reordenado com todas as suas abas originais + Documentos
         menu = st.radio(
             "Navegação", 
             [
@@ -118,7 +118,7 @@ else:
                 "Controle Financeiro", 
                 "Orçamentos", 
                 "Serviços em Andamento", 
-                "Documentos",             # <--- NOVO MENU ADICIONADO AQUI
+                "Documentos",             # <--- NOVO MENU AQUI
                 "AirBnb e Locações",
                 "Configurações"
             ],
@@ -158,8 +158,8 @@ else:
                 st.session_state.pagina_atual = "Serviços em Andamento"
                 st.rerun()
         with c4:
-            if st.button("🏡\n\nAirBnb e Locações", use_container_width=True):
-                st.session_state.pagina_atual = "AirBnb e Locações"
+            if st.button("📁\n\nCentral de Documentos", use_container_width=True): # <--- ATALHO PARA DOCUMENTOS
+                st.session_state.pagina_atual = "Documentos"
                 st.rerun()
 
     elif st.session_state.pagina_atual == "Controle Financeiro":
@@ -171,8 +171,8 @@ else:
     elif st.session_state.pagina_atual == "Serviços em Andamento":
         tela_servicos.renderizar()
 
-    elif st.session_state.pagina_atual == "Documentos":  # <--- ROTA ADICIONADA AQUI
-        tela_documentos.renderizar()
+    elif st.session_state.pagina_atual == "Documentos":
+        tela_documentos.renderizar()   # <--- CHAMA A TELA NOVA
 
     elif st.session_state.pagina_atual == "AirBnb e Locações":
         tela_airnb.renderizar()
