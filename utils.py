@@ -41,7 +41,7 @@ def init_connection():
     return create_client(url, key)
 
 # ==========================================
-# INTEGRAÇÃO GOOGLE DRIVE (AGORA SUPORTA SUBPASTAS)
+# INTEGRAÇÃO GOOGLE DRIVE (CORRIGIDA)
 # ==========================================
 MAIN_DRIVE_FOLDER_ID = '1rdCO-d0CTF4UPQ1Vddxr0loCgqYaXE2l'
 SCOPES = ['https://www.googleapis.com/auth/drive']
@@ -52,7 +52,6 @@ def get_drive_service():
     return build('drive', 'v3', credentials=creds)
 
 def get_or_create_nested_folder(service, parent_id, path_list):
-    """Navega ou cria pastas e subpastas de forma inteligente"""
     current_id = parent_id
     for folder_name in path_list:
         query = f"'{current_id}' in parents and name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
@@ -73,7 +72,11 @@ def upload_to_drive(file_buffer, filename, mimetype, folder_path):
         subfolder_id = get_or_create_nested_folder(service, MAIN_DRIVE_FOLDER_ID, folder_path)
         
         file_metadata = {'name': filename, 'parents': [subfolder_id]}
-        media = MediaIoBaseUpload(file_buffer, mimetype=mimetype, resumable=True)
+        
+        # Correção aqui: Converte o arquivo do Streamlit num buffer puro para o Google aceitar
+        buffer_puro = BytesIO(file_buffer.getvalue())
+        media = MediaIoBaseUpload(buffer_puro, mimetype=mimetype, resumable=True)
+        
         uploaded_file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
         return True, uploaded_file.get('id')
     except Exception as e:
@@ -85,7 +88,6 @@ def list_drive_files(folder_path):
         if isinstance(folder_path, str): folder_path = [folder_path]
         subfolder_id = get_or_create_nested_folder(service, MAIN_DRIVE_FOLDER_ID, folder_path)
         
-        # Só traz arquivos (ignora pastas na lista)
         query = f"'{subfolder_id}' in parents and trashed=false and mimeType != 'application/vnd.google-apps.folder'"
         response = service.files().list(q=query, spaces='drive', fields='files(id, name, size, createdTime, webViewLink)').execute()
         return response.get('files', [])
