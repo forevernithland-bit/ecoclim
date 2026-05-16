@@ -1,6 +1,7 @@
 import streamlit as st
 import os
 import datetime
+import pandas as pd
 
 # =============================================================================
 # 1. CONFIGURAÇÃO DA PÁGINA (Deve ser a primeira instrução Streamlit)
@@ -23,7 +24,31 @@ import tela_airnb
 import tela_documentos
 
 # =============================================================================
-# 3. CONEXÃO COM O BANCO DE DADOS
+# 3. FUNÇÕES AUXILIARES PARA LEMBRETES NA PÁGINA INICIAL
+# =============================================================================
+def mover_arquivo_drive_app(file_id, folder_path_list):
+    """Move um arquivo no Google Drive para uma nova pasta (Cópia da lógica do Docs)"""
+    try:
+        service = utils.get_drive_service()
+        file = service.files().get(fileId=file_id, fields='parents').execute()
+        previous_parents = ",".join(file.get('parents', []))
+        new_folder_id = utils.get_or_create_nested_folder(service, utils.MAIN_DRIVE_FOLDER_ID, folder_path_list)
+        service.files().update(
+            fileId=file_id, addParents=new_folder_id, removeParents=previous_parents, fields='id, parents'
+        ).execute()
+        return True
+    except: return False
+
+def add_months_app(dt, months):
+    """Soma meses na data considerando a virada de anos"""
+    month = dt.month - 1 + months
+    year = dt.year + month // 12
+    month = month % 12 + 1
+    day = min(dt.day, [31, 29 if year % 4 == 0 and not year % 100 == 0 or year % 400 == 0 else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1])
+    return dt.replace(year=year, month=month, day=day)
+
+# =============================================================================
+# 4. CONEXÃO COM O BANCO DE DADOS
 # =============================================================================
 try:
     if "supabase" not in st.session_state:
@@ -32,7 +57,7 @@ except Exception as e:
     st.error(f"Erro crítico na conexão com o banco de dados: {e}")
 
 # =============================================================================
-# 4. ESTILIZAÇÃO CSS GLOBAL (DESIGN CLEAN & MODERNO)
+# 5. ESTILIZAÇÃO CSS GLOBAL (DESIGN CLEAN & MODERNO)
 # =============================================================================
 st.markdown("""
     <style>
@@ -103,12 +128,11 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =============================================================================
-# 5. LÓGICA DE ACESSO (LOGIN)
+# 6. LÓGICA DE ACESSO (LOGIN)
 # =============================================================================
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
-# Controladores de estado de navegação para evitar conflitos de cache
 if "menu_option" not in st.session_state:
     st.session_state.menu_option = "Página Inicial"
 
@@ -132,7 +156,7 @@ if not st.session_state.authenticated:
                 st.error("Usuário ou senha incorretos. Tente novamente.")
 else:
     # =============================================================================
-    # 6. MENU DE NAVEGAÇÃO LATERAL (BARRA BRANCA LIMPA)
+    # 7. MENU DE NAVEGAÇÃO LATERAL (BARRA BRANCA LIMPA)
     # =============================================================================
     with st.sidebar:
         st.markdown("<br>", unsafe_allow_html=True)
@@ -151,16 +175,9 @@ else:
             "Configurações"
         ]
         
-        # Sincroniza o rádio dinamicamente usando apenas o index, evitando o erro de chave (KeyError)
         index_atual = lista_paginas.index(st.session_state.menu_option)
+        menu = st.radio("Navegação", lista_paginas, index=index_atual)
         
-        menu = st.radio(
-            "Navegação", 
-            lista_paginas,
-            index=index_atual
-        )
-        
-        # Se o usuário clicar direto na barra lateral, atualizamos o estado
         if menu != st.session_state.menu_option:
             st.session_state.menu_option = menu
             st.rerun()
@@ -172,65 +189,93 @@ else:
             st.rerun()
 
     # =============================================================================
-    # 7. ROTEADOR DE TELAS (CHAMA OS MÓDULOS)
+    # 8. ROTEADOR DE TELAS (CHAMA OS MÓDULOS)
     # =============================================================================
-    
     if st.session_state.menu_option == "Página Inicial":
         
-        # Mantivemos apenas o calendário no topo
         st.caption(f"📅 Calendário Operacional: {utils.hoje.strftime('%d/%m/%Y')}")
 
         # =========================================================================
-        # NOVO: DASHBOARD DE ALERTAS E LEMBRETES (MOVIDO PARA CIMA E COMPACTADO)
+        # NOVO: DASHBOARD DE ALERTAS (LINHA ÚNICA, FILTRO 5 DIAS, ATALHO E PAGAMENTO)
         # =========================================================================
-        st.markdown("<h3>🔔 Lembretes de Pagamento (Fornecedores)</h3>", unsafe_allow_html=True)
+        st.markdown("<h3>🔔 Lembretes de Pagamento (Próximos 5 Dias & Atrasos)</h3>", unsafe_allow_html=True)
         
         try:
-            # Busca os boletos no Supabase e ordena para que os mais antigos venham primeiro
             res_bol = st.session_state.supabase.table('boletos_fornecedores').select('*').eq('status', 'Pendente').order('vencimento').execute()
             
+            lembretes_ativos = []
             if res_bol.data:
+                hoje_dt = utils.hoje
                 for b in res_bol.data:
                     venc_dt = datetime.datetime.strptime(b['vencimento'], "%Y-%m-%d").date()
-                    hoje_dt = utils.hoje
+                    diff_days = (venc_dt - hoje_dt).days
                     
-                    # Lógica de inteligência de cores baseada em prazo
-                    if venc_dt < hoje_dt:
-                        cor_card = "#ffe6e6" # Vermelho claro
-                        icone = "🚨"
-                        status_txt = "ATRASADO"
-                    elif venc_dt == hoje_dt:
-                        cor_card = "#fff2cc" # Amarelo claro
-                        icone = "⚠️"
-                        status_txt = "VENCE HOJE"
+                    # Filtro de tempo: Mostra apenas se atrasado (<=0) ou nos próximos 5 dias
+                    if diff_days <= 5:
+                        lembretes_ativos.append((b, venc_dt, diff_days))
+            
+            if lembretes_ativos:
+                for b, venc_dt, diff in lembretes_ativos:
+                    if diff < 0:
+                        cor_card = "#ffe6e6"; icone = "🚨"; status_txt = "ATRASADO"
+                    elif diff == 0:
+                        cor_card = "#fff2cc"; icone = "⚠️"; status_txt = "VENCE HOJE"
                     else:
-                        cor_card = "#e6ffe6" # Verde claro
-                        icone = "📅"
-                        status_txt = "NO PRAZO"
+                        cor_card = "#e6ffe6"; icone = "📅"; status_txt = f"EM {diff} DIAS"
                     
-                    st.markdown(f"""
-                        <div style="background-color: {cor_card}; padding: 10px 15px; border-radius: 8px; border: 1px solid #ddd; margin-bottom: 5px; display: flex; justify-content: space-between; align-items: center;">
-                            <div>
-                                <span style="font-size: 15px;">{icone} <b>{b['cliente']}</b></span><br>
-                                <span style="color: #555; font-size: 13px;">Vencimento: <b>{venc_dt.strftime('%d/%m/%Y')}</b> - Status: <b>{status_txt}</b></span>
-                            </div>
-                            <div style="text-align: right;">
-                                <span style="font-size: 16px; font-weight: bold; color: #004488;">{utils.to_br_currency(b['valor'])}</span><br>
-                            </div>
-                        </div>
-                    """, unsafe_allow_html=True)
+                    # Grid estreito e direto em uma única linha
+                    col_info, col_btn_doc, col_btn_pagar = st.columns([6, 1.5, 1.5])
                     
-                    col_b_acao1, col_b_acao2 = st.columns([1.5, 10])
-                    with col_b_acao1:
-                        if st.button("✅ PAGO", key=f"pago_{b['id']}", use_container_width=True):
-                            st.session_state.supabase.table('boletos_fornecedores').update({'status': 'Pago'}).eq('id', b['id']).execute()
+                    with col_info:
+                        st.markdown(f"""
+                            <div style="background-color: {cor_card}; padding: 12px 15px; border-radius: 6px; border: 1px solid #ddd; display: flex; align-items: center; min-height: 52px; margin-top: 5px;">
+                                <span style="margin-right: 12px; font-size: 16px;">{icone}</span>
+                                <span style="flex-grow: 1; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"><b>{b['cliente']}</b></span>
+                                <span style="margin-right: 15px; font-size: 13px; color: #555;">Venc: <b>{venc_dt.strftime('%d/%m/%Y')}</b> ({status_txt})</span>
+                                <span style="font-size: 15px; font-weight: bold; color: #004488;">{utils.to_br_currency(b['valor'])}</span>
+                            </div>
+                        """, unsafe_allow_html=True)
+                    
+                    with col_btn_doc:
+                        # Estilo injetado para forçar os botões laterais a terem a mesma altura da barra HTML
+                        st.markdown("""<style>div[data-testid="column"] button { min-height: 52px !important; padding: 0px !important; margin-top: 5px !important; border-radius: 6px !important;}</style>""", unsafe_allow_html=True)
+                        if st.button("📂 Boletos", key=f"ir_{b['id']}", use_container_width=True):
+                            st.session_state.menu_option = "Documentos"
+                            st.rerun()
+                            
+                    with col_btn_pagar:
+                        if st.button("✅ Pagar", key=f"pg_{b['id']}", use_container_width=True):
+                            with st.spinner("Atualizando registros..."):
+                                id_db = b['id']
+                                id_drive = b.get('link_drive_id')
+                                
+                                # Move arquivo físico no Drive se houver
+                                if id_drive and not pd.isna(id_drive) and str(id_drive).strip().lower() not in ["none", "nan", ""]:
+                                    mover_arquivo_drive_app(id_drive, ["Boletos", "PAGOS"])
+                                    
+                                # Atualiza status no banco e mantém a janela de 1 mês projetada!
+                                if id_db and not pd.isna(id_db) and str(id_db).strip() != "":
+                                    st.session_state.supabase.table('boletos_fornecedores').update({'status': 'Pago'}).eq('id', id_db).execute()
+                                    try:
+                                        if b.get('is_recorrente'):
+                                            venc_antigo = datetime.datetime.strptime(b['vencimento'], "%Y-%m-%d").date()
+                                            novo_venc = add_months_app(venc_antigo, 1)
+                                            st.session_state.supabase.table('boletos_fornecedores').insert({
+                                                'cliente': b.get('cliente'), 
+                                                "vencimento": novo_venc.strftime('%Y-%m-%d'),
+                                                'valor': b.get('valor'), 
+                                                'status': 'Pendente', 
+                                                'is_recorrente': True
+                                            }).execute()
+                                    except: pass
+                            st.success("✅ Atualizado! Movido para pagos e recorrência gerada (se houver).")
                             st.rerun()
             else:
-                st.info("🎉 Excelente! Nenhum boleto de fornecedor pendente no momento.")
+                st.info("🎉 Excelente! Nenhuma despesa ou boleto vencendo nos próximos 5 dias.")
         except Exception as e:
             st.caption("Conectando base de lembretes...")
 
-        st.markdown("<hr style='margin-top: 10px; margin-bottom: 10px;'>", unsafe_allow_html=True)
+        st.markdown("<hr style='margin-top: 20px; margin-bottom: 20px;'>", unsafe_allow_html=True)
         
         # =========================================================================
         # BOTÕES DE ACESSO RÁPIDO (GRID COMPACTO)
