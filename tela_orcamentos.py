@@ -187,6 +187,35 @@ def renderizar():
         
         if 'pdf_gerado' in st.session_state and st.session_state.get('nome_cliente_previa') == nome_cliente:
             st.download_button("📥 BAIXAR RASCUNHO", data=st.session_state['pdf_gerado'], file_name=f"ORCAMENTO_{nome_cliente}.pdf", mime="application/pdf", use_container_width=True)
+            
+            # --- NOVO BLOCO: SALVAR NO DRIVE ---
+            st.markdown("<div style='margin-top: 15px; padding: 15px; border: 1px solid #ddd; border-radius: 8px; background-color: #f8f9fa;'>", unsafe_allow_html=True)
+            st.markdown("☁️ **Salvar no Drive (Pasta: Orçamentos)**")
+            
+            hoje_str = datetime.datetime.now().strftime("%Y_%m_%d")
+            partes_nome = nome_cliente.strip().split()
+            if len(partes_nome) >= 2:
+                nome_formatado = f"{partes_nome[0]}_{partes_nome[-1]}".lower()
+            else:
+                nome_formatado = partes_nome[0].lower() if partes_nome else "cliente"
+            
+            nome_sugerido = f"orcamento_{hoje_str}_{nome_formatado}.pdf"
+            
+            nome_arquivo_drive = st.text_input("Nome do arquivo:", value=nome_sugerido, key="input_nome_drive")
+            
+            if st.button("🚀 Enviar para o Drive", use_container_width=True):
+                with st.spinner("Salvando na pasta Orçamentos..."):
+                    sucesso, msg = utils.upload_to_drive(
+                        file_buffer=st.session_state['pdf_gerado'], 
+                        filename=nome_arquivo_drive, 
+                        mimetype="application/pdf", 
+                        folder_path=["Orçamentos"]
+                    )
+                    if sucesso:
+                        st.success(f"✅ Arquivo {nome_arquivo_drive} salvo com sucesso!")
+                    else:
+                        st.error(f"Erro ao salvar: {msg}")
+            st.markdown("</div>", unsafe_allow_html=True)
 
     with col_btn_salvar:
         if st.button("SALVAR ORÇAMENTO NO SISTEMA", type="primary", use_container_width=True):
