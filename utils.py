@@ -12,8 +12,8 @@ from reportlab.lib.enums import TA_JUSTIFY, TA_CENTER
 import urllib.request
 import json
 
-# IMPORTAÇÕES DO GOOGLE DRIVE
-from google.oauth2 import service_account
+# IMPORTAÇÕES DO GOOGLE DRIVE OAUTH (NOVO MOTOR)
+from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 
@@ -41,14 +41,20 @@ def init_connection():
     return create_client(url, key)
 
 # ==========================================
-# INTEGRAÇÃO GOOGLE DRIVE (CORRIGIDA)
+# INTEGRAÇÃO GOOGLE DRIVE (CONTA PESSOAL 5TB)
 # ==========================================
 MAIN_DRIVE_FOLDER_ID = '1rdCO-d0CTF4UPQ1Vddxr0loCgqYaXE2l'
-SCOPES = ['https://www.googleapis.com/auth/drive']
 
 def get_drive_service():
-    creds_dict = dict(st.secrets["gcp_service_account"])
-    creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+    """Autentica no Drive usando a sua conta principal via Refresh Token"""
+    oauth_info = st.secrets["google_oauth"]
+    creds = Credentials(
+        token=None,
+        refresh_token=oauth_info["refresh_token"],
+        client_id=oauth_info["client_id"],
+        client_secret=oauth_info["client_secret"],
+        token_uri="https://oauth2.googleapis.com/token"
+    )
     return build('drive', 'v3', credentials=creds)
 
 def get_or_create_nested_folder(service, parent_id, path_list):
@@ -72,8 +78,6 @@ def upload_to_drive(file_buffer, filename, mimetype, folder_path):
         subfolder_id = get_or_create_nested_folder(service, MAIN_DRIVE_FOLDER_ID, folder_path)
         
         file_metadata = {'name': filename, 'parents': [subfolder_id]}
-        
-        # Correção aqui: Converte o arquivo do Streamlit num buffer puro para o Google aceitar
         buffer_puro = BytesIO(file_buffer.getvalue())
         media = MediaIoBaseUpload(buffer_puro, mimetype=mimetype, resumable=True)
         
