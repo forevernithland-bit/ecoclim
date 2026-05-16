@@ -292,6 +292,34 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
 
             if f'pdf_contrato_{prefix_key}' in st.session_state:
                 st.download_button("📥 BAIXAR CONTRATO (PDF)", data=st.session_state[f'pdf_contrato_{prefix_key}'], file_name=f"CONTRATO_{c_nome.split()[0]}.pdf", mime="application/pdf", use_container_width=True, key=f"dl_ct_{prefix_key}")
+                
+                # --- NOVO BLOCO: SALVAR CONTRATO NO DRIVE USANDO ST.CONTAINER NATIVO ---
+                with st.container(border=True):
+                    st.markdown("☁️ **Salvar no Drive (Pasta: Contratos)**")
+                    
+                    hoje_str = datetime.datetime.now().strftime("%Y_%m_%d")
+                    partes_nome = c_nome.strip().split()
+                    if len(partes_nome) >= 2:
+                        nome_formatado = f"{partes_nome[0]}_{partes_nome[-1]}".lower()
+                    else:
+                        nome_formatado = partes_nome[0].lower() if partes_nome else "cliente"
+                    
+                    nome_sugerido = f"contrato_{hoje_str}_{nome_formatado}.pdf"
+                    
+                    nome_arquivo_drive = st.text_input("Nome do arquivo do contrato:", value=nome_sugerido, key=f"input_nome_ct_drive_{prefix_key}")
+                    
+                    if st.button("🚀 Enviar Contrato para o Drive", use_container_width=True, key=f"btn_upload_ct_drive_{prefix_key}"):
+                        with st.spinner("Salvando na pasta Contratos..."):
+                            sucesso, msg = utils.upload_to_drive(
+                                file_buffer=st.session_state[f'pdf_contrato_{prefix_key}'], 
+                                filename=nome_arquivo_drive, 
+                                mimetype="application/pdf", 
+                                folder_path=["Contratos"]
+                            )
+                            if sucesso:
+                                st.success(f"✅ Contrato {nome_arquivo_drive} salvo com sucesso no Drive!")
+                            else:
+                                st.error(f"Erro ao salvar: {msg}")
 
     st.markdown("<br>", unsafe_allow_html=True)
     
@@ -358,7 +386,6 @@ def renderizar():
 
     aba1, aba2, aba3 = st.tabs(["🚀 Em Andamento", "📝 Orçamentos", "✅ Finalizados"])
     
-    # === AQUI: REMOVIDA A COLUNA 'id' DA VISUALIZAÇÃO ===
     colunas_visiveis = ['numero_orcamento', 'nome_cliente', 'status_projeto', 'valor_venda_total', 'lucro_estimado', 'data_conclusao']
     
     config_colunas = {
