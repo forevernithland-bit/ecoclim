@@ -125,7 +125,10 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                 st.caption("Cadastre despesas manuais para centralizar seus alertas.")
                 c_mn, c_mv, c_md, c_mrec = st.columns([3, 1.5, 1.5, 1])
                 nome_man = c_mn.text_input("Descrição (Ex: Conta de Luz, Contador)")
-                valor_man = c_mv.number_input("Valor (R$)", min_value=0.0, format="%.2f")
+                
+                # step=None remove aqueles botões de mais e menos que estavam sujando o design!
+                valor_man = c_mv.number_input("Valor (R$)", min_value=0.0, format="%.2f", step=None)
+                
                 venc_man = c_md.date_input("Vencimento", format="DD/MM/YYYY")
                 rec_man = c_mrec.checkbox("Recorrente?")
                 
@@ -164,12 +167,12 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                 df_db = pd.DataFrame(res_b.data)
                 for _, r in df_db.iterrows():
                     id_d = r.get('link_drive_id')
-                    if id_d:
+                    if id_d and not pd.isna(id_d):
                         db_id_map[id_d] = r['id']
                         valores_map[id_d] = float(r.get('valor', 0.0))
                         is_rec_map[id_d] = r.get('is_recorrente', False)
                         status_map[id_d] = r.get('status', 'Pendente')
-                        try: vencimentos_map[id_d] = datetime.datetime.strptime(r['vencimento'], "%Y-%m-%d").date()
+                        try: vencimentos_map[id_d] = datetime.datetime.strptime(str(r['vencimento']), "%Y-%m-%d").date()
                         except: vencimentos_map[id_d] = None
         except: pass
 
@@ -199,8 +202,11 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
     if nome_principal == "Boletos" and not df_db.empty:
         mes_sel_idx = utils.meses_pt.index(sub_sel) + 1 if sub_sel in utils.meses_pt else datetime.date.today().month
         for _, r in df_db.iterrows():
-            if not r.get('link_drive_id'): # Sem arquivo
-                try: v_dt = datetime.datetime.strptime(r['vencimento'], "%Y-%m-%d").date()
+            val_link = r.get('link_drive_id')
+            
+            # Verificação segura: se o link_drive_id estiver vazio, nulo ou for NaN
+            if pd.isna(val_link) or str(val_link).strip().lower() in ['nan', 'none', '']:
+                try: v_dt = datetime.datetime.strptime(str(r['vencimento']), "%Y-%m-%d").date()
                 except: v_dt = None
                 
                 # Filtra para exibir apenas na pasta correta
@@ -217,7 +223,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                         "Nome": f"📝 {r.get('cliente', 'Lembrete')}",
                         "Data": v_dt,
                         "Tamanho": "-",
-                        "Link": "#",
+                        "Link": None, # Deixamos None para não gerar botão "Abrir"
                         "Vencimento": v_dt,
                         "Valor": utils.to_br_currency(float(r.get('valor', 0.0))),
                         "Recorrente": "🔄 Sim" if r.get('is_recorrente', False) else "-",
@@ -343,7 +349,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                                 id_drive = r_pag.get("ID_Drive")
                                 
                                 # Move arquivo físico no Drive
-                                if id_drive and id_drive != "None" and pd.notna(id_drive):
+                                if id_drive and not pd.isna(id_drive) and str(id_drive).strip().lower() not in ["none", "nan", ""]:
                                     mover_arquivo_drive(id_drive, ["Boletos", "PAGOS"])
                                     
                                 # Atualiza status no banco e trata recorrência
@@ -376,11 +382,11 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                         for _, row_del in arquivos_para_apagar.iterrows():
                             # Apaga do Drive
                             id_dr = row_del.get("ID_Drive")
-                            if id_dr and pd.notna(id_dr):
+                            if id_dr and not pd.isna(id_dr) and str(id_dr).strip().lower() not in ["none", "nan", ""]:
                                 utils.delete_drive_file(id_dr)
                             # Apaga do Banco
                             id_bd = row_del.get("ID_DB")
-                            if id_bd and pd.notna(id_bd):
+                            if id_bd and not pd.isna(id_bd):
                                 st.session_state.supabase.table('boletos_fornecedores').delete().eq('id', id_bd).execute()
                     st.success("Excluídos com sucesso!")
                     st.rerun()
