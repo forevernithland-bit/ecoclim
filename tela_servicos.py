@@ -47,12 +47,18 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
     nova_data = col_dir.date_input("Previsão / Data de Conclusão", value=data_inicial, format="DD/MM/YYYY", key=f"data_{prefix_key}")
 
     # ==============================================================
-    # NOVOS CAMPOS CONDICIONAIS: NF DE ENTRADA E VENCIMENTO BOLETO
+    # NOVOS CAMPOS: NF DE ENTRADA E VENCIMENTO BOLETO (NOVA LINHA)
     # ==============================================================
     nova_nf_entrada = ""
     novo_venc_boleto = None
 
     if novo_status not in ["Orçamento Enviado", "Orçamento Cancelado", "Excluir"]:
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("#### 🧾 Informações Fiscais e Boletos")
+        
+        # Colocando em colunas principais para NÃO desconfigurar o layout superior
+        c_nf, c_venc = st.columns(2)
+        
         nf_entrada_banco = projeto_selecionado.get('nf_entrada', '')
         venc_boleto_banco = projeto_selecionado.get('vencimento_boleto')
         
@@ -61,26 +67,24 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             try: venc_boleto_inicial = pd.to_datetime(venc_boleto_banco).date()
             except: pass
         
-        # Ocupa o exato quadrado vermelho desenhado na imagem (dentro da col_dir)
-        c_nf, c_venc = col_dir.columns(2)
         nova_nf_entrada = c_nf.text_input("NF de Entrada", value=str(nf_entrada_banco) if str(nf_entrada_banco) != 'nan' else '', placeholder="Opcional", key=f"nf_ent_{prefix_key}")
-        novo_venc_boleto = c_venc.date_input("Vencimento Boleto", value=venc_boleto_inicial, format="DD/MM/YYYY", key=f"venc_bol_{prefix_key}")
+        novo_venc_boleto = c_venc.date_input("Vencimento Boleto (Cliente)", value=venc_boleto_inicial, format="DD/MM/YYYY", key=f"venc_bol_{prefix_key}")
 
         # =========================================================================
         # NOVO: IMPORTADOR DE BOLETOS DE FORNECEDOR (AUTOMATIZADO)
         # =========================================================================
-        st.markdown("#### 🧾 Importar Boleto de Fornecedor")
-        arquivo_boleto = st.file_uploader("Anexar Boleto (PDF)", type=["pdf"], key=f"up_bol_{prefix_key}")
-        
-        if arquivo_boleto:
-            if f"dados_bol_{prefix_key}" not in st.session_state:
-                with st.spinner("🤖 Lendo dados do boleto..."):
-                    venc_ext, val_ext = utils.extrair_dados_boleto(arquivo_boleto)
-                    st.session_state[f"dados_bol_{prefix_key}"] = {"vencimento": venc_ext, "valor": val_ext}
-
-            dados_ext = st.session_state[f"dados_bol_{prefix_key}"]
+        with st.container(border=True):
+            st.markdown("##### 📥 Importar Boleto de Fornecedor (PDF)")
+            arquivo_boleto = st.file_uploader("Anexar PDF do Boleto para leitura de IA", type=["pdf"], key=f"up_bol_{prefix_key}")
             
-            with st.container(border=True):
+            if arquivo_boleto:
+                if f"dados_bol_{prefix_key}" not in st.session_state:
+                    with st.spinner("🤖 Lendo dados do boleto..."):
+                        venc_ext, val_ext = utils.extrair_dados_boleto(arquivo_boleto)
+                        st.session_state[f"dados_bol_{prefix_key}"] = {"vencimento": venc_ext, "valor": val_ext}
+
+                dados_ext = st.session_state[f"dados_bol_{prefix_key}"]
+                
                 st.caption("Verifique e corrija os dados extraídos pelo sistema:")
                 col_b1, col_b2 = st.columns(2)
                 
