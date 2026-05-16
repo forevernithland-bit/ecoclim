@@ -147,7 +147,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                     if not nome_man:
                         st.error("Informe a descrição.")
                     else:
-                        # INSERE APENAS 1 REGISTRO (O MÊS ATUAL). O PRÓXIMO É GERADO NO PAGAMENTO!
                         st.session_state.supabase.table('boletos_fornecedores').insert({
                             "cliente": nome_man, 
                             "vencimento": venc_man.strftime("%Y-%m-%d"),
@@ -321,21 +320,20 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                     st.rerun()
     else:
         config_colunas = {
-            "Excluir": st.column_config.CheckboxColumn("🗑️ Excluir", default=False, width="small"),
+            "Excluir": st.column_config.CheckboxColumn("🗑️", default=False, width="small"), # APENAS O ÍCONE
             "ID": None, 
             "ID_Drive": None, 
             "ID_DB": None,
-            "Data": None,       
             "Tamanho": None,    
-            "Nome": st.column_config.TextColumn("Descrição", width="medium"), # LARGURA REDUZIDA PARA MEDIUM
+            "Nome": st.column_config.TextColumn("Descrição", width="medium"), 
             "Link": st.column_config.LinkColumn("PDF", display_text="👁️ Abrir", width="small")
         }
         
         lista_desabilitados = ["Nome", "Data", "Tamanho", "Link", "Valor", "Recorrente", "Status"]
-        col_order = ["Excluir", "Nome", "Link"]
 
         if nome_principal == "Boletos":
-            config_colunas["Vencimento"] = st.column_config.DateColumn("Vencimento", format="DD/MM/YYYY", width="small") # LARGURA REDUZIDA PARA SMALL
+            config_colunas["Data"] = None # Oculta Data apenas em Boletos
+            config_colunas["Vencimento"] = st.column_config.DateColumn("Vencimento", format="DD/MM/YYYY", width="small") # LARGURA REDUZIDA
             config_colunas["Valor"] = st.column_config.TextColumn("Valor", width="small")
             config_colunas["Recorrente"] = st.column_config.TextColumn("Recorrente", width="small")
             config_colunas["Pagar"] = st.column_config.CheckboxColumn("Pagar", default=False, width="small")
@@ -343,14 +341,17 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             
             lista_desabilitados.append("Vencimento")
             
-            # Ordem Exata Pedida
             col_order = ["Excluir", "Nome", "Link", "Vencimento", "Valor", "Recorrente", "Pagar", "Status"]
+        else:
+            # Nas outras abas, Data de Inclusão é liberada!
+            config_colunas["Data"] = st.column_config.DatetimeColumn("Data de Inclusão", format="DD/MM/YYYY - HH:mm")
+            col_order = ["Excluir", "Nome", "Link", "Data"]
 
         # Força o dataframe a engolir a ordem das colunas para burlar o cache do Streamlit
         todas_cols = col_order + [c for c in df_pagina.columns if c not in col_order]
         df_pagina = df_pagina[todas_cols]
 
-        # CHAVE RENOMEADA PARA V6 PARA QUEBRAR O CACHE VISUAL DO SEU NAVEGADOR
+        # CHAVE RENOMEADA PARA V7 PARA QUEBRAR O CACHE VISUAL DO SEU NAVEGADOR
         df_editado = st.data_editor(
             df_pagina, 
             column_config=config_colunas, 
@@ -358,7 +359,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             disabled=lista_desabilitados,
             hide_index=True, 
             use_container_width=True, 
-            key=f"editor_docs_v6_{nome_principal}" 
+            key=f"editor_docs_v7_{nome_principal}" 
         )
 
         # ==========================================
