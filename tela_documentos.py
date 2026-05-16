@@ -6,10 +6,14 @@ import utils
 def formatar_tamanho(tamanho_bytes):
     try:
         tamanho = int(tamanho_bytes)
-        if tamanho < 1024: return f"{tamanho} B"
-        elif tamanho < 1024 * 1024: return f"{tamanho / 1024:.1f} KB"
-        else: return f"{tamanho / (1024 * 1024):.1f} MB"
-    except: return "Desconhecido"
+        if tamanho < 1024: 
+            return f"{tamanho} B"
+        elif tamanho < 1024 * 1024: 
+            return f"{tamanho / 1024:.1f} KB"
+        else: 
+            return f"{tamanho / (1024 * 1024):.1f} MB"
+    except: 
+        return "Desconhecido"
 
 def parse_drive_date(iso_str):
     """Converte a data do Google Drive para o fuso horário do Brasil (retorna Datetime)"""
@@ -40,26 +44,35 @@ def mover_arquivo_drive(file_id, folder_path_list):
     except Exception as e:
         return False
 
-def add_one_month(dt):
-    """Soma 1 mês exato na data de vencimento (inteligente com anos bissextos)"""
-    new_month = dt.month + 1 if dt.month < 12 else 1
-    new_year = dt.year + 1 if dt.month == 12 else dt.year
-    if new_month in [4, 6, 9, 11]: last_day = 30
-    elif new_month == 2:
-        last_day = 29 if (new_year % 4 == 0 and (new_year % 100 != 0 or new_year % 400 == 0)) else 28
-    else: last_day = 31
-    new_day = min(dt.day, last_day)
-    return dt.replace(year=new_year, month=new_month, day=new_day)
+def add_months(dt, months):
+    """Soma meses na data considerando a virada de anos e anos bissextos de forma perfeita"""
+    month = dt.month - 1 + months
+    year = dt.year + month // 12
+    month = month % 12 + 1
+    day = min(dt.day, [31, 29 if year % 4 == 0 and not year % 100 == 0 or year % 400 == 0 else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1])
+    return dt.replace(year=year, month=month, day=day)
 
 def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
     path_atual = [nome_principal]
     
     # ==========================================
-    # 1. CABEÇALHO DE FILTROS ALINHADO
+    # 1. ESTILOS GERAIS E REMOÇÃO DE SETINHAS
     # ==========================================
     st.markdown("""
         <style>
+        /* Ajuste do Expander */
         div[data-testid="stExpander"] details summary { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+        
+        /* Remove setinhas dos inputs numéricos (Chrome, Safari, Edge, Opera) */
+        input::-webkit-outer-spin-button,
+        input::-webkit-inner-spin-button {
+          -webkit-appearance: none;
+          margin: 0;
+        }
+        /* Remove setinhas dos inputs numéricos (Firefox) */
+        input[type=number] {
+          -moz-appearance: textfield;
+        }
         </style>
     """, unsafe_allow_html=True)
 
@@ -69,7 +82,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             mes_agora = datetime.date.today().month
             nome_mes_agora = utils.meses_pt[mes_agora - 1]
             default_idx = subpastas.index(nome_mes_agora) if nome_mes_agora in subpastas else 0
-            
             sub_sel = st.selectbox("Selecione a Pasta / Mês:", subpastas, index=default_idx, key=f"combo_mes_{nome_principal}")
             path_atual.append(sub_sel)
             
@@ -88,7 +100,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                 arquivos_enviados = st.file_uploader("Selecione", accept_multiple_files=True, key=f"up_{nome_principal}", label_visibility="collapsed")
                 if arquivos_enviados and st.button("🚀 Enviar", key=f"btn_env_{nome_principal}", type="primary", use_container_width=True):
                     with st.spinner("Enviando para o Drive..."):
-                        for arq in arquivos_enviados:
+                        for arq in arquivos_enviados: 
                             utils.upload_to_drive(arq, arq.name, arq.type, path_atual)
                     st.success("✅ Sucesso!")
                     st.rerun()
@@ -109,7 +121,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                 arquivos_enviados = st.file_uploader("Selecione", accept_multiple_files=True, key=f"up_s_{nome_principal}", label_visibility="collapsed")
                 if arquivos_enviados and st.button("🚀 Enviar", key=f"btn_env_s_{nome_principal}", type="primary", use_container_width=True):
                     with st.spinner("Enviando para o Drive..."):
-                        for arq in arquivos_enviados:
+                        for arq in arquivos_enviados: 
                             utils.upload_to_drive(arq, arq.name, arq.type, path_atual)
                     st.success("✅ Sucesso!")
                     st.rerun()
@@ -133,14 +145,27 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                     if not nome_man:
                         st.error("Informe a descrição.")
                     else:
-                        st.session_state.supabase.table('boletos_fornecedores').insert({
-                            "cliente": nome_man,
-                            "vencimento": venc_man.strftime("%Y-%m-%d"),
-                            "valor": valor_man,
-                            "status": "Pendente",
-                            "is_recorrente": rec_man
-                        }).execute()
-                        st.success("Lembrete salvo com sucesso!")
+                        if rec_man:
+                            # Projeta e gera automaticamente os próximos 12 meses!
+                            for i in range(12):
+                                v_dt = add_months(venc_man, i)
+                                st.session_state.supabase.table('boletos_fornecedores').insert({
+                                    "cliente": nome_man, 
+                                    "vencimento": v_dt.strftime("%Y-%m-%d"),
+                                    "valor": valor_man, 
+                                    "status": "Pendente", 
+                                    "is_recorrente": True
+                                }).execute()
+                            st.success("Despesa recorrente cadastrada para os próximos 12 meses!")
+                        else:
+                            st.session_state.supabase.table('boletos_fornecedores').insert({
+                                "cliente": nome_man, 
+                                "vencimento": venc_man.strftime("%Y-%m-%d"),
+                                "valor": valor_man, 
+                                "status": "Pendente", 
+                                "is_recorrente": False
+                            }).execute()
+                            st.success("Lembrete único salvo com sucesso!")
                         st.rerun()
         st.markdown("<br>", unsafe_allow_html=True)
 
@@ -150,7 +175,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
     arquivos_brutos = utils.list_drive_files(path_atual)
     df_db = pd.DataFrame()
 
-    # Mapeamento do Banco de Dados para os arquivos
     vencimentos_map = {}
     valores_map = {}
     db_id_map = {}
@@ -169,9 +193,12 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                         valores_map[id_d] = float(r.get('valor', 0.0))
                         is_rec_map[id_d] = r.get('is_recorrente', False)
                         status_map[id_d] = r.get('status', 'Pendente')
-                        try: vencimentos_map[id_d] = datetime.datetime.strptime(str(r['vencimento']), "%Y-%m-%d").date()
-                        except: vencimentos_map[id_d] = pd.NaT
-        except: pass
+                        try: 
+                            vencimentos_map[id_d] = datetime.datetime.strptime(str(r['vencimento']), "%Y-%m-%d").date()
+                        except: 
+                            vencimentos_map[id_d] = pd.NaT
+        except: 
+            pass
 
     dados_tabela = []
     
@@ -194,6 +221,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             linha_arquivo["Valor"] = utils.to_br_currency(valores_map.get(a['id'], 0.0))
             linha_arquivo["Recorrente"] = "🔄 Sim" if is_rec_map.get(a['id'], False) else "-"
             linha_arquivo["Status"] = str(status_map.get(a['id'], "Pendente"))
+        
         dados_tabela.append(linha_arquivo)
         
     # 2. Lembretes Manuais do Banco (Sem Arquivo no Drive)
@@ -202,28 +230,31 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
         for _, r in df_db.iterrows():
             val_link = r.get('link_drive_id')
             
-            # Verificação segura: se o link_drive_id estiver vazio, nulo ou for NaN
             if pd.isna(val_link) or str(val_link).strip().lower() in ['nan', 'none', '']:
-                try: v_dt = datetime.datetime.strptime(str(r['vencimento']), "%Y-%m-%d").date()
-                except: v_dt = None
+                try: 
+                    v_dt = datetime.datetime.strptime(str(r['vencimento']), "%Y-%m-%d").date()
+                except: 
+                    v_dt = None
                 
-                # Filtra para exibir apenas na pasta correta
-                if sub_sel == "PAGOS": pertence = (r.get('status') == 'Pago')
-                else: pertence = (v_dt and v_dt.month == mes_sel_idx and r.get('status') != 'Pago')
+                # Filtra para exibir apenas na pasta do mês correto
+                if sub_sel == "PAGOS": 
+                    pertence = (r.get('status') == 'Pago')
+                else: 
+                    pertence = (v_dt and v_dt.month == mes_sel_idx and r.get('status') != 'Pago')
                 
                 if pertence:
-                    # Resolve o Erro do Arrow Convertendo a "Data" do Banco para Datetime (Igual ao do Drive)
+                    # Resolve o Erro do PyArrow alinhando o tipo de data perfeitamente com os do Drive
                     v_dt_datetime = datetime.datetime.combine(v_dt, datetime.time()) if v_dt else pd.NaT
                     
                     dados_tabela.append({
-                        "Excluir": False,
-                        "Pagar": False,
-                        "ID_Drive": None,
+                        "Excluir": False, 
+                        "Pagar": False, 
+                        "ID_Drive": None, 
                         "ID_DB": str(r['id']),
-                        "ID": f"db_{r['id']}",
+                        "ID": f"db_{r['id']}", 
                         "Nome": f"📝 {r.get('cliente', 'Lembrete')}",
-                        "Data": v_dt_datetime,
-                        "Tamanho": "-",
+                        "Data": v_dt_datetime, 
+                        "Tamanho": "-", 
                         "Link": None,
                         "Vencimento": v_dt if v_dt else pd.NaT,
                         "Valor": utils.to_br_currency(float(r.get('valor', 0.0))),
@@ -238,49 +269,41 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
         return
 
     # ==========================================
-    # 4. APLICAÇÃO DOS FILTROS
+    # 4. APLICAÇÃO DOS FILTROS E PAGINAÇÃO
     # ==========================================
-    if termo_busca:
+    if termo_busca: 
         df = df[df['Nome'].str.lower().str.contains(termo_busca)]
         
     hoje_filtro = datetime.date.today()
-    if filtro_tipo == "Hoje":
+    if filtro_tipo == "Hoje": 
         df = df[df['Data'].dt.date == hoje_filtro]
-    elif filtro_tipo == "Últimos 30 dias":
-        limite = hoje_filtro - datetime.timedelta(days=30)
-        df = df[df['Data'].dt.date >= limite]
-    elif filtro_tipo == "Últimos 60 dias":
-        limite = hoje_filtro - datetime.timedelta(days=60)
-        df = df[df['Data'].dt.date >= limite]
-    elif filtro_tipo == "Últimos 90 dias":
-        limite = hoje_filtro - datetime.timedelta(days=90)
-        df = df[df['Data'].dt.date >= limite]
+    elif filtro_tipo == "Últimos 30 dias": 
+        df = df[df['Data'].dt.date >= (hoje_filtro - datetime.timedelta(days=30))]
+    elif filtro_tipo == "Últimos 60 dias": 
+        df = df[df['Data'].dt.date >= (hoje_filtro - datetime.timedelta(days=60))]
+    elif filtro_tipo == "Últimos 90 dias": 
+        df = df[df['Data'].dt.date >= (hoje_filtro - datetime.timedelta(days=90))]
     elif filtro_tipo == "Personalizado (Faixa)" and data_filtro:
         if isinstance(data_filtro, (tuple, list)):
-            if len(data_filtro) == 2:
-                start_date, end_date = data_filtro
-                df = df[(df['Data'].dt.date >= start_date) & (df['Data'].dt.date <= end_date)]
-            elif len(data_filtro) == 1:
+            if len(data_filtro) == 2: 
+                df = df[(df['Data'].dt.date >= data_filtro[0]) & (df['Data'].dt.date <= data_filtro[1])]
+            elif len(data_filtro) == 1: 
                 df = df[df['Data'].dt.date == data_filtro[0]]
-        else:
+        else: 
             df = df[df['Data'].dt.date == data_filtro]
 
     if df.empty:
         st.warning("Nenhum item corresponde aos filtros selecionados.")
         return
 
-    # ==========================================
-    # 5. PAGINAÇÃO E CONTROLES
-    # ==========================================
     itens_por_pagina = 100
     total_paginas = (len(df) - 1) // itens_por_pagina + 1
     
     col_view, col_pag = st.columns([7, 3])
     with col_view:
         modo_visao = "Lista"
-        if is_imagens:
+        if is_imagens: 
             modo_visao = st.radio("Visualização:", ["Lista", "Miniaturas"], horizontal=True, key=f"view_{nome_principal}", label_visibility="collapsed")
-            
     with col_pag:
         if total_paginas > 1:
             pagina_atual = st.number_input("Página", min_value=1, max_value=total_paginas, value=1, key=f"pag_{nome_principal}")
@@ -288,11 +311,10 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             pagina_atual = 1
 
     inicio = (pagina_atual - 1) * itens_por_pagina
-    fim = inicio + itens_por_pagina
-    df_pagina = df.iloc[inicio:fim].copy()
+    df_pagina = df.iloc[inicio : inicio + itens_por_pagina].copy()
 
     # ==========================================
-    # 6. RENDERIZAÇÃO DA TABELA / GALERIA
+    # 5. RENDERIZAÇÃO DA TABELA ORDENADA
     # ==========================================
     if is_imagens and modo_visao == "Miniaturas":
         cols = st.columns(4)
@@ -310,31 +332,43 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                     st.rerun()
     else:
         config_colunas = {
-            "Excluir": st.column_config.CheckboxColumn("🗑️ Excluir", default=False),
-            "ID": None, "ID_Drive": None, "ID_DB": None,
+            "Excluir": st.column_config.CheckboxColumn("🗑️ Excluir", default=False, width="small"),
+            "ID": None, 
+            "ID_Drive": None, 
+            "ID_DB": None,
             "Data": None,       # Ocultado para ganhar espaço na tela
             "Tamanho": None,    # Ocultado para ganhar espaço na tela
-            "Nome": st.column_config.TextColumn("Descrição/Arquivo", width="medium"), # Largura reduzida
-            "Link": st.column_config.LinkColumn("Visualizar PDF", display_text="👁️ Abrir")
+            "Nome": st.column_config.TextColumn("Descrição", width="medium"), # Largura reduzida
+            "Link": st.column_config.LinkColumn("PDF", display_text="👁️ Abrir", width="small")
         }
         
         lista_desabilitados = ["Nome", "Data", "Tamanho", "Link", "Valor", "Recorrente", "Status"]
-        
+        col_order = ["Excluir", "Nome", "Link"]
+
         if nome_principal == "Boletos":
-            config_colunas["Pagar"] = st.column_config.CheckboxColumn("✅ Pagar", default=False)
-            config_colunas["Vencimento"] = st.column_config.DateColumn("📅 Vencimento", format="DD/MM/YYYY")
-            config_colunas["Valor"] = st.column_config.TextColumn("💰 Valor")
-            config_colunas["Recorrente"] = st.column_config.TextColumn("Recorrente")
-            config_colunas["Status"] = st.column_config.TextColumn("Status")
+            config_colunas["Vencimento"] = st.column_config.DateColumn("Vencimento", format="DD/MM/YYYY", width="medium")
+            config_colunas["Valor"] = st.column_config.TextColumn("Valor", width="small")
+            config_colunas["Recorrente"] = st.column_config.TextColumn("Recorrente", width="small")
+            config_colunas["Pagar"] = st.column_config.CheckboxColumn("Pagar", default=False, width="small")
+            config_colunas["Status"] = st.column_config.TextColumn("Status", width="small")
+            
             lista_desabilitados.append("Vencimento")
+            
+            # Ordem Exata Pedida: Descrição, PDF, Vencimento, Valor, Recorrente, Pagar, Status
+            col_order = ["Excluir", "Nome", "Link", "Vencimento", "Valor", "Recorrente", "Pagar", "Status"]
 
         df_editado = st.data_editor(
-            df_pagina, column_config=config_colunas, disabled=lista_desabilitados,
-            hide_index=True, use_container_width=True, key=f"editor_{nome_principal}"
+            df_pagina, 
+            column_config=config_colunas, 
+            column_order=col_order, 
+            disabled=lista_desabilitados,
+            hide_index=True, 
+            use_container_width=True, 
+            key=f"editor_{nome_principal}"
         )
 
         # ==========================================
-        # 7. AÇÕES DE PAGAMENTO (MOVE PARA PAGOS) E EXCLUSÃO
+        # 6. AÇÕES DE PAGAMENTO E EXCLUSÃO
         # ==========================================
         if df_editado is not None and not df_editado.empty:
             
@@ -342,50 +376,48 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             if "Pagar" in df_editado.columns:
                 boletos_pagar = df_editado[df_editado["Pagar"] == True]
                 if not boletos_pagar.empty:
-                    st.info(f"💡 Você marcou {len(boletos_pagar)} boleto(s) para pagamento.")
+                    st.info(f"💡 Você marcou {len(boletos_pagar)} despesa(s) para pagamento.")
                     if st.button("🚀 Confirmar Pagamentos (Mover para Pagos)", type="primary", use_container_width=True):
-                        with st.spinner("Atualizando registros e movendo arquivos..."):
+                        with st.spinner("Atualizando registros..."):
                             for _, r_pag in boletos_pagar.iterrows():
                                 id_db = r_pag.get("ID_DB")
                                 id_drive = r_pag.get("ID_Drive")
                                 
-                                # Move arquivo físico no Drive
+                                # Move arquivo físico no Drive se houver
                                 if id_drive and not pd.isna(id_drive) and str(id_drive).strip().lower() not in ["none", "nan", ""]:
                                     mover_arquivo_drive(id_drive, ["Boletos", "PAGOS"])
                                     
-                                # Atualiza status no banco e trata recorrência
+                                # Atualiza status no banco e mantém a janela de 12 meses projetada!
                                 if id_db and not pd.isna(id_db) and str(id_db).strip() != "":
                                     st.session_state.supabase.table('boletos_fornecedores').update({'status': 'Pago'}).eq('id', id_db).execute()
                                     try:
-                                        # Verifica se é recorrente
                                         orig = st.session_state.supabase.table('boletos_fornecedores').select('*').eq('id', id_db).execute().data[0]
                                         if orig.get('is_recorrente'):
                                             venc_antigo = datetime.datetime.strptime(orig['vencimento'], "%Y-%m-%d").date()
-                                            novo_venc = add_one_month(venc_antigo)
-                                            # Insere o espelho para o próximo mês (sem o arquivo)
+                                            # Se ele pagou um, o sistema joga mais 12 meses pra frente, mantendo o ciclo vivo!
+                                            novo_venc = add_months(venc_antigo, 12)
                                             st.session_state.supabase.table('boletos_fornecedores').insert({
-                                                'cliente': orig.get('cliente'),
-                                                'vencimento': novo_venc.strftime('%Y-%m-%d'),
-                                                'valor': orig.get('valor'),
-                                                'status': 'Pendente',
+                                                'cliente': orig.get('cliente'), 
+                                                "vencimento": novo_venc.strftime('%Y-%m-%d'),
+                                                'valor': orig.get('valor'), 
+                                                'status': 'Pendente', 
                                                 'is_recorrente': True
                                             }).execute()
-                                    except: pass
-                        st.success("✅ Tudo atualizado! Os arquivos foram movidos para a pasta PAGOS e os lembretes recorrentes já foram gerados.")
+                                    except: 
+                                        pass
+                        st.success("✅ Tudo atualizado! Boletos pagos e projeções garantidas.")
                         st.rerun()
             
-            # BLOCO: EXCLUSÃO DE ARQUIVOS / LEMBRETES
+            # BLOCO: EXCLUSÃO 
             arquivos_para_apagar = df_editado[df_editado["Excluir"] == True]
             if not arquivos_para_apagar.empty:
                 st.error(f"⚠️ Selecionou {len(arquivos_para_apagar)} item(ns) para exclusão permanente.")
                 if st.button("🚨 Confirmar Exclusão", type="primary", key=f"conf_del_{nome_principal}"):
                     with st.spinner("Apagando..."):
                         for _, row_del in arquivos_para_apagar.iterrows():
-                            # Apaga do Drive
                             id_dr = row_del.get("ID_Drive")
                             if id_dr and not pd.isna(id_dr) and str(id_dr).strip().lower() not in ["none", "nan", ""]:
                                 utils.delete_drive_file(id_dr)
-                            # Apaga do Banco
                             id_bd = row_del.get("ID_DB")
                             if id_bd and not pd.isna(id_bd) and str(id_bd).strip() != "":
                                 st.session_state.supabase.table('boletos_fornecedores').delete().eq('id', id_bd).execute()
@@ -396,10 +428,18 @@ def renderizar():
     st.markdown("<br><br>", unsafe_allow_html=True)
     abas = st.tabs(["📝 Orçamentos", "🤝 Contratos", "🧾 Boletos", "🖼️ Imagens", "📊 Notas Fiscais (NF)"])
     
-    with abas[0]: renderizar_aba("Orçamentos")
-    with abas[1]: renderizar_aba("Contratos")
+    with abas[0]: 
+        renderizar_aba("Orçamentos")
+        
+    with abas[1]: 
+        renderizar_aba("Contratos")
+        
     with abas[2]: 
         meses_boletos = utils.meses_pt + ["PAGOS"]
         renderizar_aba("Boletos", subpastas=meses_boletos)
-    with abas[3]: renderizar_aba("Imagens", subpastas=utils.meses_pt, is_imagens=True)
-    with abas[4]: renderizar_aba("Notas Fiscais", subpastas=utils.meses_pt)
+        
+    with abas[3]: 
+        renderizar_aba("Imagens", subpastas=utils.meses_pt, is_imagens=True)
+        
+    with abas[4]: 
+        renderizar_aba("Notas Fiscais", subpastas=utils.meses_pt)
