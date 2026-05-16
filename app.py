@@ -27,7 +27,7 @@ import tela_documentos
 # 3. FUNÇÕES AUXILIARES PARA LEMBRETES NA PÁGINA INICIAL
 # =============================================================================
 def mover_arquivo_drive_app(file_id, folder_path_list):
-    """Move um arquivo no Google Drive para uma nova pasta (Cópia da lógica do Docs)"""
+    """Move um arquivo no Google Drive para uma nova pasta"""
     try:
         service = utils.get_drive_service()
         file = service.files().get(fileId=file_id, fields='parents').execute()
@@ -61,13 +61,13 @@ except Exception as e:
 # =============================================================================
 st.markdown("""
     <style>
-    /* Fundo branco total na barra lateral para sumir com o fundo da logo */
+    /* Fundo branco total na barra lateral */
     [data-testid="stSidebar"] {
         background-color: #ffffff !important;
         border-right: 1px solid #e6ecf5;
     }
     
-    /* Ajuste de padding e largura total (Padding-top ajustado para não cortar o topo) */
+    /* Ajuste de padding total */
     .block-container { 
         padding-top: 3.5rem !important; 
         padding-left: 2rem !important; 
@@ -75,44 +75,73 @@ st.markdown("""
         max-width: 100% !important; 
     }
     
-    /* Remove espaços entre tabelas no módulo financeiro */
     div.container-tabelas div[data-testid="stVerticalBlock"] { 
         gap: 0px !important; 
         padding: 0px !important; 
     }
     
-    /* Títulos padronizados em azul corporativo clean */
+    .stDataFrame table, .stDataEditor table { 
+        table-layout: fixed !important; 
+        width: 100% !important; 
+    }
+    
+    .stDataFrame td, .stDataFrame th, .stDataEditor td, .stDataEditor th { 
+        text-align: center !important; 
+        font-size: 0.85rem !important; 
+    }
+    
+    .financeiro div[data-testid="stDataFrame"] thead { 
+        display: none !important; 
+    }
+    
     h1, h2, h3 {
         color: #004488 !important;
         font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     }
 
-    /* Força alinhamento vertical perfeito nas colunas (Botão e Texto na mesma linha) */
+    /* Alinhamento horizontal absoluto para as colunas */
     div[data-testid="stHorizontalBlock"] {
         align-items: center !important;
     }
 
-    /* Customização dos botões: Altura fixa, compacta e igual para todos (Estilo Tabela) */
-    div.stButton > button {
+    /* BOTÕES PEQUENOS: Usados nos Lembretes (Type Primary) */
+    div.stButton > button[kind="primary"] {
         background-color: #ffffff !important;
         color: #1e293b !important;
-        border: 1px solid #ccc !important;
-        border-radius: 4px !important;
-        font-size: 0.9rem !important;
+        border: 1px solid #d1d5db !important;
+        border-radius: 6px !important;
+        font-size: 0.85rem !important;
         font-weight: 600 !important;
-        transition: all 0.2s ease-in-out !important;
-        min-height: 42px !important;
-        height: 42px !important;
-        margin: 0 !important;
+        min-height: 40px !important;
+        height: 40px !important;
         padding: 0 10px !important;
+        margin: 0 !important;
         width: 100% !important;
     }
-
-    /* Efeito de hover moderno nos botões */
-    div.stButton > button:hover {
+    div.stButton > button[kind="primary"]:hover {
         border-color: #004488 !important;
         color: #004488 !important;
-        box-shadow: 0 2px 4px -1px rgba(0, 68, 136, 0.1) !important;
+        background-color: #f8fafc !important;
+    }
+
+    /* BOTÕES GRANDES: Usados nos Cards de Navegação (Type Secondary) */
+    div.stButton > button[kind="secondary"] {
+        background-color: #ffffff !important;
+        color: #1e293b !important;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 12px !important;
+        padding: 15px 10px !important;
+        font-size: 1rem !important;
+        font-weight: 600 !important;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05) !important;
+        min-height: 80px !important;
+        margin-bottom: 5px !important;
+        width: 100% !important;
+    }
+    div.stButton > button[kind="secondary"]:hover {
+        border-color: #004488 !important;
+        color: #004488 !important;
+        transform: translateY(-2px) !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -173,7 +202,8 @@ else:
             st.rerun()
         
         st.write("---")
-        if st.button("🚪 Sair do Sistema", use_container_width=True):
+        # Definido como primary para pegar o CSS de botão pequeno de 40px
+        if st.button("🚪 Sair do Sistema", type="primary", use_container_width=True):
             st.session_state.authenticated = False
             st.session_state.menu_option = "Página Inicial"
             st.rerun()
@@ -186,7 +216,7 @@ else:
         st.caption(f"📅 Calendário Operacional: {utils.hoje.strftime('%d/%m/%Y')}")
 
         # =========================================================================
-        # NOVO: DASHBOARD DE ALERTAS (LINHA ÚNICA, EFEITO TABELA EMPILHADA)
+        # NOVO: DASHBOARD DE ALERTAS (EFEITO TABELA EMPILHADA)
         # =========================================================================
         st.markdown("<h3>🔔 Lembretes de Pagamento (Próximos 5 Dias & Atrasos)</h3>", unsafe_allow_html=True)
         
@@ -200,12 +230,11 @@ else:
                     venc_dt = datetime.datetime.strptime(b['vencimento'], "%Y-%m-%d").date()
                     diff_days = (venc_dt - hoje_dt).days
                     
-                    # Filtro de tempo: Mostra apenas se atrasado (<=0) ou nos próximos 5 dias
                     if diff_days <= 5:
                         lembretes_ativos.append((b, venc_dt, diff_days))
             
             if lembretes_ativos:
-                st.markdown("<div style='margin-bottom: 10px;'></div>", unsafe_allow_html=True)
+                st.markdown("<div style='margin-bottom: 5px;'></div>", unsafe_allow_html=True)
                 for idx, (b, venc_dt, diff) in enumerate(lembretes_ativos):
                     
                     if diff < 0:
@@ -215,38 +244,40 @@ else:
                     else:
                         cor_card = "#e6ffe6"; icone = "📅"; status_txt = f"EM {diff} DIAS"
                     
-                    # Puxa a linha para cima colando na anterior para dar efeito de tabela!
+                    # Puxa a linha pra cima anulando o gap do Streamlit, grudando feito tabela
                     if idx > 0:
-                        st.markdown("<div style='margin-top: -15px;'></div>", unsafe_allow_html=True)
+                        st.markdown("<div style='margin-top: -20px;'></div>", unsafe_allow_html=True)
                         
-                    col_info, col_btn_doc, col_btn_pagar = st.columns([7, 1.5, 1.5])
+                    col_info, col_btn_doc, col_btn_pagar = st.columns([7.5, 1.2, 1.2])
                     
                     with col_info:
                         st.markdown(f"""
-                            <div style="background-color: {cor_card}; border: 1px solid #ccc; border-radius: 4px; padding: 0 15px; display: flex; align-items: center; height: 42px;">
-                                <span style="font-size: 14px; margin-right: 10px;">{icone}</span>
-                                <span style="flex-grow: 1; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"><b>{b['cliente']}</b></span>
-                                <span style="font-size: 12px; color: #555; margin-right: 15px;">Venc: <b>{venc_dt.strftime('%d/%m/%Y')}</b> ({status_txt})</span>
-                                <span style="font-size: 14px; font-weight: bold; color: #004488;">{utils.to_br_currency(b['valor'])}</span>
+                            <div style="background-color: {cor_card}; border: 1px solid #d1d5db; border-radius: 6px; padding: 0 15px; display: flex; align-items: center; justify-content: space-between; height: 40px;">
+                                <div style="display: flex; align-items: center; gap: 10px; overflow: hidden;">
+                                    <span style="font-size: 14px;">{icone}</span>
+                                    <span style="font-size: 14px; font-weight: 600; color: #111; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{b['cliente']}</span>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 15px;">
+                                    <span style="font-size: 12px; color: #555; white-space: nowrap;">Venc: {venc_dt.strftime('%d/%m/%Y')} ({status_txt})</span>
+                                    <span style="font-size: 14px; font-weight: 700; color: #004488; white-space: nowrap;">{utils.to_br_currency(b['valor'])}</span>
+                                </div>
                             </div>
                         """, unsafe_allow_html=True)
                     
                     with col_btn_doc:
-                        if st.button("📂 Boletos", key=f"ir_{b['id']}", use_container_width=True):
+                        if st.button("📂 Boletos", type="primary", key=f"ir_{b['id']}", use_container_width=True):
                             st.session_state.menu_option = "Documentos"
                             st.rerun()
                             
                     with col_btn_pagar:
-                        if st.button("✅ Pagar", key=f"pg_{b['id']}", use_container_width=True):
-                            with st.spinner("Atualizando registros..."):
+                        if st.button("✅ Pagar", type="primary", key=f"pg_{b['id']}", use_container_width=True):
+                            with st.spinner("Atualizando..."):
                                 id_db = b['id']
                                 id_drive = b.get('link_drive_id')
                                 
-                                # Move arquivo físico no Drive se houver
                                 if id_drive and not pd.isna(id_drive) and str(id_drive).strip().lower() not in ["none", "nan", ""]:
                                     mover_arquivo_drive_app(id_drive, ["Boletos", "PAGOS"])
                                     
-                                # Atualiza status no banco e mantém a janela de 1 mês projetada!
                                 if id_db and not pd.isna(id_db) and str(id_db).strip() != "":
                                     st.session_state.supabase.table('boletos_fornecedores').update({'status': 'Pago'}).eq('id', id_db).execute()
                                     try:
@@ -261,17 +292,17 @@ else:
                                                 'is_recorrente': True
                                             }).execute()
                                     except: pass
-                            st.success("✅ Atualizado! Movido para pagos e recorrência gerada (se houver).")
+                            st.success("✅ Pago! Lembrete atualizado.")
                             st.rerun()
             else:
                 st.info("🎉 Excelente! Nenhuma despesa ou boleto vencendo nos próximos 5 dias.")
         except Exception as e:
             st.caption("Conectando base de lembretes...")
 
-        st.markdown("<hr style='margin-top: 15px; margin-bottom: 15px;'>", unsafe_allow_html=True)
+        st.markdown("<hr style='margin-top: 20px; margin-bottom: 20px;'>", unsafe_allow_html=True)
         
         # =========================================================================
-        # BOTÕES DE ACESSO RÁPIDO (GRID COMPACTO E PADRONIZADO)
+        # BOTÕES DE ACESSO RÁPIDO (CARDS GRANDES - TIPO SECONDARY)
         # =========================================================================
         c1, c2 = st.columns(2)
         c3, c4 = st.columns(2)
