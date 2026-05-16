@@ -81,48 +81,38 @@ st.markdown("""
         padding: 0px !important; 
     }
     
-    /* Tabelas e Editores de dados ocupando 100% e centralizados */
-    .stDataFrame table, .stDataEditor table { 
-        table-layout: fixed !important; 
-        width: 100% !important; 
-    }
-    .stDataFrame td, .stDataFrame th, .stDataEditor td, .stDataEditor th { 
-        text-align: center !important; 
-        font-size: 0.85rem !important; 
-    }
-    
-    /* Esconde o cabeçalho das tabelas de resumo no financeiro */
-    .financeiro div[data-testid="stDataFrame"] thead { 
-        display: none !important; 
-    }
-    
     /* Títulos padronizados em azul corporativo clean */
     h1, h2, h3 {
         color: #004488 !important;
         font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     }
 
-    /* Customização dos botões/cards da página inicial MAIS COMPACTOS */
-    div[data-testid="stColumn"] button {
-        background-color: #ffffff !important;
-        color: #1e293b !important;
-        border: 1px solid #e2e8f0 !important;
-        border-radius: 12px !important;
-        padding: 15px 10px !important;
-        font-size: 1rem !important;
-        font-weight: 600 !important;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03) !important;
-        transition: all 0.2s ease-in-out !important;
-        min-height: 80px !important;
-        margin-bottom: 5px !important;
+    /* Força alinhamento vertical perfeito nas colunas (Botão e Texto na mesma linha) */
+    div[data-testid="stHorizontalBlock"] {
+        align-items: center !important;
     }
 
-    /* Efeito de hover moderno nos cards */
-    div[data-testid="stColumn"] button:hover {
+    /* Customização dos botões: Altura fixa, compacta e igual para todos (Estilo Tabela) */
+    div.stButton > button {
+        background-color: #ffffff !important;
+        color: #1e293b !important;
+        border: 1px solid #ccc !important;
+        border-radius: 4px !important;
+        font-size: 0.9rem !important;
+        font-weight: 600 !important;
+        transition: all 0.2s ease-in-out !important;
+        min-height: 42px !important;
+        height: 42px !important;
+        margin: 0 !important;
+        padding: 0 10px !important;
+        width: 100% !important;
+    }
+
+    /* Efeito de hover moderno nos botões */
+    div.stButton > button:hover {
         border-color: #004488 !important;
         color: #004488 !important;
-        transform: translateY(-2px) !important;
-        box-shadow: 0 10px 15px -3px rgba(0, 68, 136, 0.1), 0 4px 6px -2px rgba(0, 68, 136, 0.05) !important;
+        box-shadow: 0 2px 4px -1px rgba(0, 68, 136, 0.1) !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -196,7 +186,7 @@ else:
         st.caption(f"📅 Calendário Operacional: {utils.hoje.strftime('%d/%m/%Y')}")
 
         # =========================================================================
-        # NOVO: DASHBOARD DE ALERTAS (LINHA ÚNICA, FILTRO 5 DIAS, ATALHO E PAGAMENTO)
+        # NOVO: DASHBOARD DE ALERTAS (LINHA ÚNICA, EFEITO TABELA EMPILHADA)
         # =========================================================================
         st.markdown("<h3>🔔 Lembretes de Pagamento (Próximos 5 Dias & Atrasos)</h3>", unsafe_allow_html=True)
         
@@ -215,7 +205,9 @@ else:
                         lembretes_ativos.append((b, venc_dt, diff_days))
             
             if lembretes_ativos:
-                for b, venc_dt, diff in lembretes_ativos:
+                st.markdown("<div style='margin-bottom: 10px;'></div>", unsafe_allow_html=True)
+                for idx, (b, venc_dt, diff) in enumerate(lembretes_ativos):
+                    
                     if diff < 0:
                         cor_card = "#ffe6e6"; icone = "🚨"; status_txt = "ATRASADO"
                     elif diff == 0:
@@ -223,22 +215,23 @@ else:
                     else:
                         cor_card = "#e6ffe6"; icone = "📅"; status_txt = f"EM {diff} DIAS"
                     
-                    # Grid estreito e direto em uma única linha
-                    col_info, col_btn_doc, col_btn_pagar = st.columns([6, 1.5, 1.5])
+                    # Puxa a linha para cima colando na anterior para dar efeito de tabela!
+                    if idx > 0:
+                        st.markdown("<div style='margin-top: -15px;'></div>", unsafe_allow_html=True)
+                        
+                    col_info, col_btn_doc, col_btn_pagar = st.columns([7, 1.5, 1.5])
                     
                     with col_info:
                         st.markdown(f"""
-                            <div style="background-color: {cor_card}; padding: 12px 15px; border-radius: 6px; border: 1px solid #ddd; display: flex; align-items: center; min-height: 52px; margin-top: 5px;">
-                                <span style="margin-right: 12px; font-size: 16px;">{icone}</span>
-                                <span style="flex-grow: 1; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"><b>{b['cliente']}</b></span>
-                                <span style="margin-right: 15px; font-size: 13px; color: #555;">Venc: <b>{venc_dt.strftime('%d/%m/%Y')}</b> ({status_txt})</span>
-                                <span style="font-size: 15px; font-weight: bold; color: #004488;">{utils.to_br_currency(b['valor'])}</span>
+                            <div style="background-color: {cor_card}; border: 1px solid #ccc; border-radius: 4px; padding: 0 15px; display: flex; align-items: center; height: 42px;">
+                                <span style="font-size: 14px; margin-right: 10px;">{icone}</span>
+                                <span style="flex-grow: 1; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"><b>{b['cliente']}</b></span>
+                                <span style="font-size: 12px; color: #555; margin-right: 15px;">Venc: <b>{venc_dt.strftime('%d/%m/%Y')}</b> ({status_txt})</span>
+                                <span style="font-size: 14px; font-weight: bold; color: #004488;">{utils.to_br_currency(b['valor'])}</span>
                             </div>
                         """, unsafe_allow_html=True)
                     
                     with col_btn_doc:
-                        # Estilo injetado para forçar os botões laterais a terem a mesma altura da barra HTML
-                        st.markdown("""<style>div[data-testid="column"] button { min-height: 52px !important; padding: 0px !important; margin-top: 5px !important; border-radius: 6px !important;}</style>""", unsafe_allow_html=True)
                         if st.button("📂 Boletos", key=f"ir_{b['id']}", use_container_width=True):
                             st.session_state.menu_option = "Documentos"
                             st.rerun()
@@ -275,10 +268,10 @@ else:
         except Exception as e:
             st.caption("Conectando base de lembretes...")
 
-        st.markdown("<hr style='margin-top: 20px; margin-bottom: 20px;'>", unsafe_allow_html=True)
+        st.markdown("<hr style='margin-top: 15px; margin-bottom: 15px;'>", unsafe_allow_html=True)
         
         # =========================================================================
-        # BOTÕES DE ACESSO RÁPIDO (GRID COMPACTO)
+        # BOTÕES DE ACESSO RÁPIDO (GRID COMPACTO E PADRONIZADO)
         # =========================================================================
         c1, c2 = st.columns(2)
         c3, c4 = st.columns(2)
