@@ -56,7 +56,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("#### 🧾 Informações Fiscais e Boletos")
         
-        # Colocando em colunas principais para NÃO desconfigurar o layout superior
+        # Colocando em colunas principais (nova linha) para NÃO desconfigurar o layout superior
         c_nf, c_venc = st.columns(2)
         
         nf_entrada_banco = projeto_selecionado.get('nf_entrada', '')
