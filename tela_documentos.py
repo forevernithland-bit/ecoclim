@@ -147,7 +147,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                     if not nome_man:
                         st.error("Informe a descrição.")
                     else:
-                        # AGORA ELE INSERE APENAS 1 REGISTRO (O MÊS ATUAL). O PRÓXIMO É GERADO NO PAGAMENTO!
+                        # INSERE APENAS 1 REGISTRO (O MÊS ATUAL). O PRÓXIMO É GERADO NO PAGAMENTO!
                         st.session_state.supabase.table('boletos_fornecedores').insert({
                             "cliente": nome_man, 
                             "vencimento": venc_man.strftime("%Y-%m-%d"),
@@ -325,17 +325,17 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             "ID": None, 
             "ID_Drive": None, 
             "ID_DB": None,
-            "Data": None,       # Ocultado 
-            "Tamanho": None,    # Ocultado 
-            "Nome": st.column_config.TextColumn("Descrição", width="large"), # RENOMEADO PARA DESCRIÇÃO E ALARGADO
-            "Link": st.column_config.LinkColumn("PDF", display_text="👁️ Abrir", width="small") # RENOMEADO PARA PDF E ENCURTADO
+            "Data": None,       
+            "Tamanho": None,    
+            "Nome": st.column_config.TextColumn("Descrição", width="medium"), # LARGURA REDUZIDA PARA MEDIUM
+            "Link": st.column_config.LinkColumn("PDF", display_text="👁️ Abrir", width="small")
         }
         
         lista_desabilitados = ["Nome", "Data", "Tamanho", "Link", "Valor", "Recorrente", "Status"]
         col_order = ["Excluir", "Nome", "Link"]
 
         if nome_principal == "Boletos":
-            config_colunas["Vencimento"] = st.column_config.DateColumn("Vencimento", format="DD/MM/YYYY", width="medium")
+            config_colunas["Vencimento"] = st.column_config.DateColumn("Vencimento", format="DD/MM/YYYY", width="small") # LARGURA REDUZIDA PARA SMALL
             config_colunas["Valor"] = st.column_config.TextColumn("Valor", width="small")
             config_colunas["Recorrente"] = st.column_config.TextColumn("Recorrente", width="small")
             config_colunas["Pagar"] = st.column_config.CheckboxColumn("Pagar", default=False, width="small")
@@ -343,14 +343,14 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             
             lista_desabilitados.append("Vencimento")
             
-            # ORDEM ESTRITA DEFINIDA AQUI:
+            # Ordem Exata Pedida
             col_order = ["Excluir", "Nome", "Link", "Vencimento", "Valor", "Recorrente", "Pagar", "Status"]
 
         # Força o dataframe a engolir a ordem das colunas para burlar o cache do Streamlit
         todas_cols = col_order + [c for c in df_pagina.columns if c not in col_order]
         df_pagina = df_pagina[todas_cols]
 
-        # CHAVE RENOMEADA PARA V5 PARA QUEBRAR O CACHE VISUAL DO SEU NAVEGADOR
+        # CHAVE RENOMEADA PARA V6 PARA QUEBRAR O CACHE VISUAL DO SEU NAVEGADOR
         df_editado = st.data_editor(
             df_pagina, 
             column_config=config_colunas, 
@@ -358,7 +358,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             disabled=lista_desabilitados,
             hide_index=True, 
             use_container_width=True, 
-            key=f"editor_docs_v5_{nome_principal}" 
+            key=f"editor_docs_v6_{nome_principal}" 
         )
 
         # ==========================================
@@ -381,15 +381,15 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                                 if id_drive and not pd.isna(id_drive) and str(id_drive).strip().lower() not in ["none", "nan", ""]:
                                     mover_arquivo_drive(id_drive, ["Boletos", "PAGOS"])
                                     
-                                # Atualiza status no banco
+                                # Atualiza status no banco e mantém a janela de 12 meses projetada!
                                 if id_db and not pd.isna(id_db) and str(id_db).strip() != "":
                                     st.session_state.supabase.table('boletos_fornecedores').update({'status': 'Pago'}).eq('id', id_db).execute()
                                     try:
-                                        # Verifica se é recorrente. Se for, gera o próximo boleto EXATAMENTE 1 mês à frente!
                                         orig = st.session_state.supabase.table('boletos_fornecedores').select('*').eq('id', id_db).execute().data[0]
                                         if orig.get('is_recorrente'):
                                             venc_antigo = datetime.datetime.strptime(orig['vencimento'], "%Y-%m-%d").date()
-                                            novo_venc = add_months(venc_antigo, 1) # <---- CORRIGIDO: Avança 1 mês apenas!
+                                            # Se ele pagou um, o sistema joga mais 1 mês pra frente, mantendo o ciclo vivo!
+                                            novo_venc = add_months(venc_antigo, 1)
                                             st.session_state.supabase.table('boletos_fornecedores').insert({
                                                 'cliente': orig.get('cliente'), 
                                                 "vencimento": novo_venc.strftime('%Y-%m-%d'),
