@@ -1,5 +1,6 @@
 import streamlit as st
 import os
+import datetime
 
 # =============================================================================
 # 1. CONFIGURAÇÃO DA PÁGINA (Deve ser a primeira instrução Streamlit)
@@ -201,6 +202,58 @@ else:
             if st.button("📁\tCentral de Documentos", use_container_width=True, key=f"btn_nav_documentos"):
                 st.session_state.menu_option = "Documentos"
                 st.rerun()
+
+        # =========================================================================
+        # NOVO: DASHBOARD DE ALERTAS E LEMBRETES DE FORNECEDOR
+        # =========================================================================
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("<h3>🔔 Lembretes de Pagamento (Fornecedores)</h3>", unsafe_allow_html=True)
+        
+        try:
+            # Busca os boletos no Supabase e ordena para que os mais antigos venham primeiro
+            res_bol = st.session_state.supabase.table('boletos_fornecedores').select('*').eq('status', 'Pendente').order('vencimento').execute()
+            
+            if res_bol.data:
+                for b in res_bol.data:
+                    venc_dt = datetime.datetime.strptime(b['vencimento'], "%Y-%m-%d").date()
+                    hoje_dt = utils.hoje
+                    
+                    # Lógica de inteligência de cores baseada em prazo
+                    if venc_dt < hoje_dt:
+                        cor_card = "#ffe6e6" # Vermelho claro
+                        icone = "🚨"
+                        status_txt = "ATRASADO"
+                    elif venc_dt == hoje_dt:
+                        cor_card = "#fff2cc" # Amarelo claro
+                        icone = "⚠️"
+                        status_txt = "VENCE HOJE"
+                    else:
+                        cor_card = "#e6ffe6" # Verde claro
+                        icone = "📅"
+                        status_txt = "NO PRAZO"
+                    
+                    st.markdown(f"""
+                        <div style="background-color: {cor_card}; padding: 15px; border-radius: 8px; border: 1px solid #ddd; margin-bottom: 5px; display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <span style="font-size: 16px;">{icone} <b>{b['cliente']}</b></span><br>
+                                <span style="color: #555; font-size: 14px;">Vencimento: <b>{venc_dt.strftime('%d/%m/%Y')}</b> - Status: <b>{status_txt}</b></span>
+                            </div>
+                            <div style="text-align: right;">
+                                <span style="font-size: 18px; font-weight: bold; color: #004488;">{utils.to_br_currency(b['valor'])}</span><br>
+                            </div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    
+                    col_b_acao1, col_b_acao2 = st.columns([1.5, 10])
+                    with col_b_acao1:
+                        if st.button("✅ PAGO", key=f"pago_{b['id']}", use_container_width=True):
+                            st.session_state.supabase.table('boletos_fornecedores').update({'status': 'Pago'}).eq('id', b['id']).execute()
+                            st.rerun()
+                    st.markdown("<br>", unsafe_allow_html=True)
+            else:
+                st.info("🎉 Excelente! Nenhum boleto de fornecedor pendente no momento.")
+        except Exception as e:
+            st.caption("Conectando base de lembretes...")
 
     elif st.session_state.menu_option == "Controle Financeiro":
         tela_financeira.renderizar()
