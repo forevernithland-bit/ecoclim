@@ -12,7 +12,7 @@ def formatar_tamanho(tamanho_bytes):
     except: return "Desconhecido"
 
 def parse_drive_date(iso_str):
-    """Converte a data do Google Drive para o fuso horário do Brasil"""
+    """Converte a data do Google Drive para o fuso horário do Brasil (retorna Datetime)"""
     try:
         dt = datetime.datetime.fromisoformat(iso_str.replace('Z', '+00:00'))
         dt = dt - datetime.timedelta(hours=3) # Ajuste GMT-3 (Brasil)
@@ -125,10 +125,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                 st.caption("Cadastre despesas manuais para centralizar seus alertas.")
                 c_mn, c_mv, c_md, c_mrec = st.columns([3, 1.5, 1.5, 1])
                 nome_man = c_mn.text_input("Descrição (Ex: Conta de Luz, Contador)")
-                
-                # step=None remove aqueles botões de mais e menos que estavam sujando o design!
                 valor_man = c_mv.number_input("Valor (R$)", min_value=0.0, format="%.2f", step=None)
-                
                 venc_man = c_md.date_input("Vencimento", format="DD/MM/YYYY")
                 rec_man = c_mrec.checkbox("Recorrente?")
                 
@@ -173,7 +170,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                         is_rec_map[id_d] = r.get('is_recorrente', False)
                         status_map[id_d] = r.get('status', 'Pendente')
                         try: vencimentos_map[id_d] = datetime.datetime.strptime(str(r['vencimento']), "%Y-%m-%d").date()
-                        except: vencimentos_map[id_d] = None
+                        except: vencimentos_map[id_d] = pd.NaT
         except: pass
 
     dados_tabela = []
@@ -182,20 +179,21 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
     for a in arquivos_brutos:
         linha_arquivo = {
             "Excluir": False,
-            "ID_Drive": a['id'],
-            "ID_DB": db_id_map.get(a['id'], None),
-            "ID": a['id'], # ID base
-            "Nome": a['name'],
+            "ID_Drive": str(a.get('id', '')),
+            "ID_DB": str(db_id_map.get(a['id'], "")),
+            "ID": str(a.get('id', '')),
+            "Nome": str(a.get('name', '')),
             "Data": parse_drive_date(a.get('createdTime', '')),
-            "Tamanho": formatar_tamanho(a.get('size', 0)),
-            "Link": a.get('webViewLink', '#')
+            "Tamanho": str(formatar_tamanho(a.get('size', 0))),
+            "Link": a.get('webViewLink', None)
         }
         if nome_principal == "Boletos":
             linha_arquivo["Pagar"] = False
-            linha_arquivo["Vencimento"] = vencimentos_map.get(a['id'], None)
+            v_date = vencimentos_map.get(a['id'])
+            linha_arquivo["Vencimento"] = v_date if pd.notna(v_date) else pd.NaT
             linha_arquivo["Valor"] = utils.to_br_currency(valores_map.get(a['id'], 0.0))
             linha_arquivo["Recorrente"] = "🔄 Sim" if is_rec_map.get(a['id'], False) else "-"
-            linha_arquivo["Status"] = status_map.get(a['id'], "Pendente")
+            linha_arquivo["Status"] = str(status_map.get(a['id'], "Pendente"))
         dados_tabela.append(linha_arquivo)
         
     # 2. Lembretes Manuais do Banco (Sem Arquivo no Drive)
@@ -214,20 +212,23 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                 else: pertence = (v_dt and v_dt.month == mes_sel_idx and r.get('status') != 'Pago')
                 
                 if pertence:
+                    # Resolve o Erro do Arrow Convertendo a "Data" do Banco para Datetime (Igual ao do Drive)
+                    v_dt_datetime = datetime.datetime.combine(v_dt, datetime.time()) if v_dt else pd.NaT
+                    
                     dados_tabela.append({
                         "Excluir": False,
                         "Pagar": False,
                         "ID_Drive": None,
-                        "ID_DB": r['id'],
+                        "ID_DB": str(r['id']),
                         "ID": f"db_{r['id']}",
                         "Nome": f"📝 {r.get('cliente', 'Lembrete')}",
-                        "Data": v_dt,
+                        "Data": v_dt_datetime,
                         "Tamanho": "-",
-                        "Link": None, # Deixamos None para não gerar botão "Abrir"
-                        "Vencimento": v_dt,
+                        "Link": None,
+                        "Vencimento": v_dt if v_dt else pd.NaT,
                         "Valor": utils.to_br_currency(float(r.get('valor', 0.0))),
                         "Recorrente": "🔄 Sim" if r.get('is_recorrente', False) else "-",
-                        "Status": r.get('status', 'Pendente')
+                        "Status": str(r.get('status', 'Pendente'))
                     })
 
     df = pd.DataFrame(dados_tabela)
@@ -353,7 +354,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                                     mover_arquivo_drive(id_drive, ["Boletos", "PAGOS"])
                                     
                                 # Atualiza status no banco e trata recorrência
-                                if id_db and not pd.isna(id_db):
+                                if id_db and not pd.isna(id_db) and str(id_db).strip() != "":
                                     st.session_state.supabase.table('boletos_fornecedores').update({'status': 'Pago'}).eq('id', id_db).execute()
                                     try:
                                         # Verifica se é recorrente
@@ -386,7 +387,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                                 utils.delete_drive_file(id_dr)
                             # Apaga do Banco
                             id_bd = row_del.get("ID_DB")
-                            if id_bd and not pd.isna(id_bd):
+                            if id_bd and not pd.isna(id_bd) and str(id_bd).strip() != "":
                                 st.session_state.supabase.table('boletos_fornecedores').delete().eq('id', id_bd).execute()
                     st.success("Excluídos com sucesso!")
                     st.rerun()
