@@ -76,16 +76,16 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             if filtro_tipo == "Personalizado (Faixa)":
                 data_filtro = st.date_input("Início e Fim:", value=[], key=f"data_pers_s_{nome_principal}")
                 
-        with c_up:
-            st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
-            with st.expander("📤 Upload Arquivos"):
-                arquivos_enviados = st.file_uploader("Selecione", accept_multiple_files=True, key=f"up_s_{nome_principal}", label_visibility="collapsed")
-                if arquivos_enviados and st.button("🚀 Enviar", key=f"btn_env_s_{nome_principal}", type="primary", use_container_width=True):
-                    with st.spinner("Enviando para o Drive..."):
-                        for arq in arquivos_enviados:
-                            utils.upload_to_drive(arq, arq.name, arq.type, path_atual)
-                    st.success("✅ Sucesso!")
-                    st.rerun()
+            with c_up:
+                st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+                with st.expander("📤 Upload Arquivos"):
+                    arquivos_enviados = st.file_uploader("Selecione", accept_multiple_files=True, key=f"up_s_{nome_principal}", label_visibility="collapsed")
+                    if arquivos_enviados and st.button("🚀 Enviar", key=f"btn_env_s_{nome_principal}", type="primary", use_container_width=True):
+                        with st.spinner("Enviando para o Drive..."):
+                            for arq in arquivos_enviados:
+                                utils.upload_to_drive(arq, arq.name, arq.type, path_atual)
+                        st.success("✅ Sucesso!")
+                        st.rerun()
 
     st.markdown("---")
     
@@ -98,16 +98,39 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
         st.info("Nenhum arquivo encontrado nesta pasta.")
         return
 
+    # Sincronização inteligente: Busca vencimentos reais no banco de dados para a aba de Boletos
+    vencimentos_map = {}
+    if nome_principal == "Boletos":
+        try:
+            res_b = st.session_state.supabase.table('boletos_fornecedores').select('link_drive_id, vencimento').execute()
+            if res_b.data:
+                for b in res_b.data:
+                    id_drive = b.get('link_drive_id')
+                    if id_drive:
+                        try:
+                            # Converte string ISO para objeto date para o st.data_editor exibir corretamente
+                            dt_venc = datetime.datetime.strptime(b['vencimento'], "%Y-%m-%d").date()
+                            vencimentos_map[id_drive] = dt_venc
+                        except:
+                            vencimentos_map[id_drive] = None
+        except:
+            pass
+
     dados_tabela = []
     for a in arquivos_brutos:
-        dados_tabela.append({
+        linha_arquivo = {
             "Excluir": False,
             "ID": a['id'],
             "Nome": a['name'],
             "Data": parse_drive_date(a.get('createdTime', '')),
             "Tamanho": formatar_tamanho(a.get('size', 0)),
             "Link": a.get('webViewLink', '#')
-        })
+        }
+        # Injeta dinamicamente a coluna de vencimento mapeada se estivermos na aba de Boletos
+        if nome_principal == "Boletos":
+            linha_arquivo["Vencimento"] = vencimentos_map.get(a['id'], None)
+            
+        dados_tabela.append(linha_arquivo)
     
     df = pd.DataFrame(dados_tabela)
 
@@ -169,7 +192,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
     # ==========================================
     # 5. RENDERIZAÇÃO DA TABELA / GALERIA
     # ==========================================
-    
     if is_imagens and modo_visao == "Miniaturas":
         cols = st.columns(4)
         for i, row in df_pagina.reset_index(drop=True).iterrows():
@@ -196,17 +218,27 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                     utils.delete_drive_file(row['ID'])
                     st.rerun()
     else:
+        # Configuração visual avançada da grade de dados
+        config_colunas = {
+            "Excluir": st.column_config.CheckboxColumn("🗑️ Excluir", default=False),
+            "ID": None, 
+            "Nome": st.column_config.TextColumn("Nome do Arquivo", width="large"),
+            "Data": st.column_config.DatetimeColumn("Data de Inclusão", format="DD/MM/YYYY - HH:mm"),
+            "Tamanho": st.column_config.TextColumn("Tamanho", width="small"),
+            "Link": st.column_config.LinkColumn("Acesso Rápido", display_text="👁️ Visualizar")
+        }
+        
+        lista_desabilitados = ["Nome", "Data", "Tamanho", "Link"]
+        
+        # Se for a aba de Boletos, injetamos a coluna estruturada e travamos contra edição acidental
+        if nome_principal == "Boletos":
+            config_colunas["Vencimento"] = st.column_config.DateColumn("📅 Vencimento", format="DD/MM/YYYY")
+            lista_desabilitados.append("Vencimento")
+
         df_editado = st.data_editor(
             df_pagina,
-            column_config={
-                "Excluir": st.column_config.CheckboxColumn("🗑️ Excluir", default=False),
-                "ID": None, 
-                "Nome": st.column_config.TextColumn("Nome do Arquivo", width="large"),
-                "Data": st.column_config.DatetimeColumn("Data de Inclusão", format="DD/MM/YYYY - HH:mm"),
-                "Tamanho": st.column_config.TextColumn("Tamanho", width="small"),
-                "Link": st.column_config.LinkColumn("Acesso Rápido", display_text="👁️ Visualizar")
-            },
-            disabled=["Nome", "Data", "Tamanho", "Link"],
+            column_config=config_colunas,
+            disabled=lista_desabilitados,
             hide_index=True,
             use_container_width=True,
             key=f"editor_{nome_principal}"
