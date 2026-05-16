@@ -66,6 +66,66 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         nova_nf_entrada = c_nf.text_input("NF de Entrada", value=str(nf_entrada_banco) if str(nf_entrada_banco) != 'nan' else '', placeholder="Opcional", key=f"nf_ent_{prefix_key}")
         novo_venc_boleto = c_venc.date_input("Vencimento Boleto", value=venc_boleto_inicial, format="DD/MM/YYYY", key=f"venc_bol_{prefix_key}")
 
+        # =========================================================================
+        # NOVO: IMPORTADOR DE BOLETOS DE FORNECEDOR (AUTOMATIZADO)
+        # =========================================================================
+        st.markdown("#### 🧾 Importar Boleto de Fornecedor")
+        arquivo_boleto = st.file_uploader("Anexar Boleto (PDF)", type=["pdf"], key=f"up_bol_{prefix_key}")
+        
+        if arquivo_boleto:
+            if f"dados_bol_{prefix_key}" not in st.session_state:
+                with st.spinner("🤖 Lendo dados do boleto..."):
+                    venc_ext, val_ext = utils.extrair_dados_boleto(arquivo_boleto)
+                    st.session_state[f"dados_bol_{prefix_key}"] = {"vencimento": venc_ext, "valor": val_ext}
+
+            dados_ext = st.session_state[f"dados_bol_{prefix_key}"]
+            
+            with st.container(border=True):
+                st.caption("Verifique e corrija os dados extraídos pelo sistema:")
+                col_b1, col_b2 = st.columns(2)
+                
+                venc_obj = datetime.date.today()
+                if dados_ext['vencimento']:
+                    try: venc_obj = datetime.datetime.strptime(dados_ext['vencimento'], "%d/%m/%Y").date()
+                    except: pass
+                
+                data_confirmada = col_b1.date_input("Vencimento do Fornecedor", value=venc_obj, format="DD/MM/YYYY", key=f"conf_data_{prefix_key}")
+                valor_confirmado = col_b2.number_input("Valor Extraído (R$)", value=float(dados_ext['valor']), format="%.2f", key=f"conf_val_{prefix_key}")
+                
+                if st.button("🚀 Salvar Boleto e Criar Lembrete", type="primary", use_container_width=True, key=f"btn_salvar_bol_{prefix_key}"):
+                    with st.spinner("Salvando no Drive e no ERP..."):
+                        mes_idx = data_confirmada.month
+                        nome_mes_pasta = utils.meses_pt[mes_idx - 1]
+                        
+                        nome_cliente_limpo = projeto_selecionado.get('nome_cliente', 'Cliente').split()[0]
+                        nome_arquivo_drive = f"FORNECEDOR_{nome_cliente_limpo}_{data_confirmada.strftime('%d%m%Y')}.pdf"
+                        
+                        sucesso, link_id = utils.upload_to_drive(
+                            file_buffer=arquivo_boleto, 
+                            filename=nome_arquivo_drive, 
+                            mimetype="application/pdf", 
+                            folder_path=["Boletos", nome_mes_pasta]
+                        )
+                        
+                        if sucesso:
+                            novo_boleto = {
+                                "cliente": projeto_selecionado.get('nome_cliente', 'Sem Nome'),
+                                "servico_id": int(projeto_selecionado['id']),
+                                "vencimento": data_confirmada.strftime("%Y-%m-%d"),
+                                "valor": valor_confirmado,
+                                "link_drive_id": link_id,
+                                "status": "Pendente"
+                            }
+                            try:
+                                supabase.table('boletos_fornecedores').insert(novo_boleto).execute()
+                                st.success(f"✅ Boleto salvo com sucesso na aba Documentos -> Boletos -> {nome_mes_pasta} e lembrete gerado!")
+                                del st.session_state[f"dados_bol_{prefix_key}"]
+                            except Exception as e:
+                                st.error(f"Erro no banco de dados. Tabela 'boletos_fornecedores' existe? Erro: {e}")
+                        else:
+                            st.error("Erro ao fazer o upload para o Google Drive.")
+        # =========================================================================
+
     st.markdown("#### 🛒 Itens Vendidos (Ajuste Quantidades e Custos)")
     itens_json = projeto_selecionado.get('detalhamento_itens', [])
     df_itens = pd.DataFrame(itens_json) if (isinstance(itens_json, list) and len(itens_json) > 0) else pd.DataFrame(columns=['Item', 'Qtd', 'Custo Un.', 'Venda Un.'])
