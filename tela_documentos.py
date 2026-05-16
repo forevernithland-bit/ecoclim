@@ -63,15 +63,17 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
         /* Ajuste do Expander */
         div[data-testid="stExpander"] details summary { padding-top: 0.5rem; padding-bottom: 0.5rem; }
         
-        /* Remove setinhas dos inputs numéricos (Chrome, Safari, Edge, Opera) */
-        input::-webkit-outer-spin-button,
-        input::-webkit-inner-spin-button {
-          -webkit-appearance: none;
-          margin: 0;
+        /* Remove setinhas dos inputs numéricos Nativos do Streamlit */
+        div[data-testid="stNumberInputStepUp"], div[data-testid="stNumberInputStepDown"] { 
+            display: none !important; 
         }
-        /* Remove setinhas dos inputs numéricos (Firefox) */
-        input[type=number] {
-          -moz-appearance: textfield;
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { 
+            -webkit-appearance: none !important; 
+            margin: 0 !important; 
+        }
+        input[type=number] { 
+            -moz-appearance: textfield !important; 
         }
         </style>
     """, unsafe_allow_html=True)
@@ -137,7 +139,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                 st.caption("Cadastre despesas manuais para centralizar seus alertas.")
                 c_mn, c_mv, c_md, c_mrec = st.columns([3, 1.5, 1.5, 1])
                 nome_man = c_mn.text_input("Descrição (Ex: Conta de Luz, Contador)")
-                valor_man = c_mv.number_input("Valor (R$)", min_value=0.0, format="%.2f", step=None)
+                valor_man = c_mv.number_input("Valor (R$)", min_value=0.0, format="%.2f")
                 venc_man = c_md.date_input("Vencimento", format="DD/MM/YYYY")
                 rec_man = c_mrec.checkbox("Recorrente?")
                 
@@ -145,27 +147,15 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                     if not nome_man:
                         st.error("Informe a descrição.")
                     else:
-                        if rec_man:
-                            # Projeta e gera automaticamente os próximos 12 meses!
-                            for i in range(12):
-                                v_dt = add_months(venc_man, i)
-                                st.session_state.supabase.table('boletos_fornecedores').insert({
-                                    "cliente": nome_man, 
-                                    "vencimento": v_dt.strftime("%Y-%m-%d"),
-                                    "valor": valor_man, 
-                                    "status": "Pendente", 
-                                    "is_recorrente": True
-                                }).execute()
-                            st.success("Despesa recorrente cadastrada para os próximos 12 meses!")
-                        else:
-                            st.session_state.supabase.table('boletos_fornecedores').insert({
-                                "cliente": nome_man, 
-                                "vencimento": venc_man.strftime("%Y-%m-%d"),
-                                "valor": valor_man, 
-                                "status": "Pendente", 
-                                "is_recorrente": False
-                            }).execute()
-                            st.success("Lembrete único salvo com sucesso!")
+                        # AGORA ELE INSERE APENAS 1 REGISTRO (O MÊS ATUAL). O PRÓXIMO É GERADO NO PAGAMENTO!
+                        st.session_state.supabase.table('boletos_fornecedores').insert({
+                            "cliente": nome_man, 
+                            "vencimento": venc_man.strftime("%Y-%m-%d"),
+                            "valor": valor_man, 
+                            "status": "Pendente", 
+                            "is_recorrente": rec_man
+                        }).execute()
+                        st.success("Lembrete salvo com sucesso!")
                         st.rerun()
         st.markdown("<br>", unsafe_allow_html=True)
 
@@ -243,7 +233,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                     pertence = (v_dt and v_dt.month == mes_sel_idx and r.get('status') != 'Pago')
                 
                 if pertence:
-                    # Resolve o Erro do PyArrow alinhando o tipo de data
                     v_dt_datetime = datetime.datetime.combine(v_dt, datetime.time()) if v_dt else pd.NaT
                     
                     dados_tabela.append({
@@ -336,10 +325,10 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             "ID": None, 
             "ID_Drive": None, 
             "ID_DB": None,
-            "Data": None,       # Ocultado para ganhar espaço na tela
-            "Tamanho": None,    # Ocultado para ganhar espaço na tela
-            "Nome": st.column_config.TextColumn("Descrição", width="large"), # Largura Aumentada
-            "Link": st.column_config.LinkColumn("PDF", display_text="👁️ Abrir", width="small") # Largura Reduzida
+            "Data": None,       # Ocultado 
+            "Tamanho": None,    # Ocultado 
+            "Nome": st.column_config.TextColumn("Descrição", width="large"), # RENOMEADO PARA DESCRIÇÃO E ALARGADO
+            "Link": st.column_config.LinkColumn("PDF", display_text="👁️ Abrir", width="small") # RENOMEADO PARA PDF E ENCURTADO
         }
         
         lista_desabilitados = ["Nome", "Data", "Tamanho", "Link", "Valor", "Recorrente", "Status"]
@@ -354,14 +343,14 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             
             lista_desabilitados.append("Vencimento")
             
-            # Forçar ordem visual
+            # ORDEM ESTRITA DEFINIDA AQUI:
             col_order = ["Excluir", "Nome", "Link", "Vencimento", "Valor", "Recorrente", "Pagar", "Status"]
 
-        # Forçar o dataframe a engolir a ordem na marra (Garantia anti-cache)
+        # Força o dataframe a engolir a ordem das colunas para burlar o cache do Streamlit
         todas_cols = col_order + [c for c in df_pagina.columns if c not in col_order]
         df_pagina = df_pagina[todas_cols]
 
-        # Nova chave (key) para quebrar o cache de memória do Streamlit
+        # CHAVE RENOMEADA PARA V5 PARA QUEBRAR O CACHE VISUAL DO SEU NAVEGADOR
         df_editado = st.data_editor(
             df_pagina, 
             column_config=config_colunas, 
@@ -369,7 +358,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             disabled=lista_desabilitados,
             hide_index=True, 
             use_container_width=True, 
-            key=f"editor_docs_v3_{nome_principal}" 
+            key=f"editor_docs_v5_{nome_principal}" 
         )
 
         # ==========================================
@@ -392,15 +381,15 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                                 if id_drive and not pd.isna(id_drive) and str(id_drive).strip().lower() not in ["none", "nan", ""]:
                                     mover_arquivo_drive(id_drive, ["Boletos", "PAGOS"])
                                     
-                                # Atualiza status no banco e mantém a janela de 12 meses projetada!
+                                # Atualiza status no banco
                                 if id_db and not pd.isna(id_db) and str(id_db).strip() != "":
                                     st.session_state.supabase.table('boletos_fornecedores').update({'status': 'Pago'}).eq('id', id_db).execute()
                                     try:
+                                        # Verifica se é recorrente. Se for, gera o próximo boleto EXATAMENTE 1 mês à frente!
                                         orig = st.session_state.supabase.table('boletos_fornecedores').select('*').eq('id', id_db).execute().data[0]
                                         if orig.get('is_recorrente'):
                                             venc_antigo = datetime.datetime.strptime(orig['vencimento'], "%Y-%m-%d").date()
-                                            # Se ele pagou um, o sistema joga mais 12 meses pra frente, mantendo o ciclo vivo!
-                                            novo_venc = add_months(venc_antigo, 12)
+                                            novo_venc = add_months(venc_antigo, 1) # <---- CORRIGIDO: Avança 1 mês apenas!
                                             st.session_state.supabase.table('boletos_fornecedores').insert({
                                                 'cliente': orig.get('cliente'), 
                                                 "vencimento": novo_venc.strftime('%Y-%m-%d'),
@@ -410,7 +399,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                                             }).execute()
                                     except: 
                                         pass
-                        st.success("✅ Tudo atualizado! Boletos pagos e projeções garantidas.")
+                        st.success("✅ Tudo atualizado! Boletos pagos e próxima recorrência gerada (caso aplicável).")
                         st.rerun()
             
             # BLOCO: EXCLUSÃO 
