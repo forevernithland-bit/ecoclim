@@ -26,7 +26,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
     # ==========================================
     # 1. CABEÇALHO DE FILTROS ALINHADO
     # ==========================================
-    # CSS para garantir que a barra de Upload fique mais enxuta e alinhada
     st.markdown("""
         <style>
         div[data-testid="stExpander"] details summary { padding-top: 0.5rem; padding-bottom: 0.5rem; }
@@ -36,16 +35,20 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
     if subpastas:
         c_sub, c_busca, c_data, c_up = st.columns([1.2, 1.5, 1.2, 1])
         with c_sub:
-            # Lógica para pré-selecionar o mês atual automaticamente
-            default_idx = subpastas.index(utils.mes_atual_nome) if utils.mes_atual_nome in subpastas else 0
-            sub_sel = st.selectbox("Selecione a Pasta / Mês:", subpastas, index=default_idx, key=f"sel_{nome_principal}")
+            # Pegamos o mês de hoje dinamicamente
+            mes_agora = datetime.date.today().month
+            nome_mes_agora = utils.meses_pt[mes_agora - 1]
+            default_idx = subpastas.index(nome_mes_agora) if nome_mes_agora in subpastas else 0
+            
+            # ATUALIZAÇÃO AQUI: Troquei a key para 'combo_mes_' para forçar o sistema a esquecer o "Janeiro" do cache
+            sub_sel = st.selectbox("Selecione a Pasta / Mês:", subpastas, index=default_idx, key=f"combo_mes_{nome_principal}")
             path_atual.append(sub_sel)
+            
         with c_busca:
             termo_busca = st.text_input("🔍 Buscar por Nome...", key=f"busca_{nome_principal}").lower()
         with c_data:
             data_filtro = st.date_input("📅 Filtrar por Data", value=None, key=f"data_{nome_principal}")
         with c_up:
-            # Espaço mágico invisível para alinhar o expander com as caixas de texto
             st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
             with st.expander("📤 Upload Arquivos"):
                 arquivos_enviados = st.file_uploader("Selecione", accept_multiple_files=True, key=f"up_{nome_principal}", label_visibility="collapsed")
@@ -83,7 +86,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
         st.info("Nenhum arquivo encontrado nesta pasta.")
         return
 
-    # Converte para Tabela de Alta Performance
     dados_tabela = []
     for a in arquivos_brutos:
         dados_tabela.append({
@@ -118,7 +120,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
         return
 
     # ==========================================
-    # 4. PAGINAÇÃO E CONTROLES (100 POR PÁGINA)
+    # 4. PAGINAÇÃO E CONTROLES
     # ==========================================
     itens_por_pagina = 100
     total_paginas = (len(df) - 1) // itens_por_pagina + 1
@@ -126,7 +128,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
     col_view, col_pag = st.columns([7, 3])
     with col_view:
         modo_visao = "Lista"
-        # Mostra o interruptor de galeria apenas na aba Imagens
         if is_imagens:
             modo_visao = st.radio("Visualização:", ["Lista", "Miniaturas"], horizontal=True, key=f"view_{nome_principal}", label_visibility="collapsed")
             
@@ -145,11 +146,9 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
     # ==========================================
     
     if is_imagens and modo_visao == "Miniaturas":
-        # MODO GALERIA DE FOTOS
         cols = st.columns(4)
         for i, row in df_pagina.reset_index(drop=True).iterrows():
             with cols[i % 4]:
-                # Puxa o link direto de visualização da imagem do Drive
                 img_url = f"https://drive.google.com/uc?export=view&id={row['ID']}"
                 
                 st.markdown(f'''
@@ -172,12 +171,11 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                     utils.delete_drive_file(row['ID'])
                     st.rerun()
     else:
-        # MODO TABELA COMPACTA COM FILTROS NAS COLUNAS
         df_editado = st.data_editor(
             df_pagina,
             column_config={
                 "Excluir": st.column_config.CheckboxColumn("🗑️ Excluir", default=False),
-                "ID": None, # Oculta o ID da visão do utilizador
+                "ID": None, 
                 "Nome": st.column_config.TextColumn("Nome do Arquivo", width="large"),
                 "Data": st.column_config.DatetimeColumn("Data de Inclusão", format="DD/MM/YYYY - HH:mm"),
                 "Tamanho": st.column_config.TextColumn("Tamanho", width="small"),
@@ -189,7 +187,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             key=f"editor_{nome_principal}"
         )
 
-        # Lógica de Exclusão em Massa (Tabela)
         if df_editado is not None and not df_editado.empty:
             arquivos_para_apagar = df_editado[df_editado["Excluir"] == True]
             if not arquivos_para_apagar.empty:
@@ -217,7 +214,6 @@ def renderizar():
         renderizar_aba("Boletos", subpastas=meses_boletos)
         
     with abas[3]: 
-        # O parâmetro is_imagens=True ativa a Galeria
         renderizar_aba("Imagens", subpastas=utils.meses_pt, is_imagens=True)
         
     with abas[4]: 
