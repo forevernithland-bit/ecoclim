@@ -19,28 +19,33 @@ import tela_servicos
 import tela_financeira
 import tela_configuracoes
 import tela_airnb
-import tela_documentos  # <--- IMPORTAÇÃO DO MÓDULO NOVO DE DOCUMENTOS
+import tela_documentos
 
 # =============================================================================
 # 3. CONEXÃO COM O BANCO DE DADOS
 # =============================================================================
 try:
-    # Inicializa a conexão via utils e armazena na sessão para uso global
     if "supabase" not in st.session_state:
         st.session_state.supabase = utils.init_connection()
 except Exception as e:
     st.error(f"Erro crítico na conexão com o banco de dados: {e}")
 
 # =============================================================================
-# 4. ESTILIZAÇÃO CSS GLOBAL
+# 4. ESTILIZAÇÃO CSS GLOBAL (DESIGN CLEAN & MODERNO)
 # =============================================================================
 st.markdown("""
     <style>
+    /* Fundo branco total na barra lateral para sumir com o fundo da logo */
+    [data-testid="stSidebar"] {
+        background-color: #ffffff !important;
+        border-right: 1px solid #e6ecf5;
+    }
+    
     /* Ajuste de padding e largura total */
     .block-container { 
-        padding-top: 1.5rem !important; 
-        padding-left: 1rem !important; 
-        padding-right: 1rem !important; 
+        padding-top: 2rem !important; 
+        padding-left: 2rem !important; 
+        padding-right: 2rem !important; 
         max-width: 100% !important; 
     }
     
@@ -60,14 +65,37 @@ st.markdown("""
         font-size: 0.85rem !important; 
     }
     
-    /* Esconde o cabeçalho das tabelas de resumo no financeiro para visual limpo */
+    /* Esconde o cabeçalho das tabelas de resumo no financeiro */
     .financeiro div[data-testid="stDataFrame"] thead { 
         display: none !important; 
     }
     
-    /* Estilo para títulos de seções */
-    h2, h3 {
-        color: #004488;
+    /* Títulos padronizados em azul corporativo clean */
+    h1, h2, h3 {
+        color: #004488 !important;
+        font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    /* Customização dos botões/cards da página inicial */
+    div[data-testid="stColumn"] button {
+        background-color: #ffffff !important;
+        color: #1e293b !important;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 12px !important;
+        padding: 25px 15px !important;
+        font-size: 1.05rem !important;
+        font-weight: 600 !important;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03) !important;
+        transition: all 0.2s ease-in-out !important;
+        min-height: 110px !important;
+    }
+
+    /* Efeito de hover moderno nos cards */
+    div[data-testid="stColumn"] button:hover {
+        border-color: #004488 !important;
+        color: #004488 !important;
+        transform: translateY(-2px) !important;
+        box-shadow: 0 10px 15px -3px rgba(0, 68, 136, 0.1), 0 4px 6px -2px rgba(0, 68, 136, 0.05) !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -78,8 +106,9 @@ st.markdown("""
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
-if "pagina_atual" not in st.session_state:
-    st.session_state.pagina_atual = "Página Inicial"
+# Controladores de estado de navegação para evitar conflitos de cache
+if "menu_option" not in st.session_state:
+    st.session_state.menu_option = "Página Inicial"
 
 if not st.session_state.authenticated:
     st.markdown("<br><br>", unsafe_allow_html=True)
@@ -94,7 +123,6 @@ if not st.session_state.authenticated:
         senha = st.text_input("Senha", type="password")
         
         if st.button("Acessar Sistema", use_container_width=True):
-            # Verificação de credenciais
             if usuario == "breno.lima" and senha == "Ecoclim2026@":
                 st.session_state.authenticated = True
                 st.rerun()
@@ -102,80 +130,92 @@ if not st.session_state.authenticated:
                 st.error("Usuário ou senha incorretos. Tente novamente.")
 else:
     # =============================================================================
-    # 6. MENU DE NAVEGAÇÃO LATERAL
+    # 6. MENU DE NAVEGAÇÃO LATERAL (BARRA BRANCA LIMPA)
     # =============================================================================
     with st.sidebar:
+        st.markdown("<br>", unsafe_allow_html=True)
         if os.path.exists("logo.png"):
-            st.image("logo.png")
+            st.image("logo.png", use_container_width=True)
         
-        st.write("### Menu Principal")
+        st.markdown("<br>", unsafe_allow_html=True)
         
-        # Menu reordenado com todas as suas abas originais + Documentos
+        lista_paginas = [
+            "Página Inicial", 
+            "Controle Financeiro", 
+            "Orçamentos", 
+            "Serviços em Andamento", 
+            "Documentos",
+            "AirBnb e Locações",
+            "Configurações"
+        ]
+        
+        # Sincroniza o rádio com o estado global da sessão
+        index_atual = lista_paginas.index(st.session_state.menu_option)
+        
         menu = st.radio(
             "Navegação", 
-            [
-                "Página Inicial", 
-                "Controle Financeiro", 
-                "Orçamentos", 
-                "Serviços em Andamento", 
-                "Documentos",             # <--- NOVO MENU AQUI
-                "AirBnb e Locações",
-                "Configurações"
-            ],
-            label_visibility="collapsed"
+            lista_paginas,
+            index=index_atual,
+            key="radio_navegacao"
         )
-        st.session_state.pagina_atual = menu
+        
+        # Se mudou pelo clique direto no rádio da barra lateral
+        if menu != st.session_state.menu_option:
+            st.session_state.menu_option = menu
+            st.rerun()
         
         st.write("---")
         if st.button("🚪 Sair do Sistema", use_container_width=True):
             st.session_state.authenticated = False
+            st.session_state.menu_option = "Página Inicial"
             st.rerun()
 
     # =============================================================================
     # 7. ROTEADOR DE TELAS (CHAMA OS MÓDULOS)
     # =============================================================================
     
-    if st.session_state.pagina_atual == "Página Inicial":
-        st.markdown("## 🏠 Página Inicial")
-        st.write(f"Olá, Breno. Bem-vindo ao centro de gestão da Ecoclim.")
-        st.write(f"Hoje é dia {utils.hoje.strftime('%d/%m/%Y')}")
-        st.write("---")
+    if st.session_state.menu_option == "Página Inicial":
+        st.markdown("<h1>🏠 Centro de Gestão</h1>", unsafe_allow_html=True)
+        st.markdown(f"<h5>Olá, Breno. Bem-vindo de volta à central de inteligência da Ecoclim.</h5>", unsafe_allow_html=True)
+        st.caption(f"📅 Calendário Operacional: {utils.hoje.strftime('%d/%m/%Y')}")
+        st.markdown("<br><br>", unsafe_allow_html=True)
         
-        # Atalhos rápidos em colunas
+        # Grid moderno de ações rápidas
         c1, c2 = st.columns(2)
+        st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
         c3, c4 = st.columns(2)
         
         with c1:
-            if st.button("📊\n\nControle Financeiro", use_container_width=True):
-                st.session_state.pagina_atual = "Controle Financeiro"
+            if st.button("📊\tControle Financeiro", use_container_width=True, key=f"btn_nav_financeiro"):
+                st.session_state.menu_option = "Controle Financeiro"
                 st.rerun()
         with c2:
-            if st.button("📝\n\nFazer Novo Orçamento", use_container_width=True):
-                st.session_state.pagina_atual = "Orçamentos"
+            if st.button("📝\tFazer Novo Orçamento", use_container_width=True, key=f"btn_nav_orcamentos"):
+                st.session_state.menu_option = "Orçamentos"
                 st.rerun()
         with c3:
-            if st.button("🛠️\n\nServiços em Andamento", use_container_width=True):
-                st.session_state.pagina_atual = "Serviços em Andamento"
+            if st.button("🛠️\tServiços em Andamento", use_container_width=True, key=f"btn_nav_servicos"):
+                st.session_state.menu_option = "Serviços em Andamento"
                 st.rerun()
         with c4:
-            if st.button("📁\n\nCentral de Documentos", use_container_width=True): # <--- ATALHO PARA DOCUMENTOS
-                st.session_state.pagina_atual = "Documentos"
+            if st.button("📁\tCentral de Documentos", use_container_width=True, key=f"btn_nav_documentos"):
+                st.session_state.menu_option = "Documentos"
                 st.rerun()
 
-    elif st.session_state.pagina_atual == "Controle Financeiro":
+    elif st.session_state.menu_option == "Controle Financeiro":
         tela_financeira.renderizar()
 
-    elif st.session_state.pagina_atual == "Orçamentos":
+    elif st.session_state.menu_option == "Orçamentos":
         tela_orcamentos.renderizar()
 
-    elif st.session_state.pagina_atual == "Serviços em Andamento":
+    elif st.session_state.menu_option == "Serviços em Andamento":
         tela_servicos.renderizar()
 
-    elif st.session_state.pagina_atual == "Documentos":
-        tela_documentos.renderizar()   # <--- CHAMA A TELA NOVA
+    elif st.session_state.menu_option == "Documentos":
+        tela_documentos.renderizar()
 
-    elif st.session_state.pagina_atual == "AirBnb e Locações":
+    elif st.session_state.menu_option == "AirBnb e Locações":
         tela_airnb.renderizar()
 
-    elif st.session_state.pagina_atual == "Configurações":
+    elif st.session_state.menu_option == "Configurações":
         tela_configuracoes.renderizar()
