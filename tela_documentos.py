@@ -40,14 +40,20 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             nome_mes_agora = utils.meses_pt[mes_agora - 1]
             default_idx = subpastas.index(nome_mes_agora) if nome_mes_agora in subpastas else 0
             
-            # ATUALIZAÇÃO AQUI: Troquei a key para 'combo_mes_' para forçar o sistema a esquecer o "Janeiro" do cache
             sub_sel = st.selectbox("Selecione a Pasta / Mês:", subpastas, index=default_idx, key=f"combo_mes_{nome_principal}")
             path_atual.append(sub_sel)
             
         with c_busca:
             termo_busca = st.text_input("🔍 Buscar por Nome...", key=f"busca_{nome_principal}").lower()
+            
         with c_data:
-            data_filtro = st.date_input("📅 Filtrar por Data", value=None, key=f"data_{nome_principal}")
+            # --- NOVO SISTEMA DE FILTRO DE DATA ---
+            filtro_tipo = st.selectbox("📅 Filtrar por Data", ["Todo o Período", "Hoje", "Últimos 30 dias", "Últimos 60 dias", "Últimos 90 dias", "Personalizado (Faixa)"], key=f"tipo_data_{nome_principal}")
+            data_filtro = None
+            if filtro_tipo == "Personalizado (Faixa)":
+                # Inicializar com [] habilita a seleção de período (Início - Fim) nativamente
+                data_filtro = st.date_input("Início e Fim:", value=[], key=f"data_pers_{nome_principal}")
+                
         with c_up:
             st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
             with st.expander("📤 Upload Arquivos"):
@@ -62,13 +68,19 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
         c_busca, c_data, c_up = st.columns([2, 1.5, 1])
         with c_busca:
             termo_busca = st.text_input("🔍 Buscar por Nome...", key=f"busca_{nome_principal}").lower()
+            
         with c_data:
-            data_filtro = st.date_input("📅 Filtrar por Data", value=None, key=f"data_{nome_principal}")
+            # --- NOVO SISTEMA DE FILTRO DE DATA ---
+            filtro_tipo = st.selectbox("📅 Filtrar por Data", ["Todo o Período", "Hoje", "Últimos 30 dias", "Últimos 60 dias", "Últimos 90 dias", "Personalizado (Faixa)"], key=f"tipo_data_s_{nome_principal}")
+            data_filtro = None
+            if filtro_tipo == "Personalizado (Faixa)":
+                data_filtro = st.date_input("Início e Fim:", value=[], key=f"data_pers_s_{nome_principal}")
+                
         with c_up:
             st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
             with st.expander("📤 Upload Arquivos"):
-                arquivos_enviados = st.file_uploader("Selecione", accept_multiple_files=True, key=f"up_{nome_principal}", label_visibility="collapsed")
-                if arquivos_enviados and st.button("🚀 Enviar", key=f"btn_env_{nome_principal}", type="primary", use_container_width=True):
+                arquivos_enviados = st.file_uploader("Selecione", accept_multiple_files=True, key=f"up_s_{nome_principal}", label_visibility="collapsed")
+                if arquivos_enviados and st.button("🚀 Enviar", key=f"btn_env_s_{nome_principal}", type="primary", use_container_width=True):
                     with st.spinner("Enviando para o Drive..."):
                         for arq in arquivos_enviados:
                             utils.upload_to_drive(arq, arq.name, arq.type, path_atual)
@@ -105,8 +117,21 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
     if termo_busca:
         df = df[df['Nome'].str.lower().str.contains(termo_busca)]
         
-    if data_filtro:
-        if isinstance(data_filtro, tuple):
+    # --- LÓGICA DE FILTRAGEM POR DATA ATUALIZADA ---
+    hoje_filtro = datetime.date.today()
+    if filtro_tipo == "Hoje":
+        df = df[df['Data'].dt.date == hoje_filtro]
+    elif filtro_tipo == "Últimos 30 dias":
+        limite = hoje_filtro - datetime.timedelta(days=30)
+        df = df[df['Data'].dt.date >= limite]
+    elif filtro_tipo == "Últimos 60 dias":
+        limite = hoje_filtro - datetime.timedelta(days=60)
+        df = df[df['Data'].dt.date >= limite]
+    elif filtro_tipo == "Últimos 90 dias":
+        limite = hoje_filtro - datetime.timedelta(days=90)
+        df = df[df['Data'].dt.date >= limite]
+    elif filtro_tipo == "Personalizado (Faixa)" and data_filtro:
+        if isinstance(data_filtro, (tuple, list)):
             if len(data_filtro) == 2:
                 start_date, end_date = data_filtro
                 df = df[(df['Data'].dt.date >= start_date) & (df['Data'].dt.date <= end_date)]
