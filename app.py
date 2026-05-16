@@ -169,6 +169,7 @@ else:
         if st.button("🚪 Sair do Sistema", use_container_width=True):
             st.session_state.authenticated = False
             st.session_state.menu_option = "Página Inicial"
+            st.session_state.radio_navegacao = "Página Inicial" # Reseta visualmente a barra
             st.rerun()
 
     # =============================================================================
@@ -176,37 +177,14 @@ else:
     # =============================================================================
     
     if st.session_state.menu_option == "Página Inicial":
-        st.markdown("<h1>🏠 Centro de Gestão</h1>", unsafe_allow_html=True)
-        st.markdown(f"<h5>Olá, Breno. Bem-vindo de volta à central de inteligência da Ecoclim.</h5>", unsafe_allow_html=True)
+        
+        # Mantivemos apenas o calendário no topo
         st.caption(f"📅 Calendário Operacional: {utils.hoje.strftime('%d/%m/%Y')}")
-        st.markdown("<br><br>", unsafe_allow_html=True)
-        
-        # Grid moderno de ações rápidas
-        c1, c2 = st.columns(2)
-        st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
-        c3, c4 = st.columns(2)
-        
-        with c1:
-            if st.button("📊\tControle Financeiro", use_container_width=True, key=f"btn_nav_financeiro"):
-                st.session_state.menu_option = "Controle Financeiro"
-                st.rerun()
-        with c2:
-            if st.button("📝\tFazer Novo Orçamento", use_container_width=True, key=f"btn_nav_orcamentos"):
-                st.session_state.menu_option = "Orçamentos"
-                st.rerun()
-        with c3:
-            if st.button("🛠️\tServiços em Andamento", use_container_width=True, key=f"btn_nav_servicos"):
-                st.session_state.menu_option = "Serviços em Andamento"
-                st.rerun()
-        with c4:
-            if st.button("📁\tCentral de Documentos", use_container_width=True, key=f"btn_nav_documentos"):
-                st.session_state.menu_option = "Documentos"
-                st.rerun()
+        st.markdown("<br>", unsafe_allow_html=True)
 
         # =========================================================================
-        # NOVO: DASHBOARD DE ALERTAS E LEMBRETES DE FORNECEDOR
+        # NOVO: DASHBOARD DE ALERTAS E LEMBRETES (MOVIDO PARA CIMA)
         # =========================================================================
-        st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("<h3>🔔 Lembretes de Pagamento (Fornecedores)</h3>", unsafe_allow_html=True)
         
         try:
@@ -254,6 +232,36 @@ else:
                 st.info("🎉 Excelente! Nenhum boleto de fornecedor pendente no momento.")
         except Exception as e:
             st.caption("Conectando base de lembretes...")
+
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        
+        # =========================================================================
+        # BOTÕES DE ACESSO RÁPIDO (GRID) COM REDIRECIONAMENTO CORRIGIDO
+        # =========================================================================
+        c1, c2 = st.columns(2)
+        st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
+        c3, c4 = st.columns(2)
+        
+        with c1:
+            if st.button("📊\tControle Financeiro", use_container_width=True, key=f"btn_nav_financeiro"):
+                st.session_state.menu_option = "Controle Financeiro"
+                st.session_state.radio_navegacao = "Controle Financeiro" # Força a atualização do widget da barra lateral
+                st.rerun()
+        with c2:
+            if st.button("📝\tFazer Novo Orçamento", use_container_width=True, key=f"btn_nav_orcamentos"):
+                st.session_state.menu_option = "Orçamentos"
+                st.session_state.radio_navegacao = "Orçamentos"
+                st.rerun()
+        with c3:
+            if st.button("🛠️\tServiços em Andamento", use_container_width=True, key=f"btn_nav_servicos"):
+                st.session_state.menu_option = "Serviços em Andamento"
+                st.session_state.radio_navegacao = "Serviços em Andamento"
+                st.rerun()
+        with c4:
+            if st.button("📁\tCentral de Documentos", use_container_width=True, key=f"btn_nav_documentos"):
+                st.session_state.menu_option = "Documentos"
+                st.session_state.radio_navegacao = "Documentos"
+                st.rerun()
 
     elif st.session_state.menu_option == "Controle Financeiro":
         tela_financeira.renderizar()
