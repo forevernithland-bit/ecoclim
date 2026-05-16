@@ -151,17 +151,16 @@ else:
             "Configurações"
         ]
         
-        # Sincroniza o rádio com o estado global da sessão
+        # Sincroniza o rádio dinamicamente usando apenas o index, evitando o erro de chave (KeyError)
         index_atual = lista_paginas.index(st.session_state.menu_option)
         
         menu = st.radio(
             "Navegação", 
             lista_paginas,
-            index=index_atual,
-            key="radio_navegacao"
+            index=index_atual
         )
         
-        # Se mudou pelo clique direto no rádio da barra lateral
+        # Se o usuário clicar direto na barra lateral, atualizamos o estado
         if menu != st.session_state.menu_option:
             st.session_state.menu_option = menu
             st.rerun()
