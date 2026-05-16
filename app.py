@@ -42,9 +42,9 @@ st.markdown("""
         border-right: 1px solid #e6ecf5;
     }
     
-    /* Ajuste de padding e largura total */
+    /* Ajuste de padding e largura total (Padding-top ajustado para não cortar o topo) */
     .block-container { 
-        padding-top: 2rem !important; 
+        padding-top: 3.5rem !important; 
         padding-left: 2rem !important; 
         padding-right: 2rem !important; 
         max-width: 100% !important; 
@@ -77,18 +77,19 @@ st.markdown("""
         font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     }
 
-    /* Customização dos botões/cards da página inicial */
+    /* Customização dos botões/cards da página inicial MAIS COMPACTOS */
     div[data-testid="stColumn"] button {
         background-color: #ffffff !important;
         color: #1e293b !important;
         border: 1px solid #e2e8f0 !important;
         border-radius: 12px !important;
-        padding: 25px 15px !important;
-        font-size: 1.05rem !important;
+        padding: 15px 10px !important;
+        font-size: 1rem !important;
         font-weight: 600 !important;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03) !important;
         transition: all 0.2s ease-in-out !important;
-        min-height: 110px !important;
+        min-height: 80px !important;
+        margin-bottom: 5px !important;
     }
 
     /* Efeito de hover moderno nos cards */
@@ -169,7 +170,6 @@ else:
         if st.button("🚪 Sair do Sistema", use_container_width=True):
             st.session_state.authenticated = False
             st.session_state.menu_option = "Página Inicial"
-            st.session_state.radio_navegacao = "Página Inicial" # Reseta visualmente a barra
             st.rerun()
 
     # =============================================================================
@@ -180,10 +180,9 @@ else:
         
         # Mantivemos apenas o calendário no topo
         st.caption(f"📅 Calendário Operacional: {utils.hoje.strftime('%d/%m/%Y')}")
-        st.markdown("<br>", unsafe_allow_html=True)
 
         # =========================================================================
-        # NOVO: DASHBOARD DE ALERTAS E LEMBRETES (MOVIDO PARA CIMA)
+        # NOVO: DASHBOARD DE ALERTAS E LEMBRETES (MOVIDO PARA CIMA E COMPACTADO)
         # =========================================================================
         st.markdown("<h3>🔔 Lembretes de Pagamento (Fornecedores)</h3>", unsafe_allow_html=True)
         
@@ -211,13 +210,13 @@ else:
                         status_txt = "NO PRAZO"
                     
                     st.markdown(f"""
-                        <div style="background-color: {cor_card}; padding: 15px; border-radius: 8px; border: 1px solid #ddd; margin-bottom: 5px; display: flex; justify-content: space-between; align-items: center;">
+                        <div style="background-color: {cor_card}; padding: 10px 15px; border-radius: 8px; border: 1px solid #ddd; margin-bottom: 5px; display: flex; justify-content: space-between; align-items: center;">
                             <div>
-                                <span style="font-size: 16px;">{icone} <b>{b['cliente']}</b></span><br>
-                                <span style="color: #555; font-size: 14px;">Vencimento: <b>{venc_dt.strftime('%d/%m/%Y')}</b> - Status: <b>{status_txt}</b></span>
+                                <span style="font-size: 15px;">{icone} <b>{b['cliente']}</b></span><br>
+                                <span style="color: #555; font-size: 13px;">Vencimento: <b>{venc_dt.strftime('%d/%m/%Y')}</b> - Status: <b>{status_txt}</b></span>
                             </div>
                             <div style="text-align: right;">
-                                <span style="font-size: 18px; font-weight: bold; color: #004488;">{utils.to_br_currency(b['valor'])}</span><br>
+                                <span style="font-size: 16px; font-weight: bold; color: #004488;">{utils.to_br_currency(b['valor'])}</span><br>
                             </div>
                         </div>
                     """, unsafe_allow_html=True)
@@ -227,42 +226,37 @@ else:
                         if st.button("✅ PAGO", key=f"pago_{b['id']}", use_container_width=True):
                             st.session_state.supabase.table('boletos_fornecedores').update({'status': 'Pago'}).eq('id', b['id']).execute()
                             st.rerun()
-                    st.markdown("<br>", unsafe_allow_html=True)
             else:
                 st.info("🎉 Excelente! Nenhum boleto de fornecedor pendente no momento.")
         except Exception as e:
             st.caption("Conectando base de lembretes...")
 
-        st.markdown("<br><br>", unsafe_allow_html=True)
+        st.markdown("<hr style='margin-top: 10px; margin-bottom: 10px;'>", unsafe_allow_html=True)
         
         # =========================================================================
-        # BOTÕES DE ACESSO RÁPIDO (GRID) COM REDIRECIONAMENTO CORRIGIDO
+        # BOTÕES DE ACESSO RÁPIDO (GRID COMPACTO)
         # =========================================================================
         c1, c2 = st.columns(2)
-        st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
         c3, c4 = st.columns(2)
         
         with c1:
             if st.button("📊\tControle Financeiro", use_container_width=True, key=f"btn_nav_financeiro"):
                 st.session_state.menu_option = "Controle Financeiro"
-                st.session_state.radio_navegacao = "Controle Financeiro" # Força a atualização do widget da barra lateral
                 st.rerun()
         with c2:
             if st.button("📝\tFazer Novo Orçamento", use_container_width=True, key=f"btn_nav_orcamentos"):
                 st.session_state.menu_option = "Orçamentos"
-                st.session_state.radio_navegacao = "Orçamentos"
                 st.rerun()
         with c3:
             if st.button("🛠️\tServiços em Andamento", use_container_width=True, key=f"btn_nav_servicos"):
                 st.session_state.menu_option = "Serviços em Andamento"
-                st.session_state.radio_navegacao = "Serviços em Andamento"
                 st.rerun()
         with c4:
             if st.button("📁\tCentral de Documentos", use_container_width=True, key=f"btn_nav_documentos"):
                 st.session_state.menu_option = "Documentos"
-                st.session_state.radio_navegacao = "Documentos"
                 st.rerun()
 
+    # Roteamento dos módulos importados
     elif st.session_state.menu_option == "Controle Financeiro":
         tela_financeira.renderizar()
 
