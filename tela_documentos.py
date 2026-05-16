@@ -243,7 +243,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                     pertence = (v_dt and v_dt.month == mes_sel_idx and r.get('status') != 'Pago')
                 
                 if pertence:
-                    # Resolve o Erro do PyArrow alinhando o tipo de data perfeitamente com os do Drive
+                    # Resolve o Erro do PyArrow alinhando o tipo de data
                     v_dt_datetime = datetime.datetime.combine(v_dt, datetime.time()) if v_dt else pd.NaT
                     
                     dados_tabela.append({
@@ -338,8 +338,8 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             "ID_DB": None,
             "Data": None,       # Ocultado para ganhar espaço na tela
             "Tamanho": None,    # Ocultado para ganhar espaço na tela
-            "Nome": st.column_config.TextColumn("Descrição", width="medium"), # Largura reduzida
-            "Link": st.column_config.LinkColumn("PDF", display_text="👁️ Abrir", width="small")
+            "Nome": st.column_config.TextColumn("Descrição", width="large"), # Largura Aumentada
+            "Link": st.column_config.LinkColumn("PDF", display_text="👁️ Abrir", width="small") # Largura Reduzida
         }
         
         lista_desabilitados = ["Nome", "Data", "Tamanho", "Link", "Valor", "Recorrente", "Status"]
@@ -354,9 +354,14 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             
             lista_desabilitados.append("Vencimento")
             
-            # Ordem Exata Pedida: Descrição, PDF, Vencimento, Valor, Recorrente, Pagar, Status
+            # Forçar ordem visual
             col_order = ["Excluir", "Nome", "Link", "Vencimento", "Valor", "Recorrente", "Pagar", "Status"]
 
+        # Forçar o dataframe a engolir a ordem na marra (Garantia anti-cache)
+        todas_cols = col_order + [c for c in df_pagina.columns if c not in col_order]
+        df_pagina = df_pagina[todas_cols]
+
+        # Nova chave (key) para quebrar o cache de memória do Streamlit
         df_editado = st.data_editor(
             df_pagina, 
             column_config=config_colunas, 
@@ -364,7 +369,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             disabled=lista_desabilitados,
             hide_index=True, 
             use_container_width=True, 
-            key=f"editor_{nome_principal}"
+            key=f"editor_docs_v3_{nome_principal}" 
         )
 
         # ==========================================
