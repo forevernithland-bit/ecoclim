@@ -305,9 +305,9 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
         config_colunas = {
             "Excluir": st.column_config.CheckboxColumn("🗑️ Excluir", default=False),
             "ID": None, "ID_Drive": None, "ID_DB": None,
-            "Nome": st.column_config.TextColumn("Descrição/Arquivo", width="large"),
-            "Data": st.column_config.DatetimeColumn("Data de Inclusão", format="DD/MM/YYYY - HH:mm"),
-            "Tamanho": st.column_config.TextColumn("Tamanho", width="small"),
+            "Data": None,       # Ocultado para ganhar espaço na tela
+            "Tamanho": None,    # Ocultado para ganhar espaço na tela
+            "Nome": st.column_config.TextColumn("Descrição/Arquivo", width="medium"), # Largura reduzida
             "Link": st.column_config.LinkColumn("Visualizar PDF", display_text="👁️ Abrir")
         }
         
