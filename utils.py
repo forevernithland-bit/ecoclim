@@ -11,6 +11,12 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_JUSTIFY, TA_CENTER
 import urllib.request
 import json
+import re
+
+try:
+    import PyPDF2
+except ImportError:
+    pass
 
 # IMPORTAÇÕES DO GOOGLE DRIVE OAUTH (NOVO MOTOR)
 from google.oauth2.credentials import Credentials
@@ -436,3 +442,45 @@ def gerar_pdf_contrato(nome, doc, tipo_cliente, endereco, objeto, df_items, mat_
     doc_pdf.build(story)
     buffer.seek(0)
     return buffer
+
+# ==========================================
+# EXTRAÇÃO INTELIGENTE DE BOLETOS
+# ==========================================
+def extrair_dados_boleto(file_buffer):
+    """Lê o PDF e tenta encontrar a data de vencimento e valor do documento."""
+    try:
+        # Lê a partir do início do arquivo virtual
+        file_buffer.seek(0)
+        reader = PyPDF2.PdfReader(file_buffer)
+        texto = ""
+        for page in reader.pages:
+            texto += page.extract_text() + "\n"
+
+        # 1. Tentar extrair a Data de Vencimento
+        data_venc = None
+        # Busca o padrão: Vencimento [espaço] DD/MM/AAAA
+        match_data = re.search(r'Vencimento\s*(\d{2}/\d{2}/\d{4})', texto, re.IGNORECASE)
+        if not match_data:
+            # Fallback: pega a primeira data válida no formato DD/MM/AAAA
+            match_data = re.search(r'\b(\d{2}/\d{2}/\d{4})\b', texto)
+        if match_data:
+            data_venc = match_data.group(1)
+
+        # 2. Tentar extrair o Valor
+        valor_float = 0.0
+        # Busca o padrão: Valor do Documento [espaços/quebras] R$ ou números
+        match_valor = re.search(r'Valor do Documento.*?(\d{1,3}(?:\.\d{3})*,\d{2})', texto, re.IGNORECASE | re.DOTALL)
+        if not match_valor:
+            # Fallback: busca qualquer valor monetário
+            match_valor = re.search(r'R\$\s*(\d{1,3}(?:\.\d{3})*,\d{2})', texto)
+        
+        if match_valor:
+            valor_str = match_valor.group(1).replace('.', '').replace(',', '.')
+            valor_float = float(valor_str)
+
+        # Retorna o ponteiro pro início para o upload do Google Drive funcionar
+        file_buffer.seek(0) 
+        return data_venc, valor_float
+    except Exception as e:
+        file_buffer.seek(0)
+        return None, 0.0
