@@ -80,6 +80,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
     with st.container(border=True):
         f_col1, f_col2, f_col3 = st.columns(3)
         venda_final = f_col1.number_input("Valor da Venda (R$)", value=safe_float(projeto_selecionado.get('valor_venda_total')), format="%.2f", step=None, key=f"venda_{prefix_key}")
+        f_col1.caption("&nbsp;", unsafe_allow_html=True) # Caption invisível para alinhar
         
         emite_nf = f_col2.radio("Nota Fiscal?", ["Não", "Sim"], index=1 if safe_float(projeto_selecionado.get('custo_impostos')) > 0 else 0, key=f"nf_{prefix_key}")
         valor_nf = 0.0
@@ -92,9 +93,11 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                         break
             valor_nf = venda_final * (taxa_nf_pct / 100)
             f_col2.caption(f"Imposto ({taxa_nf_pct}%): - {utils.to_br_currency(valor_nf)}")
+        else:
+            f_col2.caption("&nbsp;", unsafe_allow_html=True)
         
         # -------------------------------------------------------------------------
-        # NOVO: SELECTBOX DE PARCELAMENTO PUXANDO DA BASE DE DADOS (CONFIGURAÇÕES)
+        # SELECTBOX DE PARCELAMENTO PUXANDO DA BASE DE DADOS (CONFIGURAÇÕES)
         # -------------------------------------------------------------------------
         opcoes_cartao = ["Nenhum / Dinheiro / PIX"]
         dict_taxas = {"Nenhum / Dinheiro / PIX": 0.0}
@@ -103,12 +106,10 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             for _, t_row in df_taxas_config.iterrows():
                 item_nome = str(t_row.get('Item', '')).strip()
                 taxa_val = safe_float(t_row.get('Taxa (%)', 0.0))
-                # Ignora a taxa da nota fiscal pois ela tem seu próprio radio button
                 if "NF" not in item_nome.upper() and "NOTA FISCAL" not in item_nome.upper() and item_nome != "":
                     opcoes_cartao.append(item_nome)
                     dict_taxas[item_nome] = taxa_val
 
-        # Tenta descobrir qual era a opção selecionada baseada no custo monetário salvo no banco
         custo_c_salvo = safe_float(projeto_selecionado.get('custo_cartao'))
         perc_previo = (custo_c_salvo / venda_final * 100) if venda_final > 0 else 0.0
         
@@ -132,7 +133,10 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         f_col4.caption(f"Valor: - {utils.to_br_currency(valor_comissao)}")
 
         custo_ext = f_col5.number_input("Materiais Extras (R$)", value=safe_float(projeto_selecionado.get('custo_adicional_materiais')), format="%.2f", step=None, key=f"mat_{prefix_key}")
+        f_col5.caption("&nbsp;", unsafe_allow_html=True) # Caption invisível para alinhar
+
         custo_mo = f_col6.number_input("Mão de Obra / Terceiros (R$)", value=safe_float(projeto_selecionado.get('custo_terceirizados')), format="%.2f", step=None, key=f"mao_{prefix_key}")
+        f_col6.caption("&nbsp;", unsafe_allow_html=True) # Caption invisível para alinhar
 
         abatimentos = valor_nf + valor_cartao_taxa + valor_comissao + custo_ext + custo_mo
         lucro_final = venda_final - custo_total_produtos - abatimentos
