@@ -50,7 +50,6 @@ def limpar_e_garantir_linhas(df, lista_contas):
 
 def renderizar():
     st.markdown('<div class="financeiro">', unsafe_allow_html=True)
-    st.subheader("📊 Controle Financeiro e Patrimônio")
     
     with st.sidebar:
         ano_selecionado = st.selectbox("Ano Fiscal", options=[2025, 2026, 2027, 2028], index=1)
@@ -98,7 +97,10 @@ def renderizar():
     # 1. PATRIMÔNIO
     # --------------------------
     st.markdown("#### 🏛️ Posição Patrimonial e Investimentos")
-    df_p_ed = st.data_editor(st.session_state.df_p[colunas_visiveis], hide_index=True, column_config=cfg_edit, use_container_width=True, height=285, key="ed_p_fin")
+    
+    # AQUI ESTÁ A MÁGICA: A 'key' agora depende do ano_selecionado. 
+    # Isso obriga o Streamlit a destruir e recriar a tabela ao trocar de ano, impedindo o vazamento de dados.
+    df_p_ed = st.data_editor(st.session_state.df_p[colunas_visiveis], hide_index=True, column_config=cfg_edit, use_container_width=True, height=285, key=f"ed_p_fin_{ano_selecionado}")
 
     if not df_p_ed.equals(st.session_state.df_p[colunas_visiveis]):
         for c in colunas_visiveis: 
@@ -134,7 +136,9 @@ def renderizar():
     # 2. RECEBIMENTOS
     # --------------------------
     st.markdown("#### 💰 Recebimentos e Pró-labore")
-    df_e_ed = st.data_editor(st.session_state.df_e[colunas_visiveis], hide_index=True, column_config=cfg_edit, use_container_width=True, height=190, key="ed_e_fin")
+    
+    # A mesma proteção de 'key' aplicada aqui
+    df_e_ed = st.data_editor(st.session_state.df_e[colunas_visiveis], hide_index=True, column_config=cfg_edit, use_container_width=True, height=190, key=f"ed_e_fin_{ano_selecionado}")
     
     if not df_e_ed.equals(st.session_state.df_e[colunas_visiveis]):
         for c in colunas_visiveis: 
