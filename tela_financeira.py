@@ -1,10 +1,11 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import io
 import utils
 
 # ==========================================
-# NOVOS MOTORES DE BANCO DE DADOS BLINDADOS
+# MOTORES DE BANCO DE DADOS BLINDADOS
 # ==========================================
 def carregar_dados_fin(nome_tabela, lista_contas, ano):
     supabase = st.session_state.supabase
@@ -16,7 +17,6 @@ def carregar_dados_fin(nome_tabela, lista_contas, ano):
             for mes in utils.meses_pt: df_novo[mes] = 0.0
             return df_novo
         
-        # Converte as colunas minúsculas do banco para o padrão de exibição da tela
         mapeamento = {"meses": "MESES", "marco": "MARÇO"}
         for m in utils.meses_pt:
             if m != "MARÇO": mapeamento[m.lower()] = m
@@ -28,7 +28,10 @@ def carregar_dados_fin(nome_tabela, lista_contas, ano):
             if col not in df_banco.columns: df_banco[col] = 0.0 if col != "MESES" else ""
         
         df_banco = df_banco[df_banco['MESES'].isin(lista_contas)]
-        return df_banco[colunas_ordenadas].reset_index(drop=True)
+        
+        # Garante a ordenação idêntica à lista original de contas passadas
+        df_banco['MESES'] = pd.Categorical(df_banco['MESES'], categories=lista_contas, ordered=True)
+        return df_banco.sort_values('MESES')[colunas_ordenadas].reset_index(drop=True)
     except Exception as e:
         return pd.DataFrame({"MESES": lista_contas, **{m: 0.0 for m in utils.meses_pt}})
 
@@ -36,7 +39,6 @@ def salvar_dados_fin(nome_tabela, df, ano):
     supabase = st.session_state.supabase
     dados_finais = []
     for _, linha in df.iterrows():
-        # Força o salvamento exato com colunas minúsculas sem acento (Padrão SQL)
         registro = {
             "ano": ano,
             "meses": linha["MESES"],
@@ -96,6 +98,16 @@ def limpar_e_garantir_linhas(df, lista_contas):
     return df.sort_values('MESES').reset_index(drop=True)
 
 # ==========================================
+# FUNÇÕES DE EXPORTAÇÃO E IMPORTAÇÃO EXCEL
+# ==========================================
+def exportar_para_excel(df_p, df_e, ano):
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df_p.to_excel(writer, sheet_name='PATRIMONIO', index=False)
+        df_e.to_excel(writer, sheet_name='RECEBIMENTOS', index=False)
+    return output.getvalue()
+
+# ==========================================
 # RENDERIZAÇÃO DA TELA
 # ==========================================
 def renderizar():
@@ -108,7 +120,7 @@ def renderizar():
         ano_selecionado = st.selectbox("Ano Fiscal", options=[2025, 2026, 2027, 2028], index=1)
         
         st.write("---")
-        if st.button("💾 SALVAR DADOS AGORA", type="primary", use_container_width=True):
+        if st.button("💾 SALVAR DADOS AGORA", type="primary", use_container_width=True, key="btn_salvar_lateral"):
             st.session_state.salvar_fin_clicado = True
         st.write("---")
         
@@ -123,13 +135,14 @@ def renderizar():
             
         colunas_visiveis = ["MESES"] + utils.meses_pt[utils.meses_pt.index(m_ini):utils.meses_pt.index(m_fim) + 1]
 
-        if st.button("🔄 Recarregar Banco"): 
+        if st.button("🔄 Recarregar Banco", use_container_width=True): 
             st.session_state.pop('ano_dados_atual', None)
             st.rerun()
 
     contas_p = ['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS', 'IMÓVEIS', 'VEÍCULOS']
     contas_e = ['ECOCLIM', 'AIRNB', 'CONS INVESTIMENTOS', 'MAGGI CONSORCIOS']
     
+    # Gerenciamento de Estado de Memória Sem Vazamentos
     if 'ano_dados_atual' not in st.session_state or st.session_state.ano_dados_atual != ano_selecionado:
         st.session_state.df_p = limpar_e_garantir_linhas(carregar_dados_fin('fin_patrimonio', contas_p, ano_selecionado), contas_p)
         st.session_state.df_e = limpar_e_garantir_linhas(carregar_dados_fin('fin_entradas', contas_e, ano_selecionado), contas_e)
@@ -151,19 +164,58 @@ def renderizar():
 
     st.markdown('<div class="container-tabelas">', unsafe_allow_html=True)
     
-    # --------------------------
-    # 1. PATRIMÔNIO
-    # --------------------------
-    st.markdown("#### 🏛️ Posição Patrimonial e Investimentos")
-    df_p_ed = st.data_editor(st.session_state.df_p[colunas_visiveis], hide_index=True, column_config=cfg_edit, use_container_width=True, height=285, key=f"ed_p_fin_{ano_selecionado}")
+    # -------------------------------------------------------------------------
+    # NOVO: QUADRANTE DE BOTÕES PARA IMPORTAR/EXPORTAR EXCEL (ALINHADOS)
+    # -------------------------------------------------------------------------
+    c_titulo, c_exp, c_imp = st.columns([1.8, 1, 1.2])
+    
+    with c_titulo:
+        st.markdown(f"<h4>🏛️ Patrimônio e Investimentos ({ano_selecionado})</h4>", unsafe_allow_html=True)
+        
+    with c_exp:
+        dados_excel = exportar_para_excel(st.session_state.df_p, st.session_state.df_e, ano_selecionado)
+        st.download_button(
+            label="📤 EXPORTAR EXCEL",
+            data=dados_excel,
+            file_name=f"BACKUP_FINANCEIRO_{ano_selecionado}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            key="btn_exportar_excel"
+        )
+        
+    with c_imp:
+        arquivo_excel_subido = st.file_uploader("Importar base", type=["xlsx"], label_visibility="collapsed", key="file_importar_excel")
+        if arquivo_excel_subido is not None:
+            try:
+                xls = pd.ExcelFile(arquivo_excel_subido)
+                if 'PATRIMONIO' in xls.sheet_names and 'RECEBIMENTOS' in xls.sheet_names:
+                    df_p_subido = pd.read_excel(xls, 'PATRIMONIO')
+                    df_e_subido = pd.read_excel(xls, 'RECEBIMENTOS')
+                    
+                    st.session_state.df_p = limpar_e_garantir_linhas(df_p_subido, contas_p)
+                    st.session_state.df_e = limpar_e_garantir_linhas(df_e_subido, contas_e)
+                    st.success("✅ Excel lido! Clique em 'Gravar Alterações' no rodapé.")
+                    st.rerun()
+                else:
+                    st.error("Arquivo inválido. Precisa conter as abas PATRIMONIO e RECEBIMENTOS.")
+            except Exception as e:
+                st.error(f"Erro ao ler Excel: {e}")
 
-    # FIX DO BUG DE DIGITAÇÃO: Não alteramos st.session_state.df_p diretamente!
-    # Apenas criamos uma cópia completa mesclando o que foi editado com o restante do ano oculto.
-    df_p_completo = st.session_state.df_p.copy()
+    # FIX DO BUG DE DIGITAÇÃO: Vinculamos o editor diretamente à variável estável de sessão
+    df_p_ed = st.data_editor(
+        st.session_state.df_p[colunas_visiveis], 
+        hide_index=True, 
+        column_config=cfg_edit, 
+        use_container_width=True, 
+        height=285, 
+        key=f"ed_p_fin_estavel_{ano_selecionado}"
+    )
+
+    # Atualiza em segundo plano de forma silenciosa para os cálculos da tela continuar retos em tempo real
     for c in colunas_visiveis: 
-        if c != "MESES": df_p_completo[c] = df_p_ed[c]
+        if c != "MESES": st.session_state.df_p.loc[:, c] = df_p_ed[c]
 
-    df_n = df_p_completo.set_index('MESES')
+    df_n = st.session_state.df_p.set_index('MESES')
     pat_liq = df_n.loc[df_n.index.isin(['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS'])].sum()
     pat_tot = pat_liq + df_n.loc[df_n.index.isin(['IMÓVEIS', 'VEÍCULOS'])].sum()
     
@@ -190,15 +242,20 @@ def renderizar():
     # --------------------------
     # 2. RECEBIMENTOS
     # --------------------------
-    st.markdown("#### 💰 Recebimentos e Pró-labore")
-    df_e_ed = st.data_editor(st.session_state.df_e[colunas_visiveis], hide_index=True, column_config=cfg_edit, use_container_width=True, height=190, key=f"ed_e_fin_{ano_selecionado}")
+    st.markdown(f"#### 💰 Recebimentos e Pró-labore ({ano_selecionado})")
+    df_e_ed = st.data_editor(
+        st.session_state.df_e[colunas_visiveis], 
+        hide_index=True, 
+        column_config=cfg_edit, 
+        use_container_width=True, 
+        height=190, 
+        key=f"ed_e_fin_estavel_{ano_selecionado}"
+    )
     
-    # Mesma correção aqui para as entradas:
-    df_e_completo = st.session_state.df_e.copy()
     for c in colunas_visiveis: 
-        if c != "MESES": df_e_completo[c] = df_e_ed[c]
+        if c != "MESES": st.session_state.df_e.loc[:, c] = df_e_ed[c]
 
-    tot_e = df_e_completo.set_index('MESES').sum()
+    tot_e = st.session_state.df_e.set_index('MESES').sum()
     dict_res_e = {'MESES': ['TOTAL RECEBIMENTOS']}
     for i, m in enumerate(utils.meses_pt):
         is_futuro = (ano_selecionado > utils.ano_atual) or (ano_selecionado == utils.ano_atual and i > (utils.mes_hoje_idx - 1))
@@ -214,14 +271,11 @@ def renderizar():
         st.session_state.salvar_fin_clicado = True
 
     if st.session_state.salvar_fin_clicado:
-        with st.spinner("Gravando nos novos bancos de dados de forma segura..."):
-            # Atualiza a base oficial do Streamlit com as nossas cópias completas ANTES de salvar
-            st.session_state.df_p = df_p_completo
-            st.session_state.df_e = df_e_completo
+        with st.spinner("Gravando nos bancos de dados de forma segura..."):
             salvar_dados_fin('fin_patrimonio', st.session_state.df_p, ano_selecionado)
             salvar_dados_fin('fin_entradas', st.session_state.df_e, ano_selecionado)
         st.session_state.salvar_fin_clicado = False
-        st.success("✅ Dados financeiros e troca de anos blindados com sucesso!")
+        st.success("✅ Dados financeiros e troca de anos salvos com sucesso!")
 
     # --------------------------
     # 3. RENDIMENTOS
@@ -255,13 +309,11 @@ def renderizar():
     
     media_ent = tot_e[meses_calc].mean() if not tot_e.empty else 0
     
-    # Rendimento Médio (R$)
     xp_var_full = xp_v - xp_v.shift(1).fillna(xp_prev_dec)
     it_var_full = it_v - it_v.shift(1).fillna(inter_prev_dec)
     rend_tot_full = xp_var_full + it_var_full
     media_rend_r = rend_tot_full[meses_calc].mean()
     
-    # Rendimento Médio (%)
     prev_bal_full = (xp_v + it_v).shift(1).fillna(xp_prev_dec + inter_prev_dec)
     pb_safe = prev_bal_full[meses_calc].replace(0, np.nan)
     media_rend_p = (rend_tot_full[meses_calc] / pb_safe).mean() * 100
@@ -287,4 +339,4 @@ def renderizar():
         st.subheader("Salário + Rendimento")
         st.area_chart(tot_e[utils.meses_pt] + rend_tot_full[utils.meses_pt])
         st.subheader("Faturamento Ecoclim")
-        st.line_chart(df_e_completo.set_index('MESES').loc['ECOCLIM', utils.meses_pt])
+        st.line_chart(st.session_state.df_e.set_index('MESES').loc['ECOCLIM', utils.meses_pt])
