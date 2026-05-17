@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import io
 import utils
 
 def renderizar():
@@ -7,6 +8,14 @@ def renderizar():
     
     tabs = st.tabs(["🛒 Produtos", "🛠️ Serviços", "🤝 Outros / Terceiros", "📊 Taxas", "📦 Kits em Lote"])
     
+    def gerar_modelo_excel():
+        # Cria um DataFrame vazio com as colunas perfeitas que o sistema espera ler
+        df_modelo = pd.DataFrame(columns=["ITEM", "DESCRIÇÃO", "CUSTO"])
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df_modelo.to_excel(writer, index=False, sheet_name='MODELO_IMPORTACAO')
+        return output.getvalue()
+
     def processar_upload_excel(arquivo_subido):
         df_excel = pd.read_excel(arquivo_subido)
         df_excel.columns = df_excel.columns.str.strip().str.upper()
@@ -32,7 +41,20 @@ def renderizar():
         df_atual = utils.load_catalog(nome_tabela)
         
         st.markdown(f"#### 📥 Importar Planilha de {titulo_aba}")
-        arquivo_excel = st.file_uploader(f"Selecione o arquivo (.xlsx)", type=["xlsx"], key=f"upload_{nome_tabela}")
+        
+        # --- NOVO BLOCO: Divisão em colunas para acomodar o botão de modelo ---
+        col_file, col_btn = st.columns([3, 1])
+        with col_file:
+            arquivo_excel = st.file_uploader(f"Selecione o arquivo (.xlsx)", type=["xlsx"], key=f"upload_{nome_tabela}", label_visibility="collapsed")
+        with col_btn:
+            st.download_button(
+                label="📥 Baixar Modelo (.xlsx)",
+                data=gerar_modelo_excel(),
+                file_name=f"modelo_importacao_{titulo_aba.lower()}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+            
         if arquivo_excel:
             if st.button(f"Processar Planilha - {titulo_aba}"):
                 df_novo = processar_upload_excel(arquivo_excel)
@@ -131,13 +153,12 @@ def renderizar():
         st.markdown("#### 1. Informações Base do Kit")
         cfg_kits = {
             "id": None, 
-            "itens": None, # Ocultamos a coluna JSON da visualização
+            "itens": None, 
             "nome_kit": st.column_config.TextColumn("Nome do Arquivo (Ex: Acoplado 16 Tubos)", width="medium"),
             "servico_base": st.column_config.SelectboxColumn("Serviço de Instalação", options=[""] + lista_serv, width="medium"),
             "modelo_capa": st.column_config.SelectboxColumn("Modelo da Capa PDF", options=modelos_capa, width="medium")
         }
 
-        # Garantir colunas
         for col in ["nome_kit", "servico_base", "modelo_capa", "itens"]:
             if col not in df_kits.columns: df_kits[col] = [] if col == "itens" else ""
 
@@ -173,14 +194,12 @@ def renderizar():
         if nomes_kits_salvos:
             kit_sel = st.selectbox("Selecione o Kit para adicionar/editar os produtos:", nomes_kits_salvos)
             
-            # Puxa os itens salvos no banco para o kit selecionado
             kit_row = df_kits[df_kits['nome_kit'] == kit_sel].iloc[0]
             kit_itens = kit_row.get('itens', [])
             if not isinstance(kit_itens, list): kit_itens = []
             
             df_itens = pd.DataFrame(kit_itens)
             if df_itens.empty:
-                # Mudança: a quantidade por defeito agora é 0
                 df_itens = pd.DataFrame([{"Produto": "", "Quantidade": 0} for _ in range(3)])
                 
             for col in ["Produto", "Quantidade"]:
@@ -188,7 +207,6 @@ def renderizar():
 
             cfg_itens = {
                 "Produto": st.column_config.SelectboxColumn("Equipamento (Produto)", options=[""] + lista_prod, width="large"),
-                # Mudança: min_value agora é 0 para permitir linhas vazias de forma segura
                 "Quantidade": st.column_config.NumberColumn("Qtd", min_value=0, step=1)
             }
 
@@ -200,12 +218,10 @@ def renderizar():
                     p = str(r.get('Produto', '')).strip()
                     
                     try:
-                        # Mudança: o valor padrão de resgate passa a ser 0
                         q = int(r.get('Quantidade', 0))
                     except (ValueError, TypeError):
-                        q = 0 # Se vier vazio ou NaN, assume 0
+                        q = 0
                         
-                    # Mudança: Só guarda a linha se tiver um produto preenchido e quantidade maior que zero
                     if p != "" and q > 0:
                         novos_itens.append({"Produto": p, "Quantidade": q})
                         
