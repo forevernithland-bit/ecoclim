@@ -79,7 +79,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
     st.markdown("#### 🧮 Abatimentos e Impostos")
     with st.container(border=True):
         f_col1, f_col2, f_col3 = st.columns(3)
-        venda_final = f_col1.number_input("Valor da Venda (R$)", value=safe_float(projeto_selecionado.get('valor_venda_total')), format="%.2f", key=f"venda_{prefix_key}")
+        venda_final = f_col1.number_input("Valor da Venda (R$)", value=safe_float(projeto_selecionado.get('valor_venda_total')), format="%.2f", step=None, key=f"venda_{prefix_key}")
         
         emite_nf = f_col2.radio("Nota Fiscal?", ["Não", "Sim"], index=1 if safe_float(projeto_selecionado.get('custo_impostos')) > 0 else 0, key=f"nf_{prefix_key}")
         valor_nf = 0.0
@@ -93,22 +93,46 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             valor_nf = venda_final * (taxa_nf_pct / 100)
             f_col2.caption(f"Imposto ({taxa_nf_pct}%): - {utils.to_br_currency(valor_nf)}")
         
+        # -------------------------------------------------------------------------
+        # NOVO: SELECTBOX DE PARCELAMENTO PUXANDO DA BASE DE DADOS (CONFIGURAÇÕES)
+        # -------------------------------------------------------------------------
+        opcoes_cartao = ["Nenhum / Dinheiro / PIX"]
+        dict_taxas = {"Nenhum / Dinheiro / PIX": 0.0}
+        
+        if not df_taxas_config.empty:
+            for _, t_row in df_taxas_config.iterrows():
+                item_nome = str(t_row.get('Item', '')).strip()
+                taxa_val = safe_float(t_row.get('Taxa (%)', 0.0))
+                # Ignora a taxa da nota fiscal pois ela tem seu próprio radio button
+                if "NF" not in item_nome.upper() and "NOTA FISCAL" not in item_nome.upper() and item_nome != "":
+                    opcoes_cartao.append(item_nome)
+                    dict_taxas[item_nome] = taxa_val
+
+        # Tenta descobrir qual era a opção selecionada baseada no custo monetário salvo no banco
         custo_c_salvo = safe_float(projeto_selecionado.get('custo_cartao'))
         perc_previo = (custo_c_salvo / venda_final * 100) if venda_final > 0 else 0.0
-        taxa_manual_pct = f_col3.number_input("Taxa de Recebimento (%)", value=float(perc_previo), format="%.2f", step=0.01, key=f"taxa_man_{prefix_key}")
-        valor_cartao_taxa = venda_final * (taxa_manual_pct / 100)
-        f_col3.caption(f"Desconto Recebimento: - {utils.to_br_currency(valor_cartao_taxa)}")
+        
+        idx_selecionado = 0
+        for i, opt in enumerate(opcoes_cartao):
+            if abs(dict_taxas[opt] - perc_previo) < 0.01:
+                idx_selecionado = i
+                break
+                
+        opcao_escolhida = f_col3.selectbox("PARCELAMENTO CARTÃO", opcoes_cartao, index=idx_selecionado, key=f"taxa_man_{prefix_key}")
+        taxa_cartao_pct = dict_taxas[opcao_escolhida]
+        valor_cartao_taxa = venda_final * (taxa_cartao_pct / 100)
+        f_col3.caption(f"Taxa ({taxa_cartao_pct}%): - {utils.to_br_currency(valor_cartao_taxa)}")
 
         st.markdown("---")
         f_col4, f_col5, f_col6 = st.columns(3)
         
         perc_comissao_salvo = (safe_float(projeto_selecionado.get('custo_comissao')) / venda_final * 100) if venda_final > 0 else 0.0
-        comissao_pct = f_col4.number_input("Comissão (%)", value=float(perc_comissao_salvo), format="%.1f", key=f"com_{prefix_key}")
+        comissao_pct = f_col4.number_input("Comissão (%)", value=float(perc_comissao_salvo), format="%.1f", step=None, key=f"com_{prefix_key}")
         valor_comissao = venda_final * (comissao_pct / 100)
         f_col4.caption(f"Valor: - {utils.to_br_currency(valor_comissao)}")
 
-        custo_ext = f_col5.number_input("Materiais Extras (R$)", value=safe_float(projeto_selecionado.get('custo_adicional_materiais')), format="%.2f", key=f"mat_{prefix_key}")
-        custo_mo = f_col6.number_input("Mão de Obra / Terceiros (R$)", value=safe_float(projeto_selecionado.get('custo_terceirizados')), format="%.2f", key=f"mao_{prefix_key}")
+        custo_ext = f_col5.number_input("Materiais Extras (R$)", value=safe_float(projeto_selecionado.get('custo_adicional_materiais')), format="%.2f", step=None, key=f"mat_{prefix_key}")
+        custo_mo = f_col6.number_input("Mão de Obra / Terceiros (R$)", value=safe_float(projeto_selecionado.get('custo_terceirizados')), format="%.2f", step=None, key=f"mao_{prefix_key}")
 
         abatimentos = valor_nf + valor_cartao_taxa + valor_comissao + custo_ext + custo_mo
         lucro_final = venda_final - custo_total_produtos - abatimentos
@@ -125,7 +149,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
     notas = st.text_area("Observações", value=str(projeto_selecionado.get('notas_internas', '')) if str(projeto_selecionado.get('notas_internas', '')) != 'nan' else '', key=f"notas_{prefix_key}")
 
     # ==============================================================
-    # 🧾 INFORMAÇÕES FISCAIS E BOLETOS (MOVIDO PARA CÁ)
+    # 🧾 INFORMAÇÕES FISCAIS E BOLETOS
     # ==============================================================
     nova_nf_entrada = ""
     novo_venc_boleto = None
@@ -168,7 +192,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     except: pass
                 
                 data_confirmada = col_b1.date_input("Vencimento do Fornecedor", value=venc_obj, format="DD/MM/YYYY", key=f"conf_data_{prefix_key}")
-                valor_confirmado = col_b2.number_input("Valor Extraído (R$)", value=float(dados_ext['valor']), format="%.2f", key=f"conf_val_{prefix_key}")
+                valor_confirmado = col_b2.number_input("Valor Extraído (R$)", value=float(dados_ext['valor']), format="%.2f", step=None, key=f"conf_val_{prefix_key}")
                 
                 if st.button("🚀 Salvar Boleto e Criar Lembrete", type="primary", use_container_width=True, key=f"btn_salvar_bol_{prefix_key}"):
                     with st.spinner("Salvando no Drive e no ERP..."):
@@ -299,12 +323,12 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             
             st.markdown("#### Valores e Pagamento")
             col_val1, col_val2 = st.columns(2)
-            c_val_base = col_val1.number_input("Valor Base / Equipamentos (R$)", value=float(d_ct.get('val_base', venda_final)), format="%.2f", key=f"ct_val_base_{prefix_key}")
-            c_val_inst = col_val2.number_input("Valor da Instalação (R$ - Opcional)", value=float(d_ct.get('val_inst', 0.0)), format="%.2f", key=f"ct_val_inst_{prefix_key}")
+            c_val_base = col_val1.number_input("Valor Base / Equipamentos (R$)", value=float(d_ct.get('val_base', venda_final)), format="%.2f", step=None, key=f"ct_val_base_{prefix_key}")
+            c_val_inst = col_val2.number_input("Valor da Instalação (R$ - Opcional)", value=float(d_ct.get('val_inst', 0.0)), format="%.2f", step=None, key=f"ct_val_inst_{prefix_key}")
             
             col_val3, col_val4 = st.columns(2)
-            c_val_hidr = col_val3.number_input("Valor Materiais Hidráulicos (R$ - Opcional)", value=float(d_ct.get('val_hidr', 0.0)), format="%.2f", key=f"ct_val_hidr_{prefix_key}")
-            c_val_outros = col_val4.number_input("Valor Outros Serviços (R$ - Opcional)", value=float(d_ct.get('val_outros', 0.0)), format="%.2f", key=f"ct_val_outros_{prefix_key}")
+            c_val_hidr = col_val3.number_input("Valor Materiais Hidráulicos (R$ - Opcional)", value=float(d_ct.get('val_hidr', 0.0)), format="%.2f", step=None, key=f"ct_val_hidr_{prefix_key}")
+            c_val_outros = col_val4.number_input("Valor Outros Serviços (R$ - Opcional)", value=float(d_ct.get('val_outros', 0.0)), format="%.2f", step=None, key=f"ct_val_outros_{prefix_key}")
             
             c_desc_outros = ""
             if c_val_outros > 0:
@@ -426,6 +450,24 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                 st.error(f"Erro ao salvar. Verifique se as colunas 'nf_entrada' e 'vencimento_boleto' foram criadas no Supabase. Detalhe: {e}")
 
 def renderizar():
+    # CSS Injetado para ocultar as setinhas (+ e -) de todos os number_inputs da página
+    st.markdown("""
+        <style>
+        /* Remove setinhas dos inputs numéricos Nativos do Streamlit */
+        div[data-testid="stNumberInputStepUp"], div[data-testid="stNumberInputStepDown"] { 
+            display: none !important; 
+        }
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { 
+            -webkit-appearance: none !important; 
+            margin: 0 !important; 
+        }
+        input[type=number] { 
+            -moz-appearance: textfield !important; 
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
     st.markdown("## 📋 Gestão de Serviços")
     supabase = st.session_state.supabase
     
