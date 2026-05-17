@@ -94,7 +94,7 @@ st.markdown("""
         display: none !important; 
     }
     
-    h1, h2, h3 {
+    h1, h2, h3, h4 {
         color: #004488 !important;
         font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     }
@@ -109,11 +109,11 @@ st.markdown("""
         background-color: #ffffff !important;
         color: #1e293b !important;
         border: 1px solid #d1d5db !important;
-        border-radius: 6px !important;
+        border-radius: 4px !important;
         font-size: 0.85rem !important;
         font-weight: 600 !important;
-        min-height: 40px !important;
-        height: 40px !important;
+        min-height: 38px !important;
+        height: 38px !important;
         padding: 0 10px !important;
         margin: 0 !important;
         width: 100% !important;
@@ -202,7 +202,7 @@ else:
             st.rerun()
         
         st.write("---")
-        # Definido como primary para pegar o CSS de botão pequeno de 40px
+        # Definido como primary para pegar o CSS de botão pequeno de 38px
         if st.button("🚪 Sair do Sistema", type="primary", use_container_width=True):
             st.session_state.authenticated = False
             st.session_state.menu_option = "Página Inicial"
@@ -216,9 +216,9 @@ else:
         st.caption(f"📅 Calendário Operacional: {utils.hoje.strftime('%d/%m/%Y')}")
 
         # =========================================================================
-        # NOVO: DASHBOARD DE ALERTAS (EFEITO TABELA EMPILHADA)
+        # NOVO: DASHBOARD DE ALERTAS (EFEITO TABELA COLADA)
         # =========================================================================
-        st.markdown("<h3>🔔 Lembretes de Pagamento (Próximos 5 Dias & Atrasos)</h3>", unsafe_allow_html=True)
+        st.markdown("<h4 style='font-weight: 600; margin-bottom: 10px;'>🔔 Lembretes de Pagamento</h4>", unsafe_allow_html=True)
         
         try:
             res_bol = st.session_state.supabase.table('boletos_fornecedores').select('*').eq('status', 'Pendente').order('vencimento').execute()
@@ -234,7 +234,6 @@ else:
                         lembretes_ativos.append((b, venc_dt, diff_days))
             
             if lembretes_ativos:
-                st.markdown("<div style='margin-bottom: 5px;'></div>", unsafe_allow_html=True)
                 for idx, (b, venc_dt, diff) in enumerate(lembretes_ativos):
                     
                     if diff < 0:
@@ -244,15 +243,16 @@ else:
                     else:
                         cor_card = "#e6ffe6"; icone = "📅"; status_txt = f"EM {diff} DIAS"
                     
-                    # Puxa a linha pra cima anulando o gap do Streamlit, grudando feito tabela
+                    # MAGIA CSS: Puxa a linha pra cima anulando o gap do Streamlit, grudando feito tabela
                     if idx > 0:
-                        st.markdown("<div style='margin-top: -20px;'></div>", unsafe_allow_html=True)
+                        st.markdown("<div style='margin-top: -32px;'></div>", unsafe_allow_html=True)
                         
                     col_info, col_btn_doc, col_btn_pagar = st.columns([7.5, 1.2, 1.2])
                     
                     with col_info:
+                        # Altura travada em 38px, alinhamento flex perfeito e compensação de margin (3px) para bater com os botões
                         st.markdown(f"""
-                            <div style="background-color: {cor_card}; border: 1px solid #d1d5db; border-radius: 6px; padding: 0 15px; display: flex; align-items: center; justify-content: space-between; height: 40px;">
+                            <div style="background-color: {cor_card}; border: 1px solid #d1d5db; border-radius: 4px; padding: 0 15px; display: flex; align-items: center; justify-content: space-between; height: 38px; margin-top: 3px;">
                                 <div style="display: flex; align-items: center; gap: 10px; overflow: hidden;">
                                     <span style="font-size: 14px;">{icone}</span>
                                     <span style="font-size: 14px; font-weight: 600; color: #111; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{b['cliente']}</span>
@@ -275,9 +275,11 @@ else:
                                 id_db = b['id']
                                 id_drive = b.get('link_drive_id')
                                 
+                                # Move arquivo físico no Drive se houver
                                 if id_drive and not pd.isna(id_drive) and str(id_drive).strip().lower() not in ["none", "nan", ""]:
                                     mover_arquivo_drive_app(id_drive, ["Boletos", "PAGOS"])
                                     
+                                # Atualiza status no banco e mantém a janela de 1 mês projetada!
                                 if id_db and not pd.isna(id_db) and str(id_db).strip() != "":
                                     st.session_state.supabase.table('boletos_fornecedores').update({'status': 'Pago'}).eq('id', id_db).execute()
                                     try:
