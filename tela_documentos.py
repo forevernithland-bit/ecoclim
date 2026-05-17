@@ -229,7 +229,8 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                 if sub_sel == "PAGOS": 
                     pertence = (r.get('status') == 'Pago')
                 else: 
-                    pertence = (v_dt and v_dt.month == mes_sel_idx and r.get('status') != 'Pago')
+                    # TRAVA REMOVIDA: Agora exibe as contas do mês mesmo que já estejam pagas
+                    pertence = (v_dt and v_dt.month == mes_sel_idx)
                 
                 if pertence:
                     v_dt_datetime = datetime.datetime.combine(v_dt, datetime.time()) if v_dt else pd.NaT
@@ -369,10 +370,12 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             
             # BLOCO: MARCAR COMO PAGO
             if "Pagar" in df_editado.columns:
-                boletos_pagar = df_editado[df_editado["Pagar"] == True]
+                # Segurança: Filtra para pagar apenas o que não estiver pago ainda
+                boletos_pagar = df_editado[(df_editado["Pagar"] == True) & (df_editado["Status"] != "Pago")]
+                
                 if not boletos_pagar.empty:
-                    st.info(f"💡 Você marcou {len(boletos_pagar)} despesa(s) para pagamento.")
-                    if st.button("🚀 Confirmar Pagamentos (Mover para Pagos)", type="primary", use_container_width=True):
+                    st.info(f"💡 Você marcou {len(boletos_pagar)} nova(s) despesa(s) para pagamento.")
+                    if st.button("🚀 Confirmar Pagamentos", type="primary", use_container_width=True):
                         with st.spinner("Atualizando registros..."):
                             for _, r_pag in boletos_pagar.iterrows():
                                 id_db = r_pag.get("ID_DB")
