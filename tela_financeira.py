@@ -5,7 +5,7 @@ import io
 import utils
 
 # =============================================================================
-# MOTORES DE BANCO DE DADOS BLINDADOS (ESPECÍFICOS POR ANO E ANTI-NAN)
+# MOTORES DE BANCO DE DADOS BLINDADOS (ESPECÍFICOS POR ANO)
 # =============================================================================
 def carregar_dados_fin(nome_tabela, lista_contas, ano):
     supabase = st.session_state.supabase
@@ -40,18 +40,18 @@ def salvar_dados_fin(nome_tabela, df, ano):
         registro = {
             "ano": ano,
             "meses": linha["MESES"],
-            "janeiro": utils.safe_float(linha["JANEIRO"]),
-            "fevereiro": utils.safe_float(linha["FEVEREIRO"]),
-            "marco": utils.safe_float(linha["MARÇO"]),
-            "abril": utils.safe_float(linha["ABRIL"]),
-            "maio": utils.safe_float(linha["MAIO"]),
-            "junho": utils.safe_float(linha["JUNHO"]),
-            "julho": utils.safe_float(linha["JULHO"]),
-            "agosto": utils.safe_float(linha["AGOSTO"]),
-            "setembro": utils.safe_float(linha["SETEMBRO"]),
-            "outubro": utils.safe_float(linha["OUTUBRO"]),
-            "novembro": utils.safe_float(linha["NOVEMBRO"]),
-            "dezembro": utils.safe_float(linha["DEZEMBRO"])
+            "janeiro": float(linha["JANEIRO"]),
+            "fevereiro": float(linha["FEVEREIRO"]),
+            "marco": float(linha["MARÇO"]),
+            "abril": float(linha["ABRIL"]),
+            "maio": float(linha["MAIO"]),
+            "junho": float(linha["JUNHO"]),
+            "julho": float(linha["JULHO"]),
+            "agosto": float(linha["AGOSTO"]),
+            "setembro": float(linha["SETEMBRO"]),
+            "outubro": float(linha["OUTUBRO"]),
+            "novembro": float(linha["NOVEMBRO"]),
+            "dezembro": float(linha["DEZEMBRO"])
         }
         dados_finais.append(registro)
     try:
@@ -96,7 +96,7 @@ def limpar_e_garantir_linhas(df, lista_contas):
     return df.sort_values('MESES').reset_index(drop=True)
 
 # =============================================================================
-# MOTORES DE EXPORTAÇÃO E IMPORTAÇÃO GLOBAL BLINDADA CONTRA NAN
+# MOTORES DE EXPORTAÇÃO E IMPORTAÇÃO GLOBAL (COM ESTEIRA DE LIMPEZA ANTI-NAN)
 # =============================================================================
 def exportar_base_completa_excel():
     supabase = st.session_state.supabase
@@ -147,32 +147,48 @@ def importar_base_completa_excel(file_buffer):
         
         def processar_aba(df, nome_tabela_banco):
             df.columns = df.columns.str.strip().str.upper()
+            
+            # 1. Esteira de Limpeza: Remove linhas fantasmas do Excel
+            if 'ANO' not in df.columns or 'MESES' not in df.columns: return
+            df = df.dropna(subset=['ANO', 'MESES'])
+            
+            # 2. Esteira de Limpeza: Força colunas de meses a virarem números (Texto e Vazios viram 0.0)
+            for col in utils.meses_pt:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
+                else:
+                    df[col] = 0.0
+                    
             dados_finais = []
             anos_presentes = set()
             
             for _, linha in df.iterrows():
-                ano_linha = int(linha["ANO"])
+                try:
+                    ano_linha = int(linha["ANO"])
+                except: continue # Se o ano for inválido, pula a linha
+                
                 anos_presentes.add(ano_linha)
                 
-                # utils.safe_float garante que espaços vazios (NaN do Excel) virem 0.0 sem dar pau no Supabase
+                # Agora temos 100% de certeza que os dados são Floats limpos
                 registro = {
                     "ano": ano_linha,
-                    "meses": str(linha["MESES"]),
-                    "janeiro": utils.safe_float(linha.get("JANEIRO", 0.0)),
-                    "fevereiro": utils.safe_float(linha.get("FEVEREIRO", 0.0)),
-                    "marco": utils.safe_float(linha.get("MARÇO", 0.0)),
-                    "abril": utils.safe_float(linha.get("ABRIL", 0.0)),
-                    "maio": utils.safe_float(linha.get("MAIO", 0.0)),
-                    "junho": utils.safe_float(linha.get("JUNHO", 0.0)),
-                    "julho": utils.safe_float(linha.get("JULHO", 0.0)),
-                    "agosto": utils.safe_float(linha.get("AGOSTO", 0.0)),
-                    "setembro": utils.safe_float(linha.get("SETEMBRO", 0.0)),
-                    "outubro": utils.safe_float(linha.get("OUTUBRO", 0.0)),
-                    "novembro": utils.safe_float(linha.get("NOVEMBRO", 0.0)),
-                    "dezembro": utils.safe_float(linha.get("DEZEMBRO", 0.0))
+                    "meses": str(linha["MESES"]).strip(),
+                    "janeiro": float(linha["JANEIRO"]),
+                    "fevereiro": float(linha["FEVEREIRO"]),
+                    "marco": float(linha["MARÇO"]),
+                    "abril": float(linha["ABRIL"]),
+                    "maio": float(linha["MAIO"]),
+                    "junho": float(linha["JUNHO"]),
+                    "julho": float(linha["JULHO"]),
+                    "agosto": float(linha["AGOSTO"]),
+                    "setembro": float(linha["SETEMBRO"]),
+                    "outubro": float(linha["OUTUBRO"]),
+                    "novembro": float(linha["NOVEMBRO"]),
+                    "dezembro": float(linha["DEZEMBRO"])
                 }
                 dados_finais.append(registro)
                 
+            # Limpa do banco apenas os anos que vieram no arquivo para evitar duplicidade
             for a in anos_presentes:
                 supabase.table(nome_tabela_banco).delete().eq("ano", a).execute()
                 
