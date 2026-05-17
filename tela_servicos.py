@@ -47,7 +47,85 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
     nova_data = col_dir.date_input("Previsão / Data de Conclusão", value=data_inicial, format="DD/MM/YYYY", key=f"data_{prefix_key}")
 
     # ==============================================================
-    # NOVOS CAMPOS: NF DE ENTRADA E VENCIMENTO BOLETO (NOVA LINHA)
+    # 🛒 ITENS VENDIDOS
+    # ==============================================================
+    st.markdown("#### 🛒 Itens Vendidos (Ajuste Quantidades e Custos)")
+    itens_json = projeto_selecionado.get('detalhamento_itens', [])
+    df_itens = pd.DataFrame(itens_json) if (isinstance(itens_json, list) and len(itens_json) > 0) else pd.DataFrame(columns=['Item', 'Qtd', 'Custo Un.', 'Venda Un.'])
+    for col in ['Item', 'Qtd', 'Custo Un.', 'Venda Un.']:
+        if col not in df_itens.columns: df_itens[col] = 0.0 if 'Un.' in col or 'Qtd' in col else ""
+
+    if not df_produtos.empty:
+        for idx, row in df_itens.iterrows():
+            if safe_float(row.get('Custo Un.')) == 0.0:
+                nome_procurado = str(row.get('Item', '')).strip().upper()
+                for _, prod_row in df_produtos.iterrows():
+                    if str(prod_row.get('Item', '')).strip().upper() == nome_procurado:
+                        df_itens.at[idx, 'Custo Un.'] = safe_float(prod_row.get('Custo', prod_row.get('Custo (R$)', 0)))
+                        break
+
+    config_itens = {
+        "Item": st.column_config.TextColumn("Produto", width="medium"),
+        "Qtd": st.column_config.NumberColumn("Qtd", min_value=0),
+        "Custo Un.": st.column_config.NumberColumn("Custo Fábrica (Un.)", format="R$ %.2f"),
+        "Venda Un.": st.column_config.NumberColumn("Venda (Un.)", format="R$ %.2f")
+    }
+    df_itens_final = st.data_editor(df_itens, column_config=config_itens, num_rows="dynamic", use_container_width=True, key=f"edit_itens_{prefix_key}")
+    custo_total_produtos = (pd.to_numeric(df_itens_final['Custo Un.'], errors='coerce').fillna(0) * pd.to_numeric(df_itens_final['Qtd'], errors='coerce').fillna(0)).sum()
+
+    # ==============================================================
+    # 🧮 ABATIMENTOS E IMPOSTOS
+    # ==============================================================
+    st.markdown("#### 🧮 Abatimentos e Impostos")
+    with st.container(border=True):
+        f_col1, f_col2, f_col3 = st.columns(3)
+        venda_final = f_col1.number_input("Valor da Venda (R$)", value=safe_float(projeto_selecionado.get('valor_venda_total')), format="%.2f", key=f"venda_{prefix_key}")
+        
+        emite_nf = f_col2.radio("Nota Fiscal?", ["Não", "Sim"], index=1 if safe_float(projeto_selecionado.get('custo_impostos')) > 0 else 0, key=f"nf_{prefix_key}")
+        valor_nf = 0.0
+        if emite_nf == "Sim":
+            taxa_nf_pct = 6.0
+            if not df_taxas_config.empty:
+                for _, t_row in df_taxas_config.iterrows():
+                    if "NOTA FISCAL" in str(t_row.get('Item', '')).upper() or "NF" in str(t_row.get('Item', '')).upper():
+                        taxa_nf_pct = safe_float(t_row.get('Taxa (%)'))
+                        break
+            valor_nf = venda_final * (taxa_nf_pct / 100)
+            f_col2.caption(f"Imposto ({taxa_nf_pct}%): - {utils.to_br_currency(valor_nf)}")
+        
+        custo_c_salvo = safe_float(projeto_selecionado.get('custo_cartao'))
+        perc_previo = (custo_c_salvo / venda_final * 100) if venda_final > 0 else 0.0
+        taxa_manual_pct = f_col3.number_input("Taxa de Recebimento (%)", value=float(perc_previo), format="%.2f", step=0.01, key=f"taxa_man_{prefix_key}")
+        valor_cartao_taxa = venda_final * (taxa_manual_pct / 100)
+        f_col3.caption(f"Desconto Recebimento: - {utils.to_br_currency(valor_cartao_taxa)}")
+
+        st.markdown("---")
+        f_col4, f_col5, f_col6 = st.columns(3)
+        
+        perc_comissao_salvo = (safe_float(projeto_selecionado.get('custo_comissao')) / venda_final * 100) if venda_final > 0 else 0.0
+        comissao_pct = f_col4.number_input("Comissão (%)", value=float(perc_comissao_salvo), format="%.1f", key=f"com_{prefix_key}")
+        valor_comissao = venda_final * (comissao_pct / 100)
+        f_col4.caption(f"Valor: - {utils.to_br_currency(valor_comissao)}")
+
+        custo_ext = f_col5.number_input("Materiais Extras (R$)", value=safe_float(projeto_selecionado.get('custo_adicional_materiais')), format="%.2f", key=f"mat_{prefix_key}")
+        custo_mo = f_col6.number_input("Mão de Obra / Terceiros (R$)", value=safe_float(projeto_selecionado.get('custo_terceirizados')), format="%.2f", key=f"mao_{prefix_key}")
+
+        abatimentos = valor_nf + valor_cartao_taxa + valor_comissao + custo_ext + custo_mo
+        lucro_final = venda_final - custo_total_produtos - abatimentos
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        r1, r2 = st.columns(2)
+        r1.metric("Custo Total (Produtos + Taxas)", utils.to_br_currency(custo_total_produtos + abatimentos))
+        margem_r = (lucro_final / venda_final * 100) if venda_final > 0 else 0
+        r2.metric("LUCRO LÍQUIDO FINAL", utils.to_br_currency(lucro_final), delta=f"{margem_r:.1f}% Margem")
+
+    # ==============================================================
+    # OBSERVAÇÕES
+    # ==============================================================
+    notas = st.text_area("Observações", value=str(projeto_selecionado.get('notas_internas', '')) if str(projeto_selecionado.get('notas_internas', '')) != 'nan' else '', key=f"notas_{prefix_key}")
+
+    # ==============================================================
+    # 🧾 INFORMAÇÕES FISCAIS E BOLETOS (MOVIDO PARA CÁ)
     # ==============================================================
     nova_nf_entrada = ""
     novo_venc_boleto = None
@@ -56,7 +134,6 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("#### 🧾 Informações Fiscais e Boletos")
         
-        # Colocando em colunas principais (nova linha) para NÃO desconfigurar o layout superior
         c_nf, c_venc = st.columns(2)
         
         nf_entrada_banco = projeto_selecionado.get('nf_entrada', '')
@@ -70,9 +147,6 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         nova_nf_entrada = c_nf.text_input("NF de Entrada", value=str(nf_entrada_banco) if str(nf_entrada_banco) != 'nan' else '', placeholder="Opcional", key=f"nf_ent_{prefix_key}")
         novo_venc_boleto = c_venc.date_input("Vencimento Boleto (Cliente)", value=venc_boleto_inicial, format="DD/MM/YYYY", key=f"venc_bol_{prefix_key}")
 
-        # =========================================================================
-        # NOVO: IMPORTADOR DE BOLETOS DE FORNECEDOR (AUTOMATIZADO)
-        # =========================================================================
         with st.container(border=True):
             st.markdown("##### 📥 Importar Boleto de Fornecedor (PDF)")
             arquivo_boleto = st.file_uploader("Anexar PDF do Boleto para leitura de IA", type=["pdf"], key=f"up_bol_{prefix_key}")
@@ -128,76 +202,6 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                                 st.error(f"Erro no banco de dados. Tabela 'boletos_fornecedores' existe? Erro: {e}")
                         else:
                             st.error("Erro ao fazer o upload para o Google Drive.")
-        # =========================================================================
-
-    st.markdown("#### 🛒 Itens Vendidos (Ajuste Quantidades e Custos)")
-    itens_json = projeto_selecionado.get('detalhamento_itens', [])
-    df_itens = pd.DataFrame(itens_json) if (isinstance(itens_json, list) and len(itens_json) > 0) else pd.DataFrame(columns=['Item', 'Qtd', 'Custo Un.', 'Venda Un.'])
-    for col in ['Item', 'Qtd', 'Custo Un.', 'Venda Un.']:
-        if col not in df_itens.columns: df_itens[col] = 0.0 if 'Un.' in col or 'Qtd' in col else ""
-
-    if not df_produtos.empty:
-        for idx, row in df_itens.iterrows():
-            if safe_float(row.get('Custo Un.')) == 0.0:
-                nome_procurado = str(row.get('Item', '')).strip().upper()
-                for _, prod_row in df_produtos.iterrows():
-                    if str(prod_row.get('Item', '')).strip().upper() == nome_procurado:
-                        df_itens.at[idx, 'Custo Un.'] = safe_float(prod_row.get('Custo', prod_row.get('Custo (R$)', 0)))
-                        break
-
-    config_itens = {
-        "Item": st.column_config.TextColumn("Produto", width="medium"),
-        "Qtd": st.column_config.NumberColumn("Qtd", min_value=0),
-        "Custo Un.": st.column_config.NumberColumn("Custo Fábrica (Un.)", format="R$ %.2f"),
-        "Venda Un.": st.column_config.NumberColumn("Venda (Un.)", format="R$ %.2f")
-    }
-    df_itens_final = st.data_editor(df_itens, column_config=config_itens, num_rows="dynamic", use_container_width=True, key=f"edit_itens_{prefix_key}")
-    custo_total_produtos = (pd.to_numeric(df_itens_final['Custo Un.'], errors='coerce').fillna(0) * pd.to_numeric(df_itens_final['Qtd'], errors='coerce').fillna(0)).sum()
-
-    st.markdown("#### 🧮 Abatimentos e Impostos")
-    with st.container(border=True):
-        f_col1, f_col2, f_col3 = st.columns(3)
-        venda_final = f_col1.number_input("Valor da Venda (R$)", value=safe_float(projeto_selecionado.get('valor_venda_total')), format="%.2f", key=f"venda_{prefix_key}")
-        
-        emite_nf = f_col2.radio("Nota Fiscal?", ["Não", "Sim"], index=1 if safe_float(projeto_selecionado.get('custo_impostos')) > 0 else 0, key=f"nf_{prefix_key}")
-        valor_nf = 0.0
-        if emite_nf == "Sim":
-            taxa_nf_pct = 6.0
-            if not df_taxas_config.empty:
-                for _, t_row in df_taxas_config.iterrows():
-                    if "NOTA FISCAL" in str(t_row.get('Item', '')).upper() or "NF" in str(t_row.get('Item', '')).upper():
-                        taxa_nf_pct = safe_float(t_row.get('Taxa (%)'))
-                        break
-            valor_nf = venda_final * (taxa_nf_pct / 100)
-            f_col2.caption(f"Imposto ({taxa_nf_pct}%): - {utils.to_br_currency(valor_nf)}")
-        
-        custo_c_salvo = safe_float(projeto_selecionado.get('custo_cartao'))
-        perc_previo = (custo_c_salvo / venda_final * 100) if venda_final > 0 else 0.0
-        taxa_manual_pct = f_col3.number_input("Taxa de Recebimento (%)", value=float(perc_previo), format="%.2f", step=0.01, key=f"taxa_man_{prefix_key}")
-        valor_cartao_taxa = venda_final * (taxa_manual_pct / 100)
-        f_col3.caption(f"Desconto Recebimento: - {utils.to_br_currency(valor_cartao_taxa)}")
-
-        st.markdown("---")
-        f_col4, f_col5, f_col6 = st.columns(3)
-        
-        perc_comissao_salvo = (safe_float(projeto_selecionado.get('custo_comissao')) / venda_final * 100) if venda_final > 0 else 0.0
-        comissao_pct = f_col4.number_input("Comissão (%)", value=float(perc_comissao_salvo), format="%.1f", key=f"com_{prefix_key}")
-        valor_comissao = venda_final * (comissao_pct / 100)
-        f_col4.caption(f"Valor: - {utils.to_br_currency(valor_comissao)}")
-
-        custo_ext = f_col5.number_input("Materiais Extras (R$)", value=safe_float(projeto_selecionado.get('custo_adicional_materiais')), format="%.2f", key=f"mat_{prefix_key}")
-        custo_mo = f_col6.number_input("Mão de Obra / Terceiros (R$)", value=safe_float(projeto_selecionado.get('custo_terceirizados')), format="%.2f", key=f"mao_{prefix_key}")
-
-        abatimentos = valor_nf + valor_cartao_taxa + valor_comissao + custo_ext + custo_mo
-        lucro_final = venda_final - custo_total_produtos - abatimentos
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-        r1, r2 = st.columns(2)
-        r1.metric("Custo Total (Produtos + Taxas)", utils.to_br_currency(custo_total_produtos + abatimentos))
-        margem_r = (lucro_final / venda_final * 100) if venda_final > 0 else 0
-        r2.metric("LUCRO LÍQUIDO FINAL", utils.to_br_currency(lucro_final), delta=f"{margem_r:.1f}% Margem")
-
-    notas = st.text_area("Observações", value=str(projeto_selecionado.get('notas_internas', '')) if str(projeto_selecionado.get('notas_internas', '')) != 'nan' else '', key=f"notas_{prefix_key}")
 
     # ==============================================================
     # AÇÕES FINAIS E GERAÇÃO DE ARQUIVOS
