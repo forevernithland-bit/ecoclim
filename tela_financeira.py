@@ -5,7 +5,37 @@ import io
 import utils
 
 # =============================================================================
-# MOTORES DE BANCO DE DADOS BLINDADOS (ESPECÍFICOS POR ANO)
+# ROBÔ DE TRADUÇÃO DE MOEDA BRASILEIRA (EXTREMAMENTE ROBUSTO)
+# =============================================================================
+def parse_br_currency(val):
+    if pd.isna(val): return 0.0
+    if isinstance(val, (int, float)): return float(val)
+    val_str = str(val).strip()
+    if val_str == '': return 0.0
+    
+    # Remove R$ e espaços
+    val_str = val_str.replace('R$', '').replace('\xa0', '').replace(' ', '')
+    
+    if ',' in val_str:
+        val_str = val_str.replace('.', '') # Tira os pontos de milhar
+        val_str = val_str.replace(',', '.') # Vírgula vira decimal
+    else:
+        if '.' in val_str:
+            partes = val_str.split('.')
+            if len(partes) > 2:
+                # Se tiver mais de um ponto (ex: 1.000.000), os pontos são milhares
+                val_str = val_str.replace('.', '')
+            else:
+                # Se tiver exatos 3 dígitos após o ponto (ex: 1.500), assumimos milhar
+                if len(partes[1]) == 3:
+                    val_str = val_str.replace('.', '')
+    try:
+        return float(val_str)
+    except:
+        return 0.0
+
+# =============================================================================
+# MOTORES DE BANCO DE DADOS BLINDADOS (ESPECÍFICOS POR ANO E ANTI-NAN)
 # =============================================================================
 def carregar_dados_fin(nome_tabela, lista_contas, ano):
     supabase = st.session_state.supabase
@@ -40,18 +70,18 @@ def salvar_dados_fin(nome_tabela, df, ano):
         registro = {
             "ano": ano,
             "meses": linha["MESES"],
-            "janeiro": float(linha["JANEIRO"]),
-            "fevereiro": float(linha["FEVEREIRO"]),
-            "marco": float(linha["MARÇO"]),
-            "abril": float(linha["ABRIL"]),
-            "maio": float(linha["MAIO"]),
-            "junho": float(linha["JUNHO"]),
-            "julho": float(linha["JULHO"]),
-            "agosto": float(linha["AGOSTO"]),
-            "setembro": float(linha["SETEMBRO"]),
-            "outubro": float(linha["OUTUBRO"]),
-            "novembro": float(linha["NOVEMBRO"]),
-            "dezembro": float(linha["DEZEMBRO"])
+            "janeiro": utils.safe_float(linha["JANEIRO"]),
+            "fevereiro": utils.safe_float(linha["FEVEREIRO"]),
+            "marco": utils.safe_float(linha["MARÇO"]),
+            "abril": utils.safe_float(linha["ABRIL"]),
+            "maio": utils.safe_float(linha["MAIO"]),
+            "junho": utils.safe_float(linha["JUNHO"]),
+            "julho": utils.safe_float(linha["JULHO"]),
+            "agosto": utils.safe_float(linha["AGOSTO"]),
+            "setembro": utils.safe_float(linha["SETEMBRO"]),
+            "outubro": utils.safe_float(linha["OUTUBRO"]),
+            "novembro": utils.safe_float(linha["NOVEMBRO"]),
+            "dezembro": utils.safe_float(linha["DEZEMBRO"])
         }
         dados_finais.append(registro)
     try:
@@ -96,7 +126,7 @@ def limpar_e_garantir_linhas(df, lista_contas):
     return df.sort_values('MESES').reset_index(drop=True)
 
 # =============================================================================
-# MOTORES DE EXPORTAÇÃO E IMPORTAÇÃO GLOBAL (COM ESTEIRA DE LIMPEZA ANTI-NAN)
+# MOTORES DE EXPORTAÇÃO E IMPORTAÇÃO GLOBAL BLINDADA CONTRA NAN
 # =============================================================================
 def exportar_base_completa_excel():
     supabase = st.session_state.supabase
@@ -148,11 +178,11 @@ def importar_base_completa_excel(file_buffer):
         def processar_aba(df, nome_tabela_banco):
             df.columns = df.columns.str.strip().str.upper()
             
-            # 1. Esteira de Limpeza: Remove linhas fantasmas do Excel
+            # Limpeza anti-linhas fantasmas
             if 'ANO' not in df.columns or 'MESES' not in df.columns: return
             df = df.dropna(subset=['ANO', 'MESES'])
             
-            # 2. Esteira de Limpeza: Força colunas de meses a virarem números (Texto e Vazios viram 0.0)
+            # Limpeza anti-NAN do Excel
             for col in utils.meses_pt:
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
@@ -163,13 +193,11 @@ def importar_base_completa_excel(file_buffer):
             anos_presentes = set()
             
             for _, linha in df.iterrows():
-                try:
-                    ano_linha = int(linha["ANO"])
-                except: continue # Se o ano for inválido, pula a linha
+                try: ano_linha = int(linha["ANO"])
+                except: continue
                 
                 anos_presentes.add(ano_linha)
                 
-                # Agora temos 100% de certeza que os dados são Floats limpos
                 registro = {
                     "ano": ano_linha,
                     "meses": str(linha["MESES"]).strip(),
@@ -188,7 +216,6 @@ def importar_base_completa_excel(file_buffer):
                 }
                 dados_finais.append(registro)
                 
-            # Limpa do banco apenas os anos que vieram no arquivo para evitar duplicidade
             for a in anos_presentes:
                 supabase.table(nome_tabela_banco).delete().eq("ano", a).execute()
                 
@@ -250,17 +277,17 @@ def renderizar():
         st.session_state.ano_dados_atual = ano_selecionado
         st.session_state.forcar_reload_fin = False
 
-    # --- HERANÇA DE DEZEMBRO (ANO ANTERIOR) ---
     df_p_prev = carregar_dados_fin('fin_patrimonio', contas_p, ano_selecionado - 1).set_index('MESES')
     pat_liq_prev_dec = df_p_prev.loc[df_p_prev.index.isin(['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS']), 'DEZEMBRO'].sum()
     pat_tot_prev_dec = pat_liq_prev_dec + df_p_prev.loc[df_p_prev.index.isin(['IMÓVEIS', 'VEÍCULOS']), 'DEZEMBRO'].sum()
     xp_prev_dec = df_p_prev.loc['INVESTIMENTO XP', 'DEZEMBRO'] if 'INVESTIMENTO XP' in df_p_prev.index else 0
     inter_prev_dec = df_p_prev.loc['CONTA INTER', 'DEZEMBRO'] if 'CONTA INTER' in df_p_prev.index else 0
 
+    # Configuração visual: Todos em Texto para poder exibir R$ e pontos perfeitos!
     cfg_edit = {"MESES": st.column_config.TextColumn("CONTA", width=220, disabled=True)}
     cfg_text = {"MESES": st.column_config.TextColumn("CONTA", width=220, disabled=True)}
     for m in utils.meses_pt: 
-        cfg_edit[m] = st.column_config.NumberColumn(m, width=100, format="R$ %,.2f")
+        cfg_edit[m] = st.column_config.TextColumn(m, width=100)
         cfg_text[m] = st.column_config.TextColumn(m, width=100)
 
     st.markdown('<div class="container-tabelas">', unsafe_allow_html=True)
@@ -295,18 +322,25 @@ def renderizar():
                         st.session_state.forcar_reload_fin = True
                         st.rerun()
 
+    # Aplicação da máscara visual brasileira R$ 1.000.000,00 no editor
+    df_p_view = st.session_state.db_df_p[colunas_visiveis].copy()
+    for m in colunas_visiveis:
+        if m != "MESES":
+            df_p_view[m] = df_p_view[m].apply(lambda x: utils.to_br_currency(x))
+
     df_p_ed = st.data_editor(
-        st.session_state.db_df_p[colunas_visiveis], 
+        df_p_view, 
         hide_index=True, 
         column_config=cfg_edit, 
         use_container_width=True, 
         height=285, 
-        key=f"ed_p_fin_estavel_v9_{ano_selecionado}"
+        key=f"ed_p_fin_estavel_v12_{ano_selecionado}"
     )
 
+    # Conversão reversa usando o robô
     df_p_trabalho = st.session_state.db_df_p.copy()
     for c in colunas_visiveis: 
-        if c != "MESES": df_p_trabalho[c] = df_p_ed[c]
+        if c != "MESES": df_p_trabalho[c] = df_p_ed[c].apply(parse_br_currency)
 
     df_n = df_p_trabalho.set_index('MESES')
     pat_liq = df_n.loc[df_n.index.isin(['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS'])].sum()
@@ -336,18 +370,25 @@ def renderizar():
     # 2. RECEBIMENTOS
     # --------------------------
     st.markdown(f"#### 💰 Recebimentos e Pró-labore ({ano_selecionado})")
+    
+    # Aplicação da máscara visual
+    df_e_view = st.session_state.db_df_e[colunas_visiveis].copy()
+    for m in colunas_visiveis:
+        if m != "MESES":
+            df_e_view[m] = df_e_view[m].apply(lambda x: utils.to_br_currency(x))
+
     df_e_ed = st.data_editor(
-        st.session_state.db_df_e[colunas_visiveis], 
+        df_e_view, 
         hide_index=True, 
         column_config=cfg_edit, 
         use_container_width=True, 
         height=190, 
-        key=f"ed_e_fin_estavel_v9_{ano_selecionado}"
+        key=f"ed_e_fin_estavel_v12_{ano_selecionado}"
     )
     
     df_e_trabalho = st.session_state.db_df_e.copy()
     for c in colunas_visiveis: 
-        if c != "MESES": df_e_trabalho[c] = df_e_ed[c]
+        if c != "MESES": df_e_trabalho[c] = df_e_ed[c].apply(parse_br_currency)
 
     tot_e = df_e_trabalho.set_index('MESES').sum()
     dict_res_e = {'MESES': ['TOTAL RECEBIMENTOS']}
