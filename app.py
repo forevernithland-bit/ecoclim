@@ -109,7 +109,7 @@ st.markdown("""
         background-color: #ffffff !important;
         color: #1e293b !important;
         border: 1px solid #d1d5db !important;
-        border-radius: 4px !important;
+        border-radius: 6px !important;
         font-size: 0.85rem !important;
         font-weight: 600 !important;
         min-height: 38px !important;
@@ -156,23 +156,64 @@ if "menu_option" not in st.session_state:
     st.session_state.menu_option = "Página Inicial"
 
 if not st.session_state.authenticated:
-    st.markdown("<br><br>", unsafe_allow_html=True)
-    col1, col2, col3 = st.columns([1, 1.5, 1])
+    
+    # CSS Injetado APENAS para a tela de login (sobrepõe os botões gigantes)
+    st.markdown("""
+        <style>
+        .login-btn-container div.stButton > button {
+            background-color: #004488 !important;
+            color: #ffffff !important;
+            border: none !important;
+            border-radius: 8px !important;
+            font-size: 1rem !important;
+            font-weight: 600 !important;
+            min-height: 45px !important;
+            height: 45px !important;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1) !important;
+            transition: all 0.3s ease !important;
+        }
+        .login-btn-container div.stButton > button:hover {
+            background-color: #003366 !important;
+            transform: translateY(-2px) !important;
+            box-shadow: 0 6px 12px rgba(0,0,0,0.15) !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown("<br><br><br>", unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([1, 1.2, 1])
     
     with col2:
-        if os.path.exists("logo.png"):
-            st.image("logo.png", width=200)
-        
-        st.subheader("Login Ecoclim ERP")
-        usuario = st.text_input("Usuário")
-        senha = st.text_input("Senha", type="password")
-        
-        if st.button("Acessar Sistema", use_container_width=True):
-            if usuario == "breno.lima" and senha == "Ecoclim2026@":
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("Usuário ou senha incorretos. Tente novamente.")
+        with st.container(border=True):
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            # Centraliza a Logo
+            c_img1, c_img2, c_img3 = st.columns([1, 1.5, 1])
+            with c_img2:
+                if os.path.exists("logo.png"):
+                    st.image("logo.png", use_container_width=True)
+            
+            # Centraliza o Título e reduz a fonte
+            st.markdown("<h4 style='text-align: center; color: #004488; font-weight: 600; margin-top: 10px; margin-bottom: 25px;'>Login Ecoclim ERP</h4>", unsafe_allow_html=True)
+            
+            usuario = st.text_input("Usuário")
+            senha = st.text_input("Senha", type="password")
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            # Centraliza o Botão e deixa ele menor
+            st.markdown('<div class="login-btn-container">', unsafe_allow_html=True)
+            c_btn1, c_btn2, c_btn3 = st.columns([1, 1.5, 1])
+            with c_btn2:
+                if st.button("Acessar Sistema", use_container_width=True):
+                    if usuario == "breno.lima" and senha == "Ecoclim2026@":
+                        st.session_state.authenticated = True
+                        st.rerun()
+                    else:
+                        st.error("Usuário ou senha incorretos.")
+            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown("<br>", unsafe_allow_html=True)
+
 else:
     # =============================================================================
     # 7. MENU DE NAVEGAÇÃO LATERAL (BARRA BRANCA LIMPA)
