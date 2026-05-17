@@ -48,10 +48,41 @@ def limpar_e_garantir_linhas(df, lista_contas):
     df['MESES'] = pd.Categorical(df['MESES'], categories=lista_contas, ordered=True)
     return df.sort_values('MESES').reset_index(drop=True)
 
+def salvar_financeiro_seguro(nome_tabela, df, ano):
+    """Motor blindado de salvamento para lidar com o Supabase"""
+    supabase = st.session_state.supabase
+    
+    dados_min = []
+    dados_mai = []
+    
+    for _, linha in df.iterrows():
+        # Molde Minúsculo (Padrão nativo do banco de dados Postgres/Supabase)
+        reg_min = {"ano": ano, "meses": linha["MESES"]}
+        for m in utils.meses_pt: reg_min[m.lower()] = float(linha[m]) if pd.notna(linha[m]) else 0.0
+        dados_min.append(reg_min)
+        
+        # Molde Maiúsculo (Caso a coluna tenha sido criada com caps lock no Supabase)
+        reg_mai = {"ano": ano, "MESES": linha["MESES"]}
+        for m in utils.meses_pt: reg_mai[m.upper()] = float(linha[m]) if pd.notna(linha[m]) else 0.0
+        dados_mai.append(reg_mai)
+        
+    # 1. Apaga os dados antigos do ano para evitar duplicidade
+    try:
+        supabase.table(nome_tabela).delete().eq("ano", ano).execute()
+    except: pass
+    
+    # 2. Tenta inserir. Se der erro (ex: nome da coluna não existe), tenta o outro formato
+    try:
+        supabase.table(nome_tabela).insert(dados_min).execute()
+    except:
+        try:
+            supabase.table(nome_tabela).insert(dados_mai).execute()
+        except Exception as e:
+            st.error(f"Erro crítico ao tentar salvar a tabela {nome_tabela}. Detalhe: {e}")
+
 def renderizar():
     st.markdown('<div class="financeiro">', unsafe_allow_html=True)
     
-    # Flag para controlar o botão de salvar
     if "salvar_fin_clicado" not in st.session_state:
         st.session_state.salvar_fin_clicado = False
         
@@ -108,7 +139,6 @@ def renderizar():
     st.markdown("#### 🏛️ Posição Patrimonial e Investimentos")
     df_p_ed = st.data_editor(st.session_state.df_p[colunas_visiveis], hide_index=True, column_config=cfg_edit, use_container_width=True, height=285, key=f"ed_p_fin_{ano_selecionado}")
 
-    # Atualiza a memória instantaneamente para os cálculos e para o botão de salvar
     for c in colunas_visiveis: 
         if c != "MESES": st.session_state.df_p[c] = df_p_ed[c]
 
@@ -142,7 +172,6 @@ def renderizar():
     st.markdown("#### 💰 Recebimentos e Pró-labore")
     df_e_ed = st.data_editor(st.session_state.df_e[colunas_visiveis], hide_index=True, column_config=cfg_edit, use_container_width=True, height=190, key=f"ed_e_fin_{ano_selecionado}")
     
-    # Atualiza a memória instantaneamente para os cálculos e para o botão de salvar
     for c in colunas_visiveis: 
         if c != "MESES": st.session_state.df_e[c] = df_e_ed[c]
 
@@ -158,13 +187,13 @@ def renderizar():
     
     # --- PROCESSO DE SALVAMENTO MANUAL NO BANCO ---
     col_espaco, col_btn = st.columns([3, 1])
-    if col_btn.button("💾 GRAVAR ALTERAÇÕES", type="primary", use_container_width=True):
+    if col_btn.button("💾 GRAVAR ALTERAÇÕES", type="primary", use_container_width=True, key="btn_gravar_rodape"):
         st.session_state.salvar_fin_clicado = True
 
     if st.session_state.salvar_fin_clicado:
-        with st.spinner("Salvando no banco de dados..."):
-            utils.save_to_supabase('patrimonio', st.session_state.df_p, ano_selecionado)
-            utils.save_to_supabase('entradas', st.session_state.df_e, ano_selecionado)
+        with st.spinner("Salvando no banco de dados de forma segura..."):
+            salvar_financeiro_seguro('patrimonio', st.session_state.df_p, ano_selecionado)
+            salvar_financeiro_seguro('entradas', st.session_state.df_e, ano_selecionado)
         st.session_state.salvar_fin_clicado = False
         st.success("✅ Dados financeiros salvos de forma segura!")
 
