@@ -109,7 +109,7 @@ st.markdown("""
         background-color: #ffffff !important;
         color: #1e293b !important;
         border: 1px solid #d1d5db !important;
-        border-radius: 6px !important;
+        border-radius: 4px !important;
         font-size: 0.85rem !important;
         font-weight: 600 !important;
         min-height: 38px !important;
@@ -157,9 +157,12 @@ if "menu_option" not in st.session_state:
 
 if not st.session_state.authenticated:
     
-    # CSS Injetado APENAS para a tela de login (sobrepõe os botões gigantes)
+    # CSS Injetado APENAS para a tela de login
     st.markdown("""
         <style>
+        /* Esconde a barra lateral vazia para centralizar a tela perfeitamente */
+        [data-testid="stSidebar"] { display: none !important; }
+        
         .login-btn-container div.stButton > button {
             background-color: #004488 !important;
             color: #ffffff !important;
@@ -180,28 +183,27 @@ if not st.session_state.authenticated:
         </style>
     """, unsafe_allow_html=True)
 
-    st.markdown("<br><br><br>", unsafe_allow_html=True)
+    # Removido os <br><br><br> gigantes que empurravam a tela para baixo
+    st.markdown("<div style='margin-top: 2rem;'></div>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 1.2, 1])
     
     with col2:
         with st.container(border=True):
-            st.markdown("<br>", unsafe_allow_html=True)
-            
             # Centraliza a Logo
             c_img1, c_img2, c_img3 = st.columns([1, 1.5, 1])
             with c_img2:
                 if os.path.exists("logo.png"):
                     st.image("logo.png", use_container_width=True)
             
-            # Centraliza o Título e reduz a fonte
-            st.markdown("<h4 style='text-align: center; color: #004488; font-weight: 600; margin-top: 10px; margin-bottom: 25px;'>Login Ecoclim ERP</h4>", unsafe_allow_html=True)
+            # Centraliza o Título e reduz a fonte e as margens
+            st.markdown("<h4 style='text-align: center; color: #004488; font-weight: 600; margin-top: 5px; margin-bottom: 15px;'>Login Ecoclim ERP</h4>", unsafe_allow_html=True)
             
             usuario = st.text_input("Usuário")
             senha = st.text_input("Senha", type="password")
             
-            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
             
-            # Centraliza o Botão e deixa ele menor
+            # Centraliza o Botão
             st.markdown('<div class="login-btn-container">', unsafe_allow_html=True)
             c_btn1, c_btn2, c_btn3 = st.columns([1, 1.5, 1])
             with c_btn2:
@@ -212,7 +214,7 @@ if not st.session_state.authenticated:
                     else:
                         st.error("Usuário ou senha incorretos.")
             st.markdown('</div>', unsafe_allow_html=True)
-            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("<div style='margin-bottom: 5px;'></div>", unsafe_allow_html=True)
 
 else:
     # =============================================================================
