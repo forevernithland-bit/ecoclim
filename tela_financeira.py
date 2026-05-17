@@ -96,14 +96,14 @@ def limpar_e_garantir_linhas(df, lista_contas):
     return df.sort_values('MESES').reset_index(drop=True)
 
 # =============================================================================
-# NOVO: MOTORES DE EXPORTAÇÃO E IMPORTAÇÃO GLOBAL (TODOS OS ANOS)
+# MOTORES DE EXPORTAÇÃO E IMPORTAÇÃO GLOBAL (TODOS OS ANOS)
 # =============================================================================
 def exportar_base_completa_excel():
     supabase = st.session_state.supabase
     try:
-        # Puxa absolutamente tudo do banco ordenado por ano
-        res_p = supabase.table('fin_patrimonio').select("*").order("ano", ascending=True).execute()
-        res_e = supabase.table('fin_entradas').select("*").order("ano", ascending=True).execute()
+        # CORREÇÃO DO ERRO: Supabase usa desc=False em vez de ascending=True
+        res_p = supabase.table('fin_patrimonio').select("*").order("ano", desc=False).execute()
+        res_e = supabase.table('fin_entradas').select("*").order("ano", desc=False).execute()
         
         df_p_raw = pd.DataFrame(res_p.data)
         df_e_raw = pd.DataFrame(res_e.data)
@@ -217,13 +217,20 @@ def renderizar():
 
         if st.button("🔄 Recarregar Banco", use_container_width=True): 
             st.session_state.pop('ano_dados_atual', None)
+            st.session_state.pop('db_df_p', None)
+            st.session_state.pop('db_df_e', None)
             st.rerun()
 
     contas_p = ['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS', 'IMÓVEIS', 'VEÍCULOS']
     contas_e = ['ECOCLIM', 'AIRNB', 'CONS INVESTIMENTOS', 'MAGGI CONSORCIOS']
     
-    # Carrega a base real vinda diretamente do Supabase (Sem alteração em tempo de digitação)
-    if 'ano_dados_atual' not in st.session_state or st.session_state.ano_dados_atual != ano_selecionado or st.session_state.get('forcar_reload_fin', False):
+    # CORREÇÃO DO ERRO 2: Verifica rigorosamente se as tabelas existem na memória
+    if ('db_df_p' not in st.session_state or 
+        'db_df_e' not in st.session_state or 
+        'ano_dados_atual' not in st.session_state or 
+        st.session_state.ano_dados_atual != ano_selecionado or 
+        st.session_state.get('forcar_reload_fin', False)):
+        
         st.session_state.db_df_p = limpar_e_garantir_linhas(carregar_dados_fin('fin_patrimonio', contas_p, ano_selecionado), contas_p)
         st.session_state.db_df_e = limpar_e_garantir_linhas(carregar_dados_fin('fin_entradas', contas_e, ano_selecionado), contas_e)
         st.session_state.ano_dados_atual = ano_selecionado
@@ -275,7 +282,7 @@ def renderizar():
                         st.session_state.forcar_reload_fin = True
                         st.rerun()
 
-    # RESOLUÇÃO DO BUG: O editor consome a base estável. Ele mantém o seu estado isolado
+    # O editor consome a base estável para não resetar na digitação (Correção da dupla digitação)
     df_p_ed = st.data_editor(
         st.session_state.db_df_p[colunas_visiveis], 
         hide_index=True, 
