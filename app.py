@@ -157,12 +157,25 @@ if "menu_option" not in st.session_state:
 
 if not st.session_state.authenticated:
     
-    # CSS Injetado APENAS para a tela de login
+    # CSS Injetado APENAS para a tela de login (Mega compacto para caber na tela)
     st.markdown("""
         <style>
-        /* Esconde a barra lateral vazia para centralizar a tela perfeitamente */
+        /* Esconde a barra lateral E o espaço em branco do topo (header) */
         [data-testid="stSidebar"] { display: none !important; }
+        [data-testid="stHeader"] { display: none !important; }
         
+        /* Esmaga as margens e paddings nativos do Streamlit */
+        .block-container { 
+            padding-top: 2rem !important; 
+            padding-bottom: 0rem !important;
+        }
+        
+        /* Reduz o espaço entre os itens dentro do form */
+        div[data-testid="stVerticalBlock"] {
+            gap: 0.5rem !important;
+        }
+        
+        /* Botão de Login Estilizado */
         .login-btn-container div.stButton > button {
             background-color: #004488 !important;
             color: #ffffff !important;
@@ -170,10 +183,11 @@ if not st.session_state.authenticated:
             border-radius: 8px !important;
             font-size: 1rem !important;
             font-weight: 600 !important;
-            min-height: 45px !important;
-            height: 45px !important;
+            min-height: 40px !important;
+            height: 40px !important;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1) !important;
             transition: all 0.3s ease !important;
+            margin-top: 10px !important;
         }
         .login-btn-container div.stButton > button:hover {
             background-color: #003366 !important;
@@ -183,27 +197,24 @@ if not st.session_state.authenticated:
         </style>
     """, unsafe_allow_html=True)
 
-    # Removido os <br><br><br> gigantes que empurravam a tela para baixo
-    st.markdown("<div style='margin-top: 2rem;'></div>", unsafe_allow_html=True)
-    col1, col2, col3 = st.columns([1, 1.2, 1])
+    # Deixei as colunas mais estreitas [1, 1, 1] para o card ficar mais compacto e elegante
+    col1, col2, col3 = st.columns([1, 1, 1]) 
     
     with col2:
         with st.container(border=True):
             # Centraliza a Logo
-            c_img1, c_img2, c_img3 = st.columns([1, 1.5, 1])
+            c_img1, c_img2, c_img3 = st.columns([1, 1.2, 1])
             with c_img2:
                 if os.path.exists("logo.png"):
                     st.image("logo.png", use_container_width=True)
             
-            # Centraliza o Título e reduz a fonte e as margens
-            st.markdown("<h4 style='text-align: center; color: #004488; font-weight: 600; margin-top: 5px; margin-bottom: 15px;'>Login Ecoclim ERP</h4>", unsafe_allow_html=True)
+            # Centraliza o Título e tira as margens dele
+            st.markdown("<h4 style='text-align: center; color: #004488; font-weight: 600; margin-top: 0px; margin-bottom: 10px;'>Login Ecoclim ERP</h4>", unsafe_allow_html=True)
             
             usuario = st.text_input("Usuário")
             senha = st.text_input("Senha", type="password")
             
-            st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
-            
-            # Centraliza o Botão
+            # Centraliza o Botão (já colado nos inputs)
             st.markdown('<div class="login-btn-container">', unsafe_allow_html=True)
             c_btn1, c_btn2, c_btn3 = st.columns([1, 1.5, 1])
             with c_btn2:
@@ -214,7 +225,6 @@ if not st.session_state.authenticated:
                     else:
                         st.error("Usuário ou senha incorretos.")
             st.markdown('</div>', unsafe_allow_html=True)
-            st.markdown("<div style='margin-bottom: 5px;'></div>", unsafe_allow_html=True)
 
 else:
     # =============================================================================
