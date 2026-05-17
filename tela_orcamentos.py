@@ -4,10 +4,13 @@ import datetime
 import utils
 
 def renderizar():
+    # =============================================================================
+    # TÍTULO REDUZIDO E BOTÃO ALINHADOS LADO A LADO
+    # =============================================================================
     col_tit, col_btn = st.columns([2, 1])
     
     with col_tit:
-        st.markdown("<h4 style='color:#004488; margin:0; font-weight:600;'>📝 Gestão de Orçamentos</h4>", unsafe_allow_html=True)
+        st.markdown("<h4 style='color:#004488; margin:0; font-weight:600;'>📝 Novo Orçamento</h4>", unsafe_allow_html=True)
         
     with col_btn:
         if st.button("🔄 ATUALIZAR DADOS DO BANCO", use_container_width=True):
@@ -23,11 +26,14 @@ def renderizar():
 
     cat_produtos = st.session_state.db_produtos
     lista_nomes_produtos = cat_produtos['Item'].dropna().tolist() if not cat_produtos.empty else []
-
+    
+    # =========================================================================
+    # CRIAÇÃO DAS ABAS
+    # =========================================================================
     aba_personalizado, aba_lote = st.tabs(["📝 Orçamento Personalizado", "📦 Gerador em Lote (Tabelas)"])
 
     # =========================================================================
-    # ABA 1: ORÇAMENTO PERSONALIZADO (CÓDIGO ORIGINAL INTACTO)
+    # ABA 1: ORÇAMENTO PERSONALIZADO (SEU CÓDIGO ORIGINAL INTACTO)
     # =========================================================================
     with aba_personalizado:
         with st.container(border=True):
@@ -36,16 +42,21 @@ def renderizar():
             nome_cliente = col1.text_input("Nome do Cliente", key="input_nome_cliente")
             whatsapp = col2.text_input("WhatsApp", placeholder="(31) 99715-1596", key="input_whatsapp")
             
+            # OPÇÕES DE IMAGENS MAPEADAS CORRETAMENTE
             modelo_capa = st.selectbox("Modelo para Capa", [
-                "Aquecedor Solar Tradicional", "Aquecedor Solar a Vácuo Acoplado", 
-                "Aquecedor Solar Modular", "Aquecedor de Piscina - Tradicional", 
-                "Aquecedor de Piscina - Trocador de Calor", "Sistema de Pressurização"
+                "Aquecedor Solar Tradicional", 
+                "Aquecedor Solar a Vácuo Acoplado", 
+                "Aquecedor Solar Modular", 
+                "Aquecedor de Piscina - Tradicional", 
+                "Aquecedor de Piscina - Trocador de Calor", 
+                "Sistema de Pressurização"
             ], index=3)
 
         with st.container(border=True):
             st.subheader("⚙️ 1. Equipamentos")
             mostrar_precos_unitarios = st.checkbox("Mostrar Preços Unitários no PDF?", value=False)
             
+            # Inicialização protegida da tabela de orçamento
             if 'df_orc' not in st.session_state:
                 st.session_state.df_orc = pd.DataFrame([{"Produto da Base": "", "Produto Manual": "", "Descrição": "", "Quantidade": 0, "Venda (R$)": 0.0, "Venda Total": 0.0} for _ in range(5)])
             
@@ -67,6 +78,7 @@ def renderizar():
             precisa_atualizar_tela = False
             
             for i in range(len(df_editavel)):
+                # 1. Tratamento seguro de nomes
                 produto_atual = str(df_editavel.at[i, 'Produto da Base']).strip()
                 if produto_atual.lower() in ['nan', 'none', '']: produto_atual = ""
                 
@@ -77,14 +89,18 @@ def renderizar():
 
                 df_editavel.at[i, 'Produto da Base'] = produto_atual
 
+                # 2. Se o usuário escolheu um produto novo da lista
                 if produto_atual != produto_anterior and produto_atual != "":
                     match_base = cat_produtos[cat_produtos['Item'].astype(str).str.strip() == produto_atual]
                     
                     if not match_base.empty:
                         val_venda = match_base['Venda (R$)'].values[0]
                         desc_base = match_base['Descrição'].values[0]
-                        try: preco_novo = float(val_venda)
-                        except: preco_novo = 0.0
+                        
+                        try:
+                            preco_novo = float(val_venda)
+                        except:
+                            preco_novo = 0.0
                             
                         df_editavel.at[i, 'Venda (R$)'] = preco_novo
                         df_editavel.at[i, 'Descrição'] = str(desc_base) if pd.notna(desc_base) and str(desc_base).lower() != 'nan' else ""
@@ -94,6 +110,7 @@ def renderizar():
                             
                         precisa_atualizar_tela = True
 
+                # 3. Matemática Segura
                 qtd = float(df_editavel.at[i, 'Quantidade']) if pd.notna(df_editavel.at[i, 'Quantidade']) else 0.0
                 preco = float(df_editavel.at[i, 'Venda (R$)']) if pd.notna(df_editavel.at[i, 'Venda (R$)']) else 0.0
                 total_calc = qtd * preco
@@ -106,7 +123,8 @@ def renderizar():
             if precisa_atualizar_tela:
                 st.session_state.df_orc = df_editavel
                 st.session_state.df_orc_prev = df_editavel.copy()
-                if "editor_orc_base" in st.session_state: del st.session_state["editor_orc_base"]
+                if "editor_orc_base" in st.session_state:
+                    del st.session_state["editor_orc_base"]
                 st.rerun()
 
             st.session_state.df_orc = df_editavel
@@ -115,8 +133,10 @@ def renderizar():
             subtotal_equipamentos = df_editavel['Venda Total'].sum()
             st.markdown(f"**Subtotal Equipamentos:** :blue[{utils.to_br_currency(subtotal_equipamentos)}]")
 
+        # ------------------ DIVISÃO 2 (Serviços) ------------------
         with st.container(border=True):
             st.subheader("🛠️ 2. Serviços")
+            
             lista_servicos = st.session_state.db_servicos['Item'].dropna().tolist() if not st.session_state.db_servicos.empty else []
             if 'servico_selecionado_anterior' not in st.session_state: st.session_state.servico_selecionado_anterior = ""
             
@@ -137,8 +157,10 @@ def renderizar():
             descricao_final_servico = st.text_area("Descrição detalhada do Serviço:", value=st.session_state.get('txt_servico', ""), height=100)
             valor_final_servico = st.number_input("Valor do Serviço (R$):", value=float(st.session_state.get('val_servico', 0.0)), format="%.2f")
 
+        # ------------------ DIVISÃO 3 (Outros/Terceiros) ------------------
         with st.container(border=True):
             st.subheader("🤝 3. Outros / Terceiros")
+
             lista_outros = st.session_state.db_outros['Item'].dropna().tolist() if not st.session_state.db_outros.empty else []
             if 'outros_selecionado_anterior' not in st.session_state: st.session_state.outros_selecionado_anterior = ""
             
@@ -159,6 +181,7 @@ def renderizar():
             descricao_final_outros = st.text_area("Descrição de Diversos:", value=st.session_state.get('txt_outros', ""), height=80)
             valor_final_outros = st.number_input("Valor Adicional (R$):", value=float(st.session_state.get('val_outros', 0.0)), format="%.2f")
 
+        # ------------------ FECHAMENTO ------------------
         total_investimento = subtotal_equipamentos + valor_final_servico + valor_final_outros
         st.markdown(f"<h3 style='color:#004488;'>💰 INVESTIMENTO TOTAL: {utils.to_br_currency(total_investimento)}</h3>", unsafe_allow_html=True)
         obs_pdf = st.text_area("Observações no PDF:", value="Material Hidráulico não incluído na proposta")
@@ -181,20 +204,33 @@ def renderizar():
             if 'pdf_gerado' in st.session_state and st.session_state.get('nome_cliente_previa') == nome_cliente:
                 st.download_button("📥 BAIXAR RASCUNHO", data=st.session_state['pdf_gerado'], file_name=f"ORCAMENTO_{nome_cliente}.pdf", mime="application/pdf", use_container_width=True)
                 
+                # --- NOVO BLOCO: SALVAR NO DRIVE USANDO ST.CONTAINER NATIVO ---
                 with st.container(border=True):
                     st.markdown("☁️ **Salvar no Drive (Pasta: Orçamentos)**")
+                    
                     hoje_str = datetime.datetime.now().strftime("%Y_%m_%d")
                     partes_nome = nome_cliente.strip().split()
-                    nome_formatado = f"{partes_nome[0]}_{partes_nome[-1]}".lower() if len(partes_nome) >= 2 else (partes_nome[0].lower() if partes_nome else "cliente")
+                    if len(partes_nome) >= 2:
+                        nome_formatado = f"{partes_nome[0]}_{partes_nome[-1]}".lower()
+                    else:
+                        nome_formatado = partes_nome[0].lower() if partes_nome else "cliente"
+                    
                     nome_sugerido = f"orcamento_{hoje_str}_{nome_formatado}.pdf"
                     
                     nome_arquivo_drive = st.text_input("Nome do arquivo:", value=nome_sugerido, key="input_nome_drive")
                     
                     if st.button("🚀 Enviar para o Drive", use_container_width=True):
                         with st.spinner("Salvando na pasta Orçamentos..."):
-                            sucesso, msg = utils.upload_to_drive(st.session_state['pdf_gerado'], nome_arquivo_drive, "application/pdf", ["Orçamentos"])
-                            if sucesso: st.success(f"✅ Arquivo {nome_arquivo_drive} salvo com sucesso no Drive!")
-                            else: st.error(f"Erro ao salvar: {msg}")
+                            sucesso, msg = utils.upload_to_drive(
+                                file_buffer=st.session_state['pdf_gerado'], 
+                                filename=nome_arquivo_drive, 
+                                mimetype="application/pdf", 
+                                folder_path=["Orçamentos"]
+                            )
+                            if sucesso:
+                                st.success(f"✅ Arquivo {nome_arquivo_drive} salvo com sucesso no Drive!")
+                            else:
+                                st.error(f"Erro ao salvar: {msg}")
 
         with col_btn_salvar:
             if st.button("SALVAR ORÇAMENTO NO SISTEMA", type="primary", use_container_width=True):
@@ -203,19 +239,28 @@ def renderizar():
                     numero_do_orcamento = f"ORC-{datetime.datetime.now().strftime('%y%m%d-%H%M')}"
                     try:
                         tel_formatado = formatar_telefone(whatsapp)
-                        snapshot_itens = [{"Item": r['Produto da Base'] or r['Produto Manual'], "Qtd": r['Quantidade'], "Venda Un.": r['Venda (R$)'], "Descrição": r['Descrição']} for _, r in df_editavel.iterrows() if r['Quantidade'] > 0]
+                        snapshot_itens = []
+                        for _, r in df_editavel.iterrows():
+                            if r['Quantidade'] > 0:
+                                snapshot_itens.append({"Item": r['Produto da Base'] or r['Produto Manual'], "Qtd": r['Quantidade'], "Venda Un.": r['Venda (R$)'], "Descrição": r['Descrição']})
                         
                         st.session_state.supabase.table("servicos_andamento").insert({
-                            "numero_orcamento": numero_do_orcamento, "nome_cliente": nome_cliente, "telefone_cliente": tel_formatado, 
+                            "numero_orcamento": numero_do_orcamento,
+                            "nome_cliente": nome_cliente, 
+                            "telefone_cliente": tel_formatado, 
                             "produtos_adquiridos": ", ".join([f"{int(r['Quantidade'])}x {r['Produto da Base']}" for _, r in df_editavel.iterrows() if r['Quantidade']>0]),
-                            "servicos_adquiridos": descricao_final_servico, "valor_venda_total": total_investimento,
-                            "status_projeto": "Orçamento Enviado", "detalhamento_itens": snapshot_itens
+                            "servicos_adquiridos": descricao_final_servico,
+                            "valor_venda_total": total_investimento,
+                            "status_projeto": "Orçamento Enviado",
+                            "detalhamento_itens": snapshot_itens
                         }).execute()
-                        st.success(f"✅ Orçamento {numero_do_orcamento} salvo com sucesso!")
-                    except Exception as e: st.error(f"Erro ao salvar: {e}")
+                        
+                        st.success(f"✅ Orçamento {numero_do_orcamento} salvo com sucesso no banco de dados!")
+                    except Exception as e:
+                        st.error(f"Erro ao salvar: {e}")
 
     # =========================================================================
-    # ABA 2: GERADOR EM LOTE (NOVO MÓDULO)
+    # ABA 2: GERADOR EM LOTE (MÚLTIPLOS ITENS POR KIT)
     # =========================================================================
     with aba_lote:
         st.markdown("### 📦 Geração de Orçamentos em Lote")
@@ -240,24 +285,14 @@ def renderizar():
                     
                     for _, kit in df_kits.iterrows():
                         nome_kit_base = str(kit.get('nome_kit', 'Kit_Sem_Nome'))
-                        produto_nome = str(kit.get('produto_base', ''))
                         servico_nome = str(kit.get('servico_base', ''))
                         capa = str(kit.get('modelo_capa', 'Aquecedor Solar Tradicional'))
+                        itens_do_kit = kit.get('itens', [])
+                        if not isinstance(itens_do_kit, list): itens_do_kit = []
                         
                         nome_arquivo_final = f"{nome_kit_base}_{nome_mes_atual_pt}"
                         
-                        # 1. Puxar preço e descrição do produto atualizado
-                        val_prod = 0.0
-                        desc_prod = ""
-                        if produto_nome:
-                            match_p = st.session_state.db_produtos[st.session_state.db_produtos['Item'] == produto_nome]
-                            if not match_p.empty:
-                                try: val_prod = float(match_p['Venda (R$)'].values[0])
-                                except: pass
-                                desc_prod = str(match_p['Descrição'].values[0])
-                                if desc_prod.lower() == 'nan': desc_prod = ""
-
-                        # 2. Puxar preço e descrição do serviço atualizado
+                        # 1. Puxar preço e descrição do serviço atualizado
                         val_serv = 0.0
                         desc_serv = ""
                         if servico_nome:
@@ -268,17 +303,42 @@ def renderizar():
                                 desc_serv = f"{servico_nome}\n{str(match_s['Descrição'].values[0])}"
                                 if desc_serv.endswith('\nnan'): desc_serv = servico_nome
                         
-                        # 3. Montar DataFrame virtual para o gerador
-                        df_itens_lote = pd.DataFrame([{
-                            "Produto da Base": produto_nome,
-                            "Produto Manual": "",
-                            "Descrição": desc_prod,
-                            "Quantidade": 1,
-                            "Venda (R$)": val_prod,
-                            "Venda Total": val_prod
-                        }])
+                        # 2. Varredura dos múltiplos produtos do Kit
+                        lista_linhas_pdf = []
+                        total_prod = 0.0
                         
-                        total_lote = val_prod + val_serv
+                        for ik in itens_do_kit:
+                            p_nome = str(ik.get('Produto', '')).strip()
+                            try: p_qtd = int(ik.get('Quantidade', 1))
+                            except: p_qtd = 1
+                            
+                            p_preco = 0.0
+                            p_desc = ""
+                            if p_nome:
+                                match_p = st.session_state.db_produtos[st.session_state.db_produtos['Item'] == p_nome]
+                                if not match_p.empty:
+                                    try: p_preco = float(match_p['Venda (R$)'].values[0])
+                                    except: pass
+                                    p_desc = str(match_p['Descrição'].values[0])
+                                    if p_desc.lower() == 'nan': p_desc = ""
+                            
+                            subtotal_item = p_preco * p_qtd
+                            total_prod += subtotal_item
+                            
+                            lista_linhas_pdf.append({
+                                "Produto da Base": p_nome,
+                                "Produto Manual": "",
+                                "Descrição": p_desc,
+                                "Quantidade": p_qtd,
+                                "Venda (R$)": p_preco,
+                                "Venda Total": subtotal_item
+                            })
+                        
+                        df_itens_lote = pd.DataFrame(lista_linhas_pdf)
+                        if df_itens_lote.empty:
+                            df_itens_lote = pd.DataFrame(columns=["Produto da Base", "Produto Manual", "Descrição", "Quantidade", "Venda (R$)", "Venda Total"])
+                        
+                        total_lote = total_prod + val_serv
                         
                         # Nota explícita no PDF conforme sua regra
                         obs_padrao = "ATENÇÃO: Material hidráulico não incluso nesta proposta. Valores referentes apenas ao equipamento e serviço de instalação."
@@ -304,7 +364,7 @@ def renderizar():
                             "buffer": pdf_buffer
                         })
                     
-                    # Salva no Session State para os botões de download funcionarem e faz o Upload
+                    # Salva no Session State para os botões de download funcionarem
                     st.session_state['pdf_gerados_lote'] = pdfs_gerados
                     
                     st.success("✅ PDFs gerados com sucesso! Fazendo upload silencioso para o Drive...")
@@ -324,12 +384,16 @@ def renderizar():
             if 'pdf_gerados_lote' in st.session_state:
                 st.markdown("---")
                 st.markdown("#### 📥 Seus Arquivos (Download Individual)")
+                
+                # Exibe em colunas para ficar visualmente agradável
+                cols_download = st.columns(2)
                 for idx, pdf_dict in enumerate(st.session_state['pdf_gerados_lote']):
-                    st.download_button(
-                        label=f"⬇️ Baixar: {pdf_dict['nome_arquivo']}",
-                        data=pdf_dict['buffer'],
-                        file_name=pdf_dict['nome_arquivo'],
-                        mime="application/pdf",
-                        key=f"dl_lote_{idx}",
-                        use_container_width=True
-                    )
+                    with cols_download[idx % 2]:
+                        st.download_button(
+                            label=f"⬇️ {pdf_dict['nome_arquivo']}",
+                            data=pdf_dict['buffer'],
+                            file_name=pdf_dict['nome_arquivo'],
+                            mime="application/pdf",
+                            key=f"dl_lote_{idx}",
+                            use_container_width=True
+                        )
