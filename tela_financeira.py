@@ -4,9 +4,9 @@ import numpy as np
 import io
 import utils
 
-# ==========================================
-# MOTORES DE BANCO DE DADOS BLINDADOS
-# ==========================================
+# =============================================================================
+# MOTORES DE BANCO DE DADOS BLINDADOS (ESPECÍFICOS POR ANO)
+# =============================================================================
 def carregar_dados_fin(nome_tabela, lista_contas, ano):
     supabase = st.session_state.supabase
     try:
@@ -28,8 +28,6 @@ def carregar_dados_fin(nome_tabela, lista_contas, ano):
             if col not in df_banco.columns: df_banco[col] = 0.0 if col != "MESES" else ""
         
         df_banco = df_banco[df_banco['MESES'].isin(lista_contas)]
-        
-        # Garante a ordenação idêntica à lista original de contas passadas
         df_banco['MESES'] = pd.Categorical(df_banco['MESES'], categories=lista_contas, ordered=True)
         return df_banco.sort_values('MESES')[colunas_ordenadas].reset_index(drop=True)
     except Exception as e:
@@ -97,19 +95,101 @@ def limpar_e_garantir_linhas(df, lista_contas):
     df['MESES'] = pd.Categorical(df['MESES'], categories=lista_contas, ordered=True)
     return df.sort_values('MESES').reset_index(drop=True)
 
-# ==========================================
-# FUNÇÕES DE EXPORTAÇÃO E IMPORTAÇÃO EXCEL
-# ==========================================
-def exportar_para_excel(df_p, df_e, ano):
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_p.to_excel(writer, sheet_name='PATRIMONIO', index=False)
-        df_e.to_excel(writer, sheet_name='RECEBIMENTOS', index=False)
-    return output.getvalue()
+# =============================================================================
+# NOVO: MOTORES DE EXPORTAÇÃO E IMPORTAÇÃO GLOBAL (TODOS OS ANOS)
+# =============================================================================
+def exportar_base_completa_excel():
+    supabase = st.session_state.supabase
+    try:
+        # Puxa absolutamente tudo do banco ordenado por ano
+        res_p = supabase.table('fin_patrimonio').select("*").order("ano", ascending=True).execute()
+        res_e = supabase.table('fin_entradas').select("*").order("ano", ascending=True).execute()
+        
+        df_p_raw = pd.DataFrame(res_p.data)
+        df_e_raw = pd.DataFrame(res_e.data)
+        
+        mapeamento = {"ano": "ANO", "meses": "MESES", "marco": "MARÇO"}
+        for m in utils.meses_pt:
+            if m != "MARÇO": mapeamento[m.lower()] = m
+            
+        colunas_finais = ["ANO", "MESES"] + utils.meses_pt
+        
+        if not df_p_raw.empty:
+            df_p_raw = df_p_raw.rename(columns=mapeamento)
+            df_p_final = df_p_raw[[c for c in colunas_finais if c in df_p_raw.columns]]
+        else:
+            df_p_final = pd.DataFrame(columns=colunas_finais)
+            
+        if not df_e_raw.empty:
+            df_e_raw = df_e_raw.rename(columns=mapeamento)
+            df_e_final = df_e_raw[[c for c in colunas_finais if c in df_e_raw.columns]]
+        else:
+            df_e_final = pd.DataFrame(columns=colunas_finais)
+            
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df_p_final.to_excel(writer, sheet_name='PATRIMONIO', index=False)
+            df_e_final.to_excel(writer, sheet_name='RECEBIMENTOS', index=False)
+        return output.getvalue()
+    except Exception as e:
+        st.error(f"Erro ao gerar exportação global: {e}")
+        return None
 
-# ==========================================
-# RENDERIZAÇÃO DA TELA
-# ==========================================
+def importar_base_completa_excel(file_buffer):
+    supabase = st.session_state.supabase
+    try:
+        xls = pd.ExcelFile(file_buffer)
+        if 'PATRIMONIO' not in xls.sheet_names or 'RECEBIMENTOS' not in xls.sheet_names:
+            st.error("Arquivo inválido! O Excel precisa conter as abas 'PATRIMONIO' e 'RECEBIMENTOS'.")
+            return False
+            
+        df_p_xls = pd.read_excel(xls, 'PATRIMONIO')
+        df_e_xls = pd.read_excel(xls, 'RECEBIMENTOS')
+        
+        def processar_aba(df, nome_tabela_banco):
+            df.columns = df.columns.str.strip().str.upper()
+            dados_finais = []
+            anos_presentes = set()
+            
+            for _, linha in df.iterrows():
+                ano_linha = int(linha["ANO"])
+                anos_presentes.add(ano_linha)
+                
+                registro = {
+                    "ano": ano_linha,
+                    "meses": str(linha["MESES"]),
+                    "janeiro": float(linha.get("JANEIRO", 0.0)),
+                    "fevereiro": float(linha.get("FEVEREIRO", 0.0)),
+                    "marco": float(linha.get("MARÇO", 0.0)),
+                    "abril": float(linha.get("ABRIL", 0.0)),
+                    "maio": float(linha.get("MAIO", 0.0)),
+                    "junho": float(linha.get("JUNHO", 0.0)),
+                    "julho": float(linha.get("JULHO", 0.0)),
+                    "agosto": float(linha.get("AGOSTO", 0.0)),
+                    "setembro": float(linha.get("SETEMBRO", 0.0)),
+                    "outubro": float(linha.get("OUTUBRO", 0.0)),
+                    "novembro": float(linha.get("NOVEMBRO", 0.0)),
+                    "dezembro": float(linha.get("DEZEMBRO", 0.0))
+                }
+                dados_finais.append(registro)
+                
+            # Limpa do banco apenas os anos que vieram no arquivo para evitar duplicidade
+            for a in anos_presentes:
+                supabase.table(nome_tabela_banco).delete().eq("ano", a).execute()
+                
+            if dados_finais:
+                supabase.table(nome_tabela_banco).insert(dados_finais).execute()
+                
+        processar_aba(df_p_xls, 'fin_patrimonio')
+        processar_aba(df_e_xls, 'fin_entradas')
+        return True
+    except Exception as e:
+        st.error(f"Erro crítico durante a importação do Excel: {e}")
+        return False
+
+# =============================================================================
+# RENDERIZAÇÃO PRINCIPAL DA TELA
+# =============================================================================
 def renderizar():
     st.markdown('<div class="financeiro">', unsafe_allow_html=True)
     
@@ -142,11 +222,12 @@ def renderizar():
     contas_p = ['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS', 'IMÓVEIS', 'VEÍCULOS']
     contas_e = ['ECOCLIM', 'AIRNB', 'CONS INVESTIMENTOS', 'MAGGI CONSORCIOS']
     
-    # Gerenciamento de Estado de Memória Sem Vazamentos
-    if 'ano_dados_atual' not in st.session_state or st.session_state.ano_dados_atual != ano_selecionado:
-        st.session_state.df_p = limpar_e_garantir_linhas(carregar_dados_fin('fin_patrimonio', contas_p, ano_selecionado), contas_p)
-        st.session_state.df_e = limpar_e_garantir_linhas(carregar_dados_fin('fin_entradas', contas_e, ano_selecionado), contas_e)
+    # Carrega a base real vinda diretamente do Supabase (Sem alteração em tempo de digitação)
+    if 'ano_dados_atual' not in st.session_state or st.session_state.ano_dados_atual != ano_selecionado or st.session_state.get('forcar_reload_fin', False):
+        st.session_state.db_df_p = limpar_e_garantir_linhas(carregar_dados_fin('fin_patrimonio', contas_p, ano_selecionado), contas_p)
+        st.session_state.db_df_e = limpar_e_garantir_linhas(carregar_dados_fin('fin_entradas', contas_e, ano_selecionado), contas_e)
         st.session_state.ano_dados_atual = ano_selecionado
+        st.session_state.forcar_reload_fin = False
 
     # --- HERANÇA DE DEZEMBRO (ANO ANTERIOR) ---
     df_p_prev = carregar_dados_fin('fin_patrimonio', contas_p, ano_selecionado - 1).set_index('MESES')
@@ -155,7 +236,7 @@ def renderizar():
     xp_prev_dec = df_p_prev.loc['INVESTIMENTO XP', 'DEZEMBRO'] if 'INVESTIMENTO XP' in df_p_prev.index else 0
     inter_prev_dec = df_p_prev.loc['CONTA INTER', 'DEZEMBRO'] if 'CONTA INTER' in df_p_prev.index else 0
 
-    # Configuração de Colunas (Régua de Alinhamento)
+    # Configuração visual das tabelas
     cfg_edit = {"MESES": st.column_config.TextColumn("CONTA", width=220, disabled=True)}
     cfg_text = {"MESES": st.column_config.TextColumn("CONTA", width=220, disabled=True)}
     for m in utils.meses_pt: 
@@ -164,58 +245,52 @@ def renderizar():
 
     st.markdown('<div class="container-tabelas">', unsafe_allow_html=True)
     
-    # -------------------------------------------------------------------------
-    # NOVO: QUADRANTE DE BOTÕES PARA IMPORTAR/EXPORTAR EXCEL (ALINHADOS)
-    # -------------------------------------------------------------------------
-    c_titulo, c_exp, c_imp = st.columns([1.8, 1, 1.2])
+    # =============================================================================
+    # ALINHAMENTO SUPERIOR DOS BOTÕES DE IMPORTAÇÃO/EXPORTAÇÃO GLOBAL 
+    # =============================================================================
+    c_titulo, c_exp, c_imp = st.columns([1.6, 1.1, 1.3])
     
     with c_titulo:
         st.markdown(f"<h4>🏛️ Patrimônio e Investimentos ({ano_selecionado})</h4>", unsafe_allow_html=True)
         
     with c_exp:
-        dados_excel = exportar_para_excel(st.session_state.df_p, st.session_state.df_e, ano_selecionado)
-        st.download_button(
-            label="📤 EXPORTAR EXCEL",
-            data=dados_excel,
-            file_name=f"BACKUP_FINANCEIRO_{ano_selecionado}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-            key="btn_exportar_excel"
-        )
-        
+        arquivo_completo_excel = exportar_base_completa_excel()
+        if arquivo_completo_excel:
+            st.download_button(
+                label="📤 EXPORTAR TODA BASE (EXCEL)",
+                data=arquivo_completo_excel,
+                file_name="ERP_ECOCLIM_FINANCEIRO_TOTAL.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                key="btn_exportar_total_global"
+            )
+            
     with c_imp:
-        arquivo_excel_subido = st.file_uploader("Importar base", type=["xlsx"], label_visibility="collapsed", key="file_importar_excel")
-        if arquivo_excel_subido is not None:
-            try:
-                xls = pd.ExcelFile(arquivo_excel_subido)
-                if 'PATRIMONIO' in xls.sheet_names and 'RECEBIMENTOS' in xls.sheet_names:
-                    df_p_subido = pd.read_excel(xls, 'PATRIMONIO')
-                    df_e_subido = pd.read_excel(xls, 'RECEBIMENTOS')
-                    
-                    st.session_state.df_p = limpar_e_garantir_linhas(df_p_subido, contas_p)
-                    st.session_state.df_e = limpar_e_garantir_linhas(df_e_subido, contas_e)
-                    st.success("✅ Excel lido! Clique em 'Gravar Alterações' no rodapé.")
-                    st.rerun()
-                else:
-                    st.error("Arquivo inválido. Precisa conter as abas PATRIMONIO e RECEBIMENTOS.")
-            except Exception as e:
-                st.error(f"Erro ao ler Excel: {e}")
+        excel_subido_global = st.file_uploader("Importar base completa", type=["xlsx"], label_visibility="collapsed", key="file_uploader_global_fin")
+        if excel_subido_global is not None:
+            if st.button("🚀 CONFIRMAR IMPORTAÇÃO TOTAL", use_container_width=True, type="secondary", key="btn_executar_importacao_global"):
+                with st.spinner("Substituindo dados históricos no Supabase..."):
+                    if importar_base_completa_excel(excel_subido_global):
+                        st.success("✅ Toda a base histórica do Excel foi gravada com sucesso!")
+                        st.session_state.forcar_reload_fin = True
+                        st.rerun()
 
-    # FIX DO BUG DE DIGITAÇÃO: Vinculamos o editor diretamente à variável estável de sessão
+    # RESOLUÇÃO DO BUG: O editor consome a base estável. Ele mantém o seu estado isolado
     df_p_ed = st.data_editor(
-        st.session_state.df_p[colunas_visiveis], 
+        st.session_state.db_df_p[colunas_visiveis], 
         hide_index=True, 
         column_config=cfg_edit, 
         use_container_width=True, 
         height=285, 
-        key=f"ed_p_fin_estavel_{ano_selecionado}"
+        key=f"ed_p_fin_estavel_v9_{ano_selecionado}"
     )
 
-    # Atualiza em segundo plano de forma silenciosa para os cálculos da tela continuar retos em tempo real
+    # Monta a tabela de trabalho mesclando as edições ao vivo com as colunas ocultas
+    df_p_trabalho = st.session_state.db_df_p.copy()
     for c in colunas_visiveis: 
-        if c != "MESES": st.session_state.df_p.loc[:, c] = df_p_ed[c]
+        if c != "MESES": df_p_trabalho[c] = df_p_ed[c]
 
-    df_n = st.session_state.df_p.set_index('MESES')
+    df_n = df_p_trabalho.set_index('MESES')
     pat_liq = df_n.loc[df_n.index.isin(['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS'])].sum()
     pat_tot = pat_liq + df_n.loc[df_n.index.isin(['IMÓVEIS', 'VEÍCULOS'])].sum()
     
@@ -244,18 +319,19 @@ def renderizar():
     # --------------------------
     st.markdown(f"#### 💰 Recebimentos e Pró-labore ({ano_selecionado})")
     df_e_ed = st.data_editor(
-        st.session_state.df_e[colunas_visiveis], 
+        st.session_state.db_df_e[colunas_visiveis], 
         hide_index=True, 
         column_config=cfg_edit, 
         use_container_width=True, 
         height=190, 
-        key=f"ed_e_fin_estavel_{ano_selecionado}"
+        key=f"ed_e_fin_estavel_v9_{ano_selecionado}"
     )
     
+    df_e_trabalho = st.session_state.db_df_e.copy()
     for c in colunas_visiveis: 
-        if c != "MESES": st.session_state.df_e.loc[:, c] = df_e_ed[c]
+        if c != "MESES": df_e_trabalho[c] = df_e_ed[c]
 
-    tot_e = st.session_state.df_e.set_index('MESES').sum()
+    tot_e = df_e_trabalho.set_index('MESES').sum()
     dict_res_e = {'MESES': ['TOTAL RECEBIMENTOS']}
     for i, m in enumerate(utils.meses_pt):
         is_futuro = (ano_selecionado > utils.ano_atual) or (ano_selecionado == utils.ano_atual and i > (utils.mes_hoje_idx - 1))
@@ -265,17 +341,19 @@ def renderizar():
 
     st.markdown("---")
     
-    # --- PROCESSO DE SALVAMENTO MANUAL NO BANCO ---
+    # --- BOTÃO DE SALVAMENTO MANUAL ---
     col_espaco, col_btn = st.columns([3, 1])
     if col_btn.button("💾 GRAVAR ALTERAÇÕES", type="primary", use_container_width=True, key="btn_gravar_rodape"):
         st.session_state.salvar_fin_clicado = True
 
     if st.session_state.salvar_fin_clicado:
-        with st.spinner("Gravando nos bancos de dados de forma segura..."):
-            salvar_dados_fin('fin_patrimonio', st.session_state.df_p, ano_selecionado)
-            salvar_dados_fin('fin_entradas', st.session_state.df_e, ano_selecionado)
+        with st.spinner("Gravando e consolidando dados no Supabase..."):
+            st.session_state.db_df_p = df_p_trabalho
+            st.session_state.db_df_e = df_e_trabalho
+            salvar_dados_fin('fin_patrimonio', st.session_state.db_df_p, ano_selecionado)
+            salvar_dados_fin('fin_entradas', st.session_state.db_df_e, ano_selecionado)
         st.session_state.salvar_fin_clicado = False
-        st.success("✅ Dados financeiros e troca de anos salvos com sucesso!")
+        st.success("✅ Alterações fiscais gravadas com sucesso!")
 
     # --------------------------
     # 3. RENDIMENTOS
@@ -339,4 +417,4 @@ def renderizar():
         st.subheader("Salário + Rendimento")
         st.area_chart(tot_e[utils.meses_pt] + rend_tot_full[utils.meses_pt])
         st.subheader("Faturamento Ecoclim")
-        st.line_chart(st.session_state.df_e.set_index('MESES').loc['ECOCLIM', utils.meses_pt])
+        st.line_chart(df_e_trabalho.set_index('MESES').loc['ECOCLIM', utils.meses_pt])
