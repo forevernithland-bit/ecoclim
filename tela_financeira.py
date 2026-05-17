@@ -51,9 +51,18 @@ def limpar_e_garantir_linhas(df, lista_contas):
 def renderizar():
     st.markdown('<div class="financeiro">', unsafe_allow_html=True)
     
+    # Flag para controlar o botão de salvar
+    if "salvar_fin_clicado" not in st.session_state:
+        st.session_state.salvar_fin_clicado = False
+        
     with st.sidebar:
         ano_selecionado = st.selectbox("Ano Fiscal", options=[2025, 2026, 2027, 2028], index=1)
+        
         st.write("---")
+        if st.button("💾 SALVAR DADOS AGORA", type="primary", use_container_width=True):
+            st.session_state.salvar_fin_clicado = True
+        st.write("---")
+        
         st.markdown("### 👁️ Linha do Tempo")
         
         pref_ini, pref_fim = carregar_periodo_visivel()
@@ -97,16 +106,11 @@ def renderizar():
     # 1. PATRIMÔNIO
     # --------------------------
     st.markdown("#### 🏛️ Posição Patrimonial e Investimentos")
-    
-    # AQUI ESTÁ A MÁGICA: A 'key' agora depende do ano_selecionado. 
-    # Isso obriga o Streamlit a destruir e recriar a tabela ao trocar de ano, impedindo o vazamento de dados.
     df_p_ed = st.data_editor(st.session_state.df_p[colunas_visiveis], hide_index=True, column_config=cfg_edit, use_container_width=True, height=285, key=f"ed_p_fin_{ano_selecionado}")
 
-    if not df_p_ed.equals(st.session_state.df_p[colunas_visiveis]):
-        for c in colunas_visiveis: 
-            if c != "MESES": st.session_state.df_p[c] = df_p_ed[c]
-        utils.save_to_supabase('patrimonio', st.session_state.df_p, ano_selecionado)
-        st.rerun()
+    # Atualiza a memória instantaneamente para os cálculos e para o botão de salvar
+    for c in colunas_visiveis: 
+        if c != "MESES": st.session_state.df_p[c] = df_p_ed[c]
 
     df_n = st.session_state.df_p.set_index('MESES')
     pat_liq = df_n.loc[df_n.index.isin(['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS'])].sum()
@@ -136,15 +140,11 @@ def renderizar():
     # 2. RECEBIMENTOS
     # --------------------------
     st.markdown("#### 💰 Recebimentos e Pró-labore")
-    
-    # A mesma proteção de 'key' aplicada aqui
     df_e_ed = st.data_editor(st.session_state.df_e[colunas_visiveis], hide_index=True, column_config=cfg_edit, use_container_width=True, height=190, key=f"ed_e_fin_{ano_selecionado}")
     
-    if not df_e_ed.equals(st.session_state.df_e[colunas_visiveis]):
-        for c in colunas_visiveis: 
-            if c != "MESES": st.session_state.df_e[c] = df_e_ed[c]
-        utils.save_to_supabase('entradas', st.session_state.df_e, ano_selecionado)
-        st.rerun()
+    # Atualiza a memória instantaneamente para os cálculos e para o botão de salvar
+    for c in colunas_visiveis: 
+        if c != "MESES": st.session_state.df_e[c] = df_e_ed[c]
 
     tot_e = st.session_state.df_e.set_index('MESES').sum()
     dict_res_e = {'MESES': ['TOTAL RECEBIMENTOS']}
@@ -156,6 +156,18 @@ def renderizar():
 
     st.markdown("---")
     
+    # --- PROCESSO DE SALVAMENTO MANUAL NO BANCO ---
+    col_espaco, col_btn = st.columns([3, 1])
+    if col_btn.button("💾 GRAVAR ALTERAÇÕES", type="primary", use_container_width=True):
+        st.session_state.salvar_fin_clicado = True
+
+    if st.session_state.salvar_fin_clicado:
+        with st.spinner("Salvando no banco de dados..."):
+            utils.save_to_supabase('patrimonio', st.session_state.df_p, ano_selecionado)
+            utils.save_to_supabase('entradas', st.session_state.df_e, ano_selecionado)
+        st.session_state.salvar_fin_clicado = False
+        st.success("✅ Dados financeiros salvos de forma segura!")
+
     # --------------------------
     # 3. RENDIMENTOS
     # --------------------------
