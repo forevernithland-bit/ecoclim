@@ -5,7 +5,6 @@ import utils
 def renderizar():
     st.markdown("## ⚙️ Configurações e Catálogos")
     
-    # Adicionada a 5ª Aba para os Kits em Lote
     tabs = st.tabs(["🛒 Produtos", "🛠️ Serviços", "🤝 Outros / Terceiros", "📊 Taxas", "📦 Kits em Lote"])
     
     def processar_upload_excel(arquivo_subido):
@@ -103,7 +102,7 @@ def renderizar():
             st.success("Taxas salvas!")
             
     # =========================================================================
-    # NOVA ABA: KITS EM LOTE (MESTRE-DETALHE)
+    # ABA: KITS EM LOTE (MESTRE-DETALHE)
     # =========================================================================
     with tabs[4]:
         st.subheader("📦 Configuração de Kits para Orçamentos em Lote")
@@ -197,9 +196,16 @@ def renderizar():
                 novos_itens = []
                 for _, r in df_itens_edit.iterrows():
                     p = str(r.get('Produto', '')).strip()
-                    q = int(r.get('Quantidade', 1))
+                    
+                    # CÓDIGO CORRIGIDO (BLINDAGEM CONTRA VALORES VAZIOS)
+                    try:
+                        q = int(r.get('Quantidade', 1))
+                    except (ValueError, TypeError):
+                        q = 1 # Se vier vazio ou NaN, assume 1
+                        
                     if p != "":
                         novos_itens.append({"Produto": p, "Quantidade": q})
+                        
                 try:
                     st.session_state.supabase.table('config_kits_lote').update({"itens": novos_itens}).eq("nome_kit", kit_sel).execute()
                     st.success(f"✅ Equipamentos do kit '{kit_sel}' salvos com sucesso!")
