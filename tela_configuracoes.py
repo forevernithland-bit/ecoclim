@@ -180,14 +180,16 @@ def renderizar():
             
             df_itens = pd.DataFrame(kit_itens)
             if df_itens.empty:
-                df_itens = pd.DataFrame([{"Produto": "", "Quantidade": 1} for _ in range(3)])
+                # Mudança: a quantidade por defeito agora é 0
+                df_itens = pd.DataFrame([{"Produto": "", "Quantidade": 0} for _ in range(3)])
                 
             for col in ["Produto", "Quantidade"]:
-                if col not in df_itens.columns: df_itens[col] = "" if col == "Produto" else 1
+                if col not in df_itens.columns: df_itens[col] = "" if col == "Produto" else 0
 
             cfg_itens = {
                 "Produto": st.column_config.SelectboxColumn("Equipamento (Produto)", options=[""] + lista_prod, width="large"),
-                "Quantidade": st.column_config.NumberColumn("Qtd", min_value=1, step=1)
+                # Mudança: min_value agora é 0 para permitir linhas vazias de forma segura
+                "Quantidade": st.column_config.NumberColumn("Qtd", min_value=0, step=1)
             }
 
             df_itens_edit = st.data_editor(df_itens, column_config=cfg_itens, num_rows="dynamic", use_container_width=True, key=f"edit_itens_{kit_sel}", hide_index=True)
@@ -197,13 +199,14 @@ def renderizar():
                 for _, r in df_itens_edit.iterrows():
                     p = str(r.get('Produto', '')).strip()
                     
-                    # CÓDIGO CORRIGIDO (BLINDAGEM CONTRA VALORES VAZIOS)
                     try:
-                        q = int(r.get('Quantidade', 1))
+                        # Mudança: o valor padrão de resgate passa a ser 0
+                        q = int(r.get('Quantidade', 0))
                     except (ValueError, TypeError):
-                        q = 1 # Se vier vazio ou NaN, assume 1
+                        q = 0 # Se vier vazio ou NaN, assume 0
                         
-                    if p != "":
+                    # Mudança: Só guarda a linha se tiver um produto preenchido e quantidade maior que zero
+                    if p != "" and q > 0:
                         novos_itens.append({"Produto": p, "Quantidade": q})
                         
                 try:
