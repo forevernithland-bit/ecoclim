@@ -130,7 +130,6 @@ def renderizar():
     contas_p = ['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS', 'IMÓVEIS', 'VEÍCULOS']
     contas_e = ['ECOCLIM', 'AIRNB', 'CONS INVESTIMENTOS', 'MAGGI CONSORCIOS']
     
-    # Usa os novos motores de busca nas tabelas novas
     if 'ano_dados_atual' not in st.session_state or st.session_state.ano_dados_atual != ano_selecionado:
         st.session_state.df_p = limpar_e_garantir_linhas(carregar_dados_fin('fin_patrimonio', contas_p, ano_selecionado), contas_p)
         st.session_state.df_e = limpar_e_garantir_linhas(carregar_dados_fin('fin_entradas', contas_e, ano_selecionado), contas_e)
@@ -158,10 +157,13 @@ def renderizar():
     st.markdown("#### 🏛️ Posição Patrimonial e Investimentos")
     df_p_ed = st.data_editor(st.session_state.df_p[colunas_visiveis], hide_index=True, column_config=cfg_edit, use_container_width=True, height=285, key=f"ed_p_fin_{ano_selecionado}")
 
+    # FIX DO BUG DE DIGITAÇÃO: Não alteramos st.session_state.df_p diretamente!
+    # Apenas criamos uma cópia completa mesclando o que foi editado com o restante do ano oculto.
+    df_p_completo = st.session_state.df_p.copy()
     for c in colunas_visiveis: 
-        if c != "MESES": st.session_state.df_p[c] = df_p_ed[c]
+        if c != "MESES": df_p_completo[c] = df_p_ed[c]
 
-    df_n = st.session_state.df_p.set_index('MESES')
+    df_n = df_p_completo.set_index('MESES')
     pat_liq = df_n.loc[df_n.index.isin(['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS'])].sum()
     pat_tot = pat_liq + df_n.loc[df_n.index.isin(['IMÓVEIS', 'VEÍCULOS'])].sum()
     
@@ -191,10 +193,12 @@ def renderizar():
     st.markdown("#### 💰 Recebimentos e Pró-labore")
     df_e_ed = st.data_editor(st.session_state.df_e[colunas_visiveis], hide_index=True, column_config=cfg_edit, use_container_width=True, height=190, key=f"ed_e_fin_{ano_selecionado}")
     
+    # Mesma correção aqui para as entradas:
+    df_e_completo = st.session_state.df_e.copy()
     for c in colunas_visiveis: 
-        if c != "MESES": st.session_state.df_e[c] = df_e_ed[c]
+        if c != "MESES": df_e_completo[c] = df_e_ed[c]
 
-    tot_e = st.session_state.df_e.set_index('MESES').sum()
+    tot_e = df_e_completo.set_index('MESES').sum()
     dict_res_e = {'MESES': ['TOTAL RECEBIMENTOS']}
     for i, m in enumerate(utils.meses_pt):
         is_futuro = (ano_selecionado > utils.ano_atual) or (ano_selecionado == utils.ano_atual and i > (utils.mes_hoje_idx - 1))
@@ -204,13 +208,16 @@ def renderizar():
 
     st.markdown("---")
     
-    # --- PROCESSO DE SALVAMENTO MANUAL NO BANCO (NOVAS TABELAS) ---
+    # --- PROCESSO DE SALVAMENTO MANUAL NO BANCO ---
     col_espaco, col_btn = st.columns([3, 1])
     if col_btn.button("💾 GRAVAR ALTERAÇÕES", type="primary", use_container_width=True, key="btn_gravar_rodape"):
         st.session_state.salvar_fin_clicado = True
 
     if st.session_state.salvar_fin_clicado:
         with st.spinner("Gravando nos novos bancos de dados de forma segura..."):
+            # Atualiza a base oficial do Streamlit com as nossas cópias completas ANTES de salvar
+            st.session_state.df_p = df_p_completo
+            st.session_state.df_e = df_e_completo
             salvar_dados_fin('fin_patrimonio', st.session_state.df_p, ano_selecionado)
             salvar_dados_fin('fin_entradas', st.session_state.df_e, ano_selecionado)
         st.session_state.salvar_fin_clicado = False
@@ -280,4 +287,4 @@ def renderizar():
         st.subheader("Salário + Rendimento")
         st.area_chart(tot_e[utils.meses_pt] + rend_tot_full[utils.meses_pt])
         st.subheader("Faturamento Ecoclim")
-        st.line_chart(st.session_state.df_e.set_index('MESES').loc['ECOCLIM', utils.meses_pt])
+        st.line_chart(df_e_completo.set_index('MESES').loc['ECOCLIM', utils.meses_pt])
