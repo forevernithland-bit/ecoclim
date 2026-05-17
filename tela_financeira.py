@@ -3,36 +3,83 @@ import pandas as pd
 import numpy as np
 import utils
 
+# ==========================================
+# NOVOS MOTORES DE BANCO DE DADOS BLINDADOS
+# ==========================================
+def carregar_dados_fin(nome_tabela, lista_contas, ano):
+    supabase = st.session_state.supabase
+    try:
+        res = supabase.table(nome_tabela).select("*").eq("ano", ano).execute()
+        df_banco = pd.DataFrame(res.data)
+        if df_banco.empty:
+            df_novo = pd.DataFrame({"MESES": lista_contas})
+            for mes in utils.meses_pt: df_novo[mes] = 0.0
+            return df_novo
+        
+        # Converte as colunas minúsculas do banco para o padrão de exibição da tela
+        mapeamento = {"meses": "MESES", "marco": "MARÇO"}
+        for m in utils.meses_pt:
+            if m != "MARÇO": mapeamento[m.lower()] = m
+        
+        df_banco = df_banco.rename(columns=mapeamento)
+        
+        colunas_ordenadas = ["MESES"] + utils.meses_pt
+        for col in colunas_ordenadas:
+            if col not in df_banco.columns: df_banco[col] = 0.0 if col != "MESES" else ""
+        
+        df_banco = df_banco[df_banco['MESES'].isin(lista_contas)]
+        return df_banco[colunas_ordenadas].reset_index(drop=True)
+    except Exception as e:
+        return pd.DataFrame({"MESES": lista_contas, **{m: 0.0 for m in utils.meses_pt}})
+
+def salvar_dados_fin(nome_tabela, df, ano):
+    supabase = st.session_state.supabase
+    dados_finais = []
+    for _, linha in df.iterrows():
+        # Força o salvamento exato com colunas minúsculas sem acento (Padrão SQL)
+        registro = {
+            "ano": ano,
+            "meses": linha["MESES"],
+            "janeiro": float(linha["JANEIRO"]),
+            "fevereiro": float(linha["FEVEREIRO"]),
+            "marco": float(linha["MARÇO"]),
+            "abril": float(linha["ABRIL"]),
+            "maio": float(linha["MAIO"]),
+            "junho": float(linha["JUNHO"]),
+            "julho": float(linha["JULHO"]),
+            "agosto": float(linha["AGOSTO"]),
+            "setembro": float(linha["SETEMBRO"]),
+            "outubro": float(linha["OUTUBRO"]),
+            "novembro": float(linha["NOVEMBRO"]),
+            "dezembro": float(linha["DEZEMBRO"])
+        }
+        dados_finais.append(registro)
+    try:
+        supabase.table(nome_tabela).delete().eq("ano", ano).execute()
+        supabase.table(nome_tabela).insert(dados_finais).execute()
+    except Exception as e:
+        st.error(f"Erro ao salvar tabela {nome_tabela}: {e}")
+
 def carregar_periodo_visivel():
-    """Busca o período salvo no cofre do Supabase (Ano 2000) ou retorna padrão"""
     if 'periodo_visivel_financeiro' in st.session_state:
         return st.session_state.periodo_visivel_financeiro
     try:
-        res = st.session_state.supabase.table('entradas').select('*').eq('ano', 2000).eq('MESES', 'CFG_FIN_PERIODO').execute()
+        res = st.session_state.supabase.table('fin_configuracoes').select('*').eq('chave', 'periodo_visivel').execute()
         if res.data:
-            idx_ini = int(res.data[0].get('JANEIRO', 0))
-            idx_fim = int(res.data[0].get('FEVEREIRO', 11))
-            st.session_state.periodo_visivel_financeiro = (utils.meses_pt[idx_ini], utils.meses_pt[idx_fim])
-            return st.session_state.periodo_visivel_financeiro
-    except:
-        pass
+            return (res.data[0].get('valor1', 'JANEIRO'), res.data[0].get('valor2', 'DEZEMBRO'))
+    except: pass
     return ("JANEIRO", "DEZEMBRO")
 
 def salvar_periodo_visivel(m_ini, m_fim):
-    """Salva a escolha do slider no Supabase (Ano 2000) para persistência"""
     st.session_state.periodo_visivel_financeiro = (m_ini, m_fim)
     try:
-        idx_ini = utils.meses_pt.index(m_ini)
-        idx_fim = utils.meses_pt.index(m_fim)
-        st.session_state.supabase.table('entradas').delete().eq('ano', 2000).eq('MESES', 'CFG_FIN_PERIODO').execute()
-        st.session_state.supabase.table('entradas').insert({
-            'ano': 2000, 'MESES': 'CFG_FIN_PERIODO', 'JANEIRO': float(idx_ini), 'FEVEREIRO': float(idx_fim)
+        st.session_state.supabase.table('fin_configuracoes').delete().eq('chave', 'periodo_visivel').execute()
+        st.session_state.supabase.table('fin_configuracoes').insert({
+            'chave': 'periodo_visivel', 'valor1': m_ini, 'valor2': m_fim
         }).execute()
-    except:
-        pass
+    except: pass
 
 def limpar_e_garantir_linhas(df, lista_contas):
-    """Remove linhas fantasmas e garante a ordem correta das contas oficiais"""
     if not df.empty and 'MESES' in df.columns:
         df = df[df['MESES'].astype(str).str.strip() != '']
         df = df[df['MESES'].notna()]
@@ -48,38 +95,9 @@ def limpar_e_garantir_linhas(df, lista_contas):
     df['MESES'] = pd.Categorical(df['MESES'], categories=lista_contas, ordered=True)
     return df.sort_values('MESES').reset_index(drop=True)
 
-def salvar_financeiro_seguro(nome_tabela, df, ano):
-    """Motor blindado de salvamento para lidar com o Supabase"""
-    supabase = st.session_state.supabase
-    
-    dados_min = []
-    dados_mai = []
-    
-    for _, linha in df.iterrows():
-        # Molde Minúsculo (Padrão nativo do banco de dados Postgres/Supabase)
-        reg_min = {"ano": ano, "meses": linha["MESES"]}
-        for m in utils.meses_pt: reg_min[m.lower()] = float(linha[m]) if pd.notna(linha[m]) else 0.0
-        dados_min.append(reg_min)
-        
-        # Molde Maiúsculo (Caso a coluna tenha sido criada com caps lock no Supabase)
-        reg_mai = {"ano": ano, "MESES": linha["MESES"]}
-        for m in utils.meses_pt: reg_mai[m.upper()] = float(linha[m]) if pd.notna(linha[m]) else 0.0
-        dados_mai.append(reg_mai)
-        
-    # 1. Apaga os dados antigos do ano para evitar duplicidade
-    try:
-        supabase.table(nome_tabela).delete().eq("ano", ano).execute()
-    except: pass
-    
-    # 2. Tenta inserir. Se der erro (ex: nome da coluna não existe), tenta o outro formato
-    try:
-        supabase.table(nome_tabela).insert(dados_min).execute()
-    except:
-        try:
-            supabase.table(nome_tabela).insert(dados_mai).execute()
-        except Exception as e:
-            st.error(f"Erro crítico ao tentar salvar a tabela {nome_tabela}. Detalhe: {e}")
-
+# ==========================================
+# RENDERIZAÇÃO DA TELA
+# ==========================================
 def renderizar():
     st.markdown('<div class="financeiro">', unsafe_allow_html=True)
     
@@ -112,13 +130,14 @@ def renderizar():
     contas_p = ['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS', 'IMÓVEIS', 'VEÍCULOS']
     contas_e = ['ECOCLIM', 'AIRNB', 'CONS INVESTIMENTOS', 'MAGGI CONSORCIOS']
     
+    # Usa os novos motores de busca nas tabelas novas
     if 'ano_dados_atual' not in st.session_state or st.session_state.ano_dados_atual != ano_selecionado:
-        st.session_state.df_p = limpar_e_garantir_linhas(utils.load_year_data('patrimonio', contas_p, ano_selecionado), contas_p)
-        st.session_state.df_e = limpar_e_garantir_linhas(utils.load_year_data('entradas', contas_e, ano_selecionado), contas_e)
+        st.session_state.df_p = limpar_e_garantir_linhas(carregar_dados_fin('fin_patrimonio', contas_p, ano_selecionado), contas_p)
+        st.session_state.df_e = limpar_e_garantir_linhas(carregar_dados_fin('fin_entradas', contas_e, ano_selecionado), contas_e)
         st.session_state.ano_dados_atual = ano_selecionado
 
     # --- HERANÇA DE DEZEMBRO (ANO ANTERIOR) ---
-    df_p_prev = utils.load_year_data('patrimonio', contas_p, ano_selecionado - 1).set_index('MESES')
+    df_p_prev = carregar_dados_fin('fin_patrimonio', contas_p, ano_selecionado - 1).set_index('MESES')
     pat_liq_prev_dec = df_p_prev.loc[df_p_prev.index.isin(['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS']), 'DEZEMBRO'].sum()
     pat_tot_prev_dec = pat_liq_prev_dec + df_p_prev.loc[df_p_prev.index.isin(['IMÓVEIS', 'VEÍCULOS']), 'DEZEMBRO'].sum()
     xp_prev_dec = df_p_prev.loc['INVESTIMENTO XP', 'DEZEMBRO'] if 'INVESTIMENTO XP' in df_p_prev.index else 0
@@ -185,17 +204,17 @@ def renderizar():
 
     st.markdown("---")
     
-    # --- PROCESSO DE SALVAMENTO MANUAL NO BANCO ---
+    # --- PROCESSO DE SALVAMENTO MANUAL NO BANCO (NOVAS TABELAS) ---
     col_espaco, col_btn = st.columns([3, 1])
     if col_btn.button("💾 GRAVAR ALTERAÇÕES", type="primary", use_container_width=True, key="btn_gravar_rodape"):
         st.session_state.salvar_fin_clicado = True
 
     if st.session_state.salvar_fin_clicado:
-        with st.spinner("Salvando no banco de dados de forma segura..."):
-            salvar_financeiro_seguro('patrimonio', st.session_state.df_p, ano_selecionado)
-            salvar_financeiro_seguro('entradas', st.session_state.df_e, ano_selecionado)
+        with st.spinner("Gravando nos novos bancos de dados de forma segura..."):
+            salvar_dados_fin('fin_patrimonio', st.session_state.df_p, ano_selecionado)
+            salvar_dados_fin('fin_entradas', st.session_state.df_e, ano_selecionado)
         st.session_state.salvar_fin_clicado = False
-        st.success("✅ Dados financeiros salvos de forma segura!")
+        st.success("✅ Dados financeiros e troca de anos blindados com sucesso!")
 
     # --------------------------
     # 3. RENDIMENTOS
