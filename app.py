@@ -104,6 +104,18 @@ st.markdown("""
         align-items: center !important;
     }
 
+    /* ALINHAMENTO MILIMÉTRICO DOS LEMBRETES */
+    div[data-testid="stHorizontalBlock"]:has(.card-lembrete) {
+        align-items: center !important;
+    }
+    div[data-testid="stHorizontalBlock"]:has(.card-lembrete) p {
+        margin-bottom: 0px !important;
+    }
+    div[data-testid="stHorizontalBlock"]:has(.card-lembrete) div.stButton {
+        padding: 0px !important;
+        margin: 0px !important;
+    }
+
     /* BOTÕES PEQUENOS: Usados nos Lembretes (Type Primary) */
     div.stButton > button[kind="primary"] {
         background-color: #ffffff !important;
@@ -298,14 +310,14 @@ else:
                     
                     # MAGIA CSS: Puxa a linha pra cima anulando o gap do Streamlit, grudando feito tabela
                     if idx > 0:
-                        st.markdown("<div style='margin-top: -32px;'></div>", unsafe_allow_html=True)
+                        st.markdown("<div style='margin-top: -16px;'></div>", unsafe_allow_html=True)
                         
                     col_info, col_btn_doc, col_btn_pagar = st.columns([7.5, 1.2, 1.2])
                     
                     with col_info:
-                        # Altura travada em 38px, alinhamento flex perfeito e compensação de margin (3px) para bater com os botões
+                        # Altura travada em 38px, alinhamento flex perfeito e classe injetada para quebrar a margem do Streamlit
                         st.markdown(f"""
-                            <div style="background-color: {cor_card}; border: 1px solid #d1d5db; border-radius: 4px; padding: 0 15px; display: flex; align-items: center; justify-content: space-between; height: 38px; margin-top: 3px;">
+                            <div class="card-lembrete" style="background-color: {cor_card}; border: 1px solid #d1d5db; border-radius: 4px; padding: 0 15px; display: flex; align-items: center; justify-content: space-between; height: 38px; margin: 0px;">
                                 <div style="display: flex; align-items: center; gap: 10px; overflow: hidden;">
                                     <span style="font-size: 14px;">{icone}</span>
                                     <span style="font-size: 14px; font-weight: 600; color: #111; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{b['cliente']}</span>
