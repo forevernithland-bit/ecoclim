@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import datetime
 import utils
+import zipfile
+import io
 
 def renderizar():
     # =============================================================================
@@ -260,7 +262,7 @@ def renderizar():
                         st.error(f"Erro ao salvar: {e}")
 
     # =========================================================================
-    # ABA 2: GERADOR EM LOTE (MÚLTIPLOS ITENS POR KIT)
+    # ABA 2: GERADOR EM LOTE (MÚLTIPLOS ITENS POR KIT E DOWNLOAD EM ZIP)
     # =========================================================================
     with aba_lote:
         st.markdown("### 📦 Geração de Orçamentos em Lote")
@@ -380,18 +382,36 @@ def renderizar():
                     else:
                         st.warning(f"⚠️ {erros_up} arquivo(s) não puderam ser enviados ao Drive. Tente baixar manualmente abaixo.")
 
-            # Exibir lista de PDFs gerados para Download Individual
+            # Exibir lista de PDFs gerados para Download Individual e ZIP
             if 'pdf_gerados_lote' in st.session_state:
                 st.markdown("---")
-                st.markdown("#### 📥 Seus Arquivos (Download Individual)")
+                st.markdown("#### 📥 Seus Arquivos (Download)")
                 
-                # Exibe em colunas para ficar visualmente agradável
+                # CRIANDO O ARQUIVO ZIP EM MEMÓRIA
+                zip_buffer = io.BytesIO()
+                with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                    for pdf_dict in st.session_state['pdf_gerados_lote']:
+                        zip_file.writestr(pdf_dict['nome_arquivo'], pdf_dict['buffer'].getvalue())
+                
+                # BOTÃO PARA BAIXAR TUDO (ZIP)
+                st.download_button(
+                    label="📦 BAIXAR TODOS (ARQUIVO .ZIP)",
+                    data=zip_buffer.getvalue(),
+                    file_name=f"Orcamentos_Tabelas_Padrao_{nome_mes_atual_pt}.zip",
+                    mime="application/zip",
+                    use_container_width=True,
+                    type="primary"
+                )
+                
+                st.markdown("<br>", unsafe_allow_html=True)
+                
+                # Exibe em colunas para ficar visualmente agradável os downloads individuais
                 cols_download = st.columns(2)
                 for idx, pdf_dict in enumerate(st.session_state['pdf_gerados_lote']):
                     with cols_download[idx % 2]:
                         st.download_button(
                             label=f"⬇️ {pdf_dict['nome_arquivo']}",
-                            data=pdf_dict['buffer'],
+                            data=pdf_dict['buffer'].getvalue(),
                             file_name=pdf_dict['nome_arquivo'],
                             mime="application/pdf",
                             key=f"dl_lote_{idx}",
