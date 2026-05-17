@@ -4,13 +4,20 @@ import datetime
 import utils
 
 def renderizar():
-    st.markdown("## 📝 Novo Orçamento")
+    # =============================================================================
+    # TÍTULO REDUZIDO E BOTÃO ALINHADOS LADO A LADO
+    # =============================================================================
+    col_tit, col_btn = st.columns([2, 1])
     
-    # Botão para forçar atualização do banco
-    if st.button("🔄 ATUALIZAR DADOS DO BANCO"):
-        for chave in ['db_produtos', 'db_servicos', 'db_outros', 'df_orc', 'df_orc_prev', 'editor_orc_base']:
-            if chave in st.session_state: del st.session_state[chave]
-        st.rerun()
+    with col_tit:
+        st.markdown("<h4 style='color:#004488; margin:0; font-weight:600;'>📝 Novo Orçamento</h4>", unsafe_allow_html=True)
+        
+    with col_btn:
+        if st.button("🔄 ATUALIZAR DADOS DO BANCO", use_container_width=True):
+            for chave in ['db_produtos', 'db_servicos', 'db_outros', 'df_orc', 'df_orc_prev', 'editor_orc_base']:
+                if chave in st.session_state: 
+                    del st.session_state[chave]
+            st.rerun()
 
     # Carregamento seguro dos catálogos
     if 'db_produtos' not in st.session_state: st.session_state.db_produtos = utils.load_catalog('catalogo_produtos')
@@ -212,7 +219,7 @@ def renderizar():
                             folder_path=["Orçamentos"]
                         )
                         if sucesso:
-                            st.success(f"✅ Arquivo {nome_arquivo_drive} salvo com sucesso no Drive!")
+                            st.success(f"✅ Arquivo {nome_arquivo_drive} saved com sucesso no Drive!")
                         else:
                             st.error(f"Erro ao salvar: {msg}")
 
