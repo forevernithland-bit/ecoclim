@@ -294,10 +294,11 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
                 p.setFillColor(colors.black)
             y -= 0.2*cm
             
-    # --- CORREÇÃO DE ALINHAMENTO DO SUBTOTAL ---
+    # --- CORREÇÃO DEFINITIVA DE ALINHAMENTO DO SUBTOTAL ---
     y -= 0.2*cm
     p.setFont("Helvetica-Bold", 10)
-    p.drawString(largura - 9.5*cm, y, "Subtotal de Equipamentos:")
+    # Ancoramos o texto alinhado à direita para garantir espaçamento seguro!
+    p.drawRightString(largura - 6.0*cm, y, "Subtotal de Equipamentos:")
     p.drawRightString(largura - 2.3*cm, y, to_br_currency(total_equipamentos))
     
     y -= 1.0*cm 
