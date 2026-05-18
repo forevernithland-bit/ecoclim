@@ -326,11 +326,10 @@ def renderizar():
                         
                         total_lote = total_prod + val_serv
                         
-                        obs_padrao = "ATENÇÃO: Material hidráulico não incluso nesta proposta. Valores referentes apenas ao equipamento e serviço de instalação."
+                        obs_padrao = "Material hidráulico não incluso nesta proposta."
                         
-                        # --- MODIFICADO AQUI: NOME DO CLIENTE AGORA É APENAS O NOME DO KIT ---
                         pdf_buffer = utils.gerar_pdf_orcamento(
-                            nome=nome_kit_base, # Agora puxa limpo, ex: "Acoplado 24 Tubos"
+                            nome=nome_kit_base,
                             tel="-",
                             capa=capa,
                             df_items=df_itens_lote,
@@ -349,39 +348,48 @@ def renderizar():
                         })
                     
                     st.session_state['pdf_gerados_lote'] = pdfs_gerados
-                    st.success("✅ PDFs gerados com sucesso! Fazendo upload silencioso para o Drive...")
-                    
-                    pasta_lote = ["Orçamentos", "Lote", utils.mes_atual_nome]
-                    erros_up = 0
-                    for arq in pdfs_gerados:
-                        sucesso, msg = utils.upload_to_drive(arq["buffer"], arq["nome_arquivo"], "application/pdf", pasta_lote)
-                        if not sucesso: erros_up += 1
-                        
-                    if erros_up == 0:
-                        st.info(f"☁️ Todos os {len(pdfs_gerados)} arquivos foram salvos no seu Drive (Orçamentos -> Lote -> {utils.mes_atual_nome}).")
-                    else:
-                        st.warning(f"⚠️ {erros_up} arquivo(s) não puderam ser enviados ao Drive. Tente baixar manualmente abaixo.")
+                    st.success("✅ PDFs gerados com sucesso! Disponíveis para download ou salvamento abaixo.")
 
             if 'pdf_gerados_lote' in st.session_state:
                 st.markdown("---")
-                st.markdown("#### 📥 Seus Arquivos (Download)")
+                st.markdown("#### 📥 Seus Arquivos (Download e Drive)")
                 
                 zip_buffer = io.BytesIO()
                 with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
                     for pdf_dict in st.session_state['pdf_gerados_lote']:
                         zip_file.writestr(pdf_dict['nome_arquivo'], pdf_dict['buffer'].getvalue())
                 
-                st.download_button(
-                    label="📦 BAIXAR TODOS (ARQUIVO .ZIP)",
-                    data=zip_buffer.getvalue(),
-                    file_name=f"Orcamentos_Tabelas_Padrao_{nome_mes_atual_pt}.zip",
-                    mime="application/zip",
-                    use_container_width=True,
-                    type="primary"
-                )
+                # --- NOVO BLOCO: LADO A LADO DOWNLOAD ZIP E UPLOAD DRIVE ---
+                col_down_zip, col_save_drive = st.columns(2)
+                
+                with col_down_zip:
+                    st.download_button(
+                        label="📦 BAIXAR TODOS (.ZIP)",
+                        data=zip_buffer.getvalue(),
+                        file_name=f"Orcamentos_Tabelas_Padrao_{nome_mes_atual_pt}.zip",
+                        mime="application/zip",
+                        use_container_width=True,
+                        type="primary"
+                    )
+                    
+                with col_save_drive:
+                    if st.button("☁️ SALVAR TODOS NO DRIVE", use_container_width=True):
+                        with st.spinner("Enviando arquivos para o Google Drive..."):
+                            pasta_lote = ["Orçamentos", "Lote", utils.mes_atual_nome]
+                            erros_up = 0
+                            for arq in st.session_state['pdf_gerados_lote']:
+                                sucesso, msg = utils.upload_to_drive(arq["buffer"], arq["nome_arquivo"], "application/pdf", pasta_lote)
+                                if not sucesso: erros_up += 1
+                                
+                            if erros_up == 0:
+                                st.success(f"☁️ Todos os {len(st.session_state['pdf_gerados_lote'])} arquivos foram salvos (Orçamentos -> Lote -> {utils.mes_atual_nome}).")
+                            else:
+                                st.warning(f"⚠️ {erros_up} arquivo(s) não puderam ser enviados ao Drive.")
                 
                 st.markdown("<br>", unsafe_allow_html=True)
                 
+                # Exibe em colunas para ficar visualmente agradável os downloads individuais
+                st.caption("Downloads individuais:")
                 cols_download = st.columns(2)
                 for idx, pdf_dict in enumerate(st.session_state['pdf_gerados_lote']):
                     with cols_download[idx % 2]:
