@@ -23,11 +23,12 @@ def deve_ir_para_finalizados(status, data_conc_str):
     except:
         return False
 
-def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_produtos, prefix_key):
+def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_produtos, prefix_key, lista_instaladores):
     st.markdown("---")
     st.markdown(f"### ⚙️ Detalhes e Fechamento: **{projeto_selecionado.get('nome_cliente', 'Sem Nome')}**")
     
-    col_esq, col_dir = st.columns(2)
+    # Dividido em 3 colunas para incluir o Instalador
+    col_esq, col_meio, col_dir = st.columns(3)
     
     status_atual = projeto_selecionado.get('status_projeto', 'Orçamento Enviado')
     if status_atual == "Cancelado": status_atual = "Orçamento Cancelado"
@@ -44,7 +45,15 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
     if pd.notna(data_banco) and str(data_banco).lower() not in ['none', 'nan', 'nat', '']:
         try: data_inicial = pd.to_datetime(data_banco).date()
         except: pass
-    nova_data = col_dir.date_input("Previsão / Data de Conclusão", value=data_inicial, format="DD/MM/YYYY", key=f"data_{prefix_key}")
+    nova_data = col_meio.date_input("Data de Inclusão / Previsão", value=data_inicial, format="DD/MM/YYYY", key=f"data_{prefix_key}")
+
+    # Caixa de seleção do Instalador
+    instalador_atual = str(projeto_selecionado.get('instalador', ''))
+    if instalador_atual.lower() in ['nan', 'none']: instalador_atual = ""
+    
+    opcoes_inst = [""] + lista_instaladores
+    idx_inst = opcoes_inst.index(instalador_atual) if instalador_atual in opcoes_inst else 0
+    novo_instalador = col_dir.selectbox("Instalador Responsável", opcoes_inst, index=idx_inst, key=f"inst_{prefix_key}")
 
     # ==============================================================
     # 🛒 ITENS VENDIDOS
@@ -434,6 +443,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             dados = {
                 "status_projeto": novo_status, 
                 "data_conclusao": nova_data.strftime('%Y-%m-%d'),
+                "instalador": novo_instalador,
                 "detalhamento_itens": df_itens_final.to_dict('records'),
                 "custo_adicional_materiais": custo_ext, 
                 "custo_terceirizados": custo_mo,
@@ -451,7 +461,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                 st.success("✅ Atualizado com sucesso!")
                 st.rerun()
             except Exception as e: 
-                st.error(f"Erro ao salvar. Verifique se as colunas 'nf_entrada' e 'vencimento_boleto' foram criadas no Supabase. Detalhe: {e}")
+                st.error(f"Erro ao salvar. Verifique se as colunas 'nf_entrada', 'vencimento_boleto' e 'instalador' foram criadas no Supabase. Detalhe: {e}")
 
 def renderizar():
     # CSS Injetado para ocultar as setinhas (+ e -) de todos os number_inputs da página
@@ -486,11 +496,26 @@ def renderizar():
         st.info("Nenhum serviço ou orçamento encontrado.")
         return
 
+    # Puxar a lista de instaladores para o selectbox
+    try:
+        res_inst = supabase.table('config_instaladores').select('nome').order('nome').execute()
+        lista_instaladores = [r['nome'] for r in res_inst.data if str(r.get('nome', '')).strip() != ""]
+    except:
+        lista_instaladores = []
+
+    # Garante que a coluna instalador existe mesmo se não houver dados no banco ainda
+    if 'instalador' not in df.columns:
+        df['instalador'] = ""
+
     df_taxas = utils.load_taxas()
     df_produtos = utils.load_catalog('catalogo_produtos')
     
     df['data_conclusao'] = pd.to_datetime(df['data_conclusao'], errors='coerce')
     df['ir_finalizados'] = df.apply(lambda x: deve_ir_para_finalizados(x['status_projeto'], x['data_conclusao']), axis=1)
+
+    # Aplica a máscara BR com o separador de milhar para exibição na tabela
+    df['valor_venda_total_str'] = df['valor_venda_total'].apply(lambda x: utils.to_br_currency(x))
+    df['lucro_estimado_str'] = df['lucro_estimado'].apply(lambda x: utils.to_br_currency(x))
 
     ativos_status = ["Em Andamento", "Aguardando Pagamento", "Aguardando Peças", "Concluído PIX", "Concluído CARTÃO"]
     
@@ -500,13 +525,16 @@ def renderizar():
 
     aba1, aba2, aba3 = st.tabs(["🚀 Em Andamento", "📝 Orçamentos", "✅ Finalizados"])
     
-    colunas_visiveis = ['numero_orcamento', 'nome_cliente', 'status_projeto', 'valor_venda_total', 'lucro_estimado', 'data_conclusao']
+    # Nova ordem das colunas na tabela (Nº Orçamento ocultado)
+    colunas_visiveis = ['nome_cliente', 'status_projeto', 'valor_venda_total_str', 'lucro_estimado_str', 'data_conclusao', 'instalador']
     
     config_colunas = {
-        "id": "ID", "numero_orcamento": "Nº Orçamento", "nome_cliente": "Cliente", "status_projeto": "Status",
-        "valor_venda_total": st.column_config.NumberColumn("Venda Total", format="R$ %.2f"),
-        "lucro_estimado": st.column_config.NumberColumn("Lucro Líquido", format="R$ %.2f"),
-        "data_conclusao": st.column_config.DateColumn("Data", format="DD/MM/YYYY") 
+        "nome_cliente": "Cliente",
+        "status_projeto": "Status",
+        "valor_venda_total_str": st.column_config.TextColumn("Venda Total"),
+        "lucro_estimado_str": st.column_config.TextColumn("Lucro Líquido"),
+        "data_conclusao": st.column_config.DateColumn("Data de Inclusão", format="DD/MM/YYYY"),
+        "instalador": "Instalador"
     }
     
     with aba1:
@@ -514,14 +542,14 @@ def renderizar():
         total_lucro_atv = pd.to_numeric(df_atv['lucro_estimado'], errors='coerce').fillna(0).sum()
         st.markdown(f"<div style='text-align: right; color: #004488; font-size: 18px; font-weight: bold; margin-bottom: 20px;'>Total Lucro Líquido Estimado: {utils.to_br_currency(total_lucro_atv)}</div>", unsafe_allow_html=True)
         if sel.selection.rows and len(df_atv) > sel.selection.rows[0]: 
-            exibir_painel_detalhado(df_atv.iloc[sel.selection.rows[0]], supabase, df_taxas, df_produtos, f"atv_{df_atv.iloc[sel.selection.rows[0]]['id']}")
+            exibir_painel_detalhado(df_atv.iloc[sel.selection.rows[0]], supabase, df_taxas, df_produtos, f"atv_{df_atv.iloc[sel.selection.rows[0]]['id']}", lista_instaladores)
     
     with aba2:
         sel = st.dataframe(df_orc[colunas_visiveis], use_container_width=True, on_select="rerun", selection_mode="single-row", hide_index=True, column_config=config_colunas, key="g_orc")
         total_lucro_orc = pd.to_numeric(df_orc['lucro_estimado'], errors='coerce').fillna(0).sum()
         st.markdown(f"<div style='text-align: right; color: #004488; font-size: 18px; font-weight: bold; margin-bottom: 20px;'>Total Lucro Líquido Estimado: {utils.to_br_currency(total_lucro_orc)}</div>", unsafe_allow_html=True)
         if sel.selection.rows and len(df_orc) > sel.selection.rows[0]: 
-            exibir_painel_detalhado(df_orc.iloc[sel.selection.rows[0]], supabase, df_taxas, df_produtos, f"orc_{df_orc.iloc[sel.selection.rows[0]]['id']}")
+            exibir_painel_detalhado(df_orc.iloc[sel.selection.rows[0]], supabase, df_taxas, df_produtos, f"orc_{df_orc.iloc[sel.selection.rows[0]]['id']}", lista_instaladores)
 
     with aba3:
         st.caption("Serviços concluídos em meses anteriores.")
@@ -529,4 +557,4 @@ def renderizar():
         total_lucro_fin = pd.to_numeric(df_fin['lucro_estimado'], errors='coerce').fillna(0).sum()
         st.markdown(f"<div style='text-align: right; color: #004488; font-size: 18px; font-weight: bold; margin-bottom: 20px;'>Total Lucro Líquido Realizado: {utils.to_br_currency(total_lucro_fin)}</div>", unsafe_allow_html=True)
         if sel.selection.rows and len(df_fin) > sel.selection.rows[0]: 
-            exibir_painel_detalhado(df_fin.iloc[sel.selection.rows[0]], supabase, df_taxas, df_produtos, f"fin_{df_fin.iloc[sel.selection.rows[0]]['id']}")
+            exibir_painel_detalhado(df_fin.iloc[sel.selection.rows[0]], supabase, df_taxas, df_produtos, f"fin_{df_fin.iloc[sel.selection.rows[0]]['id']}", lista_instaladores)
