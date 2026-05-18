@@ -269,15 +269,31 @@ def renderizar():
             nome_mes_atual_pt = utils.mes_atual_nome.capitalize()
             
             st.markdown("#### ⚙️ Configurações da Geração")
-            
-            # 1. Checkbox para preço unitário
             mostrar_precos_lote = st.checkbox("Mostrar Preços Unitários no PDF?", value=False, key="check_precos_lote")
             
-            # 2. Nova Tabela de Seleção de Kits (Substituindo o Multiselect)
             opcoes_kits = [k for k in df_kits['nome_kit'].tolist() if str(k).strip() != ""]
             
+            # --- NOVO BLOCO: BOTÕES DE MARCAR/DESMARCAR TODOS ---
+            if "lote_check_all" not in st.session_state:
+                st.session_state.lote_check_all = True
+                
+            col_sel1, col_sel2, col_sel3 = st.columns([1.5, 1.5, 3])
+            
+            if col_sel1.button("✅ Selecionar Todos", use_container_width=True):
+                st.session_state.lote_check_all = True
+                if "grid_selecao_kits" in st.session_state:
+                    del st.session_state["grid_selecao_kits"]
+                st.rerun()
+                
+            if col_sel2.button("❌ Desmarcar Todos", use_container_width=True):
+                st.session_state.lote_check_all = False
+                if "grid_selecao_kits" in st.session_state:
+                    del st.session_state["grid_selecao_kits"]
+                st.rerun()
+            
+            # Aplica o status salvo nos botões acima na montagem da tabela
             df_selecao = pd.DataFrame({
-                "Gerar PDF": [True] * len(opcoes_kits),
+                "Gerar PDF": [st.session_state.lote_check_all] * len(opcoes_kits),
                 "Kit Configurado": opcoes_kits
             })
             
@@ -303,11 +319,9 @@ def renderizar():
                     with st.spinner("Cruzando dados de preço e desenhando PDFs..."):
                         pdfs_gerados = []
                         
-                        # CARREGA OS DADOS FRESQUINHOS DIRETO DO BANCO ANTES DE GERAR
                         db_servicos_fresquinho = utils.load_catalog('catalogo_servicos')
                         db_produtos_fresquinho = utils.load_catalog('catalogo_produtos')
                         
-                        # Filtra o DataFrame apenas com os kits marcados na tabela
                         df_kits_filtrado = df_kits[df_kits['nome_kit'].isin(kits_selecionados)]
                         
                         for _, kit in df_kits_filtrado.iterrows():
