@@ -256,12 +256,13 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
     p.drawString(2.3*cm, y - 0.3*cm, "Item")
     p.drawString(12.5*cm, y - 0.3*cm, "Qtd")
     
-    # MODIFICAÇÃO AQUI: Só desenha o cabeçalho de valor se mostrar_un for True
     if mostrar_un:
         p.drawRightString(largura - 4.5*cm, y - 0.3*cm, "V. Un.")
         p.drawRightString(largura - 2.3*cm, y - 0.3*cm, "Subtotal")
         
     y -= 0.8*cm
+    
+    total_equipamentos = 0.0
     
     for _, row in df_items.iterrows():
         if row.get('Quantidade', 0) > 0:
@@ -277,11 +278,13 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
             p.setFont("Helvetica-Bold", 9); p.drawString(2.3*cm, y, str(item)[:60])
             p.setFont("Helvetica", 9); p.drawString(12.8*cm, y, str(int(row.get('Quantidade', 0))))
             
-            # MODIFICAÇÃO AQUI: Só desenha os valores numéricos se mostrar_un for True
+            v_total_item = safe_float(row.get('Venda Total', 0))
+            total_equipamentos += v_total_item
+            
             if mostrar_un:
                 v_un = row.get('Venda (R$)', row.get('Venda Un.', 0))
                 p.drawRightString(largura - 4.5*cm, y, to_br_currency(v_un))
-                p.drawRightString(largura - 2.3*cm, y, to_br_currency(row.get('Venda Total', 0)))
+                p.drawRightString(largura - 2.3*cm, y, to_br_currency(v_total_item))
                 
             y -= 0.4*cm
             desc = str(row.get('Descrição', ""))
@@ -291,15 +294,20 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
                 p.setFillColor(colors.black)
             y -= 0.2*cm
             
+    # LINHA DE SUBTOTAL DOS EQUIPAMENTOS SEMPRE VISÍVEL
+    y -= 0.2*cm
+    p.setFont("Helvetica-Bold", 10)
+    p.drawString(largura - 8.0*cm, y, "Subtotal de Equipamentos:")
+    p.drawRightString(largura - 2.3*cm, y, to_br_currency(total_equipamentos))
+    
     y -= 1.0*cm 
     p.setFillColor(colors.HexColor("#004488")); p.rect(2*cm, y, largura - 4*cm, 0.7*cm, fill=1, stroke=0)
     p.setFillColor(colors.white); p.setFont("Helvetica-Bold", 11); p.drawString(2.3*cm, y + 0.2*cm, "2. SERVIÇOS")
     y -= 0.8*cm; p.setFillColor(colors.black); p.setFont("Helvetica", 10)
     
     if d_s:
-        # MODIFICAÇÃO AQUI: Oculta o preço do serviço se a caixinha estiver desmarcada
-        if mostrar_un:
-            p.drawRightString(largura - 2.3*cm, y, to_br_currency(v_s))
+        # VALOR DO SERVIÇO AGORA É SEMPRE VISÍVEL, INDEPENDENTE DO CHECKBOX
+        p.drawRightString(largura - 2.3*cm, y, to_br_currency(v_s))
             
         for l in d_s.split('\n'): p.drawString(2.3*cm, y, l); y -= 0.45*cm
     else:
@@ -311,9 +319,8 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
     y -= 0.8*cm; p.setFillColor(colors.black); p.setFont("Helvetica", 10)
     
     if d_o:
-        # MODIFICAÇÃO AQUI: Oculta o preço de terceiros se a caixinha estiver desmarcada
-        if mostrar_un:
-            p.drawRightString(largura - 2.3*cm, y, to_br_currency(v_o))
+        # VALOR DE TERCEIROS AGORA É SEMPRE VISÍVEL, INDEPENDENTE DO CHECKBOX
+        p.drawRightString(largura - 2.3*cm, y, to_br_currency(v_o))
             
         for l in d_o.split('\n'): p.drawString(2.3*cm, y, l); y -= 0.45*cm
     else:
