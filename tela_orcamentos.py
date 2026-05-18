@@ -35,7 +35,7 @@ def renderizar():
     aba_personalizado, aba_lote = st.tabs(["📝 Orçamento Personalizado", "📦 Gerador em Lote (Tabelas)"])
 
     # =========================================================================
-    # ABA 1: ORÇAMENTO PERSONALIZADO (SEU CÓDIGO ORIGINAL INTACTO)
+    # ABA 1: ORÇAMENTO PERSONALIZADO
     # =========================================================================
     with aba_personalizado:
         with st.container(border=True):
@@ -268,24 +268,37 @@ def renderizar():
         else:
             nome_mes_atual_pt = utils.mes_atual_nome.capitalize()
             
-            # --- NOVAS OPÇÕES DE CONFIGURAÇÃO DO LOTE ---
             st.markdown("#### ⚙️ Configurações da Geração")
             
             # 1. Checkbox para preço unitário
             mostrar_precos_lote = st.checkbox("Mostrar Preços Unitários no PDF?", value=False, key="check_precos_lote")
             
-            # 2. Seleção de Kits Específicos
+            # 2. Nova Tabela de Seleção de Kits (Substituindo o Multiselect)
             opcoes_kits = [k for k in df_kits['nome_kit'].tolist() if str(k).strip() != ""]
-            kits_selecionados = st.multiselect(
-                "Selecione os kits que deseja gerar:",
-                options=opcoes_kits,
-                default=opcoes_kits, # Vem todos selecionados por padrão
-                help="Deixe todos selecionados para gerar o lote completo, ou remova os que não deseja."
+            
+            df_selecao = pd.DataFrame({
+                "Gerar PDF": [True] * len(opcoes_kits),
+                "Kit Configurado": opcoes_kits
+            })
+            
+            st.markdown("Selecione na tabela abaixo quais kits deseja gerar:")
+            df_selecao_editado = st.data_editor(
+                df_selecao,
+                hide_index=True,
+                use_container_width=True,
+                column_config={
+                    "Gerar PDF": st.column_config.CheckboxColumn("Gerar?", width="small"),
+                    "Kit Configurado": st.column_config.TextColumn("Nome Completo do Kit", disabled=True)
+                },
+                key="grid_selecao_kits"
             )
             
+            kits_selecionados = df_selecao_editado[df_selecao_editado["Gerar PDF"] == True]["Kit Configurado"].tolist()
+            
             if not kits_selecionados:
-                st.warning("⚠️ Selecione pelo menos um kit acima para prosseguir.")
+                st.warning("⚠️ Marque pelo menos um kit na tabela acima para prosseguir.")
             else:
+                st.markdown("<br>", unsafe_allow_html=True)
                 if st.button(f"🚀 GERAR TABELAS ATUALIZADAS ({nome_mes_atual_pt})", type="primary", use_container_width=True):
                     with st.spinner("Cruzando dados de preço e desenhando PDFs..."):
                         pdfs_gerados = []
@@ -294,7 +307,7 @@ def renderizar():
                         db_servicos_fresquinho = utils.load_catalog('catalogo_servicos')
                         db_produtos_fresquinho = utils.load_catalog('catalogo_produtos')
                         
-                        # Filtra o DataFrame apenas com os kits que o usuário selecionou
+                        # Filtra o DataFrame apenas com os kits marcados na tabela
                         df_kits_filtrado = df_kits[df_kits['nome_kit'].isin(kits_selecionados)]
                         
                         for _, kit in df_kits_filtrado.iterrows():
@@ -370,7 +383,7 @@ def renderizar():
                                 v_o=0.0,
                                 total=total_lote,
                                 obs=obs_padrao,
-                                mostrar_un=mostrar_precos_lote # <--- AQUI APLICAMOS A NOVA REGRA DO CHECKBOX
+                                mostrar_un=mostrar_precos_lote
                             )
                             
                             pdfs_gerados.append({
