@@ -271,28 +271,40 @@ def renderizar():
                 with st.spinner("Cruzando dados de preço e desenhando PDFs..."):
                     pdfs_gerados = []
                     
+                    # CARREGA OS DADOS FRESQUINHOS DIRETO DO BANCO ANTES DE GERAR
+                    db_servicos_fresquinho = utils.load_catalog('catalogo_servicos')
+                    db_produtos_fresquinho = utils.load_catalog('catalogo_produtos')
+                    
                     for _, kit in df_kits.iterrows():
                         nome_kit_base = str(kit.get('nome_kit', 'Kit_Sem_Nome'))
-                        servico_nome = str(kit.get('servico_base', ''))
+                        servico_nome = str(kit.get('servico_base', '')).strip()
                         capa = str(kit.get('modelo_capa', 'Aquecedor Solar Tradicional'))
                         itens_do_kit = kit.get('itens', [])
                         if not isinstance(itens_do_kit, list): itens_do_kit = []
                         
                         nome_arquivo_final = f"{nome_kit_base}_{nome_mes_atual_pt}"
                         
+                        # 1. Puxar preço e descrição do serviço (AGORA COM BLINDAGEM DE TEXTO)
                         val_serv = 0.0
                         desc_serv = ""
                         if servico_nome:
-                            match_s = st.session_state.db_servicos[st.session_state.db_servicos['Item'] == servico_nome]
+                            # Compara tirando espaços e deixando tudo maiúsculo
+                            match_s = db_servicos_fresquinho[db_servicos_fresquinho['Item'].astype(str).str.strip().str.upper() == servico_nome.upper()]
                             if not match_s.empty:
                                 try: val_serv = float(match_s['Venda (R$)'].values[0])
                                 except: pass
-                                desc_serv = f"{servico_nome}\n{str(match_s['Descrição'].values[0])}"
-                                if desc_serv.endswith('\nnan'): desc_serv = servico_nome
+                                
+                                nome_real_serv = str(match_s['Item'].values[0])
+                                desc_real_serv = str(match_s['Descrição'].values[0])
+                                
+                                desc_serv = f"{nome_real_serv}\n{desc_real_serv}"
+                                if desc_serv.endswith('\nnan') or desc_serv.endswith('\n'): 
+                                    desc_serv = nome_real_serv
                         
                         lista_linhas_pdf = []
                         total_prod = 0.0
                         
+                        # 2. Varredura dos múltiplos produtos do Kit
                         for ik in itens_do_kit:
                             p_nome = str(ik.get('Produto', '')).strip()
                             try: p_qtd = int(ik.get('Quantidade', 1))
@@ -301,7 +313,7 @@ def renderizar():
                             p_preco = 0.0
                             p_desc = ""
                             if p_nome:
-                                match_p = st.session_state.db_produtos[st.session_state.db_produtos['Item'] == p_nome]
+                                match_p = db_produtos_fresquinho[db_produtos_fresquinho['Item'].astype(str).str.strip().str.upper() == p_nome.upper()]
                                 if not match_p.empty:
                                     try: p_preco = float(match_p['Venda (R$)'].values[0])
                                     except: pass
@@ -348,7 +360,7 @@ def renderizar():
                         })
                     
                     st.session_state['pdf_gerados_lote'] = pdfs_gerados
-                    st.success("✅ PDFs gerados com sucesso! Disponíveis para download ou salvamento abaixo.")
+                    st.success("✅ PDFs gerados com sucesso usando a tabela de preços mais recente!")
 
             if 'pdf_gerados_lote' in st.session_state:
                 st.markdown("---")
@@ -359,7 +371,6 @@ def renderizar():
                     for pdf_dict in st.session_state['pdf_gerados_lote']:
                         zip_file.writestr(pdf_dict['nome_arquivo'], pdf_dict['buffer'].getvalue())
                 
-                # --- NOVO BLOCO: LADO A LADO DOWNLOAD ZIP E UPLOAD DRIVE ---
                 col_down_zip, col_save_drive = st.columns(2)
                 
                 with col_down_zip:
@@ -388,7 +399,6 @@ def renderizar():
                 
                 st.markdown("<br>", unsafe_allow_html=True)
                 
-                # Exibe em colunas para ficar visualmente agradável os downloads individuais
                 st.caption("Downloads individuais:")
                 cols_download = st.columns(2)
                 for idx, pdf_dict in enumerate(st.session_state['pdf_gerados_lote']):
