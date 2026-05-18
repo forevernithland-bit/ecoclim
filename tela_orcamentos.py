@@ -218,8 +218,10 @@ def renderizar():
                                 mimetype="application/pdf", 
                                 folder_path=["Orçamentos"]
                             )
-                            if sucesso: st.success(f"✅ Arquivo {nome_arquivo_drive} salvo com sucesso no Drive!")
-                            else: st.error(f"Erro ao salvar: {msg}")
+                            if sucesso:
+                                st.success(f"✅ Arquivo {nome_arquivo_drive} salvo com sucesso no Drive!")
+                            else:
+                                st.error(f"Erro ao salvar: {msg}")
 
         with col_btn_salvar:
             if st.button("SALVAR ORÇAMENTO NO SISTEMA", type="primary", use_container_width=True):
@@ -245,7 +247,8 @@ def renderizar():
                         }).execute()
                         
                         st.success(f"✅ Orçamento {numero_do_orcamento} salvo com sucesso no banco de dados!")
-                    except Exception as e: st.error(f"Erro ao salvar: {e}")
+                    except Exception as e:
+                        st.error(f"Erro ao salvar: {e}")
 
     # =========================================================================
     # ABA 2: GERADOR EM LOTE
@@ -263,104 +266,120 @@ def renderizar():
         if df_kits.empty:
             st.warning("⚠️ Nenhum Kit configurado. Vá em 'Configurações' -> 'Kits em Lote' e monte seus kits padrão primeiro.")
         else:
-            st.info(f"Encontrados **{len(df_kits)}** kits configurados.")
-            
             nome_mes_atual_pt = utils.mes_atual_nome.capitalize()
             
-            if st.button(f"🚀 GERAR TABELAS ATUALIZADAS ({nome_mes_atual_pt})", type="primary", use_container_width=True):
-                with st.spinner("Cruzando dados de preço e desenhando PDFs..."):
-                    pdfs_gerados = []
-                    
-                    # CARREGA OS DADOS FRESQUINHOS DIRETO DO BANCO ANTES DE GERAR
-                    db_servicos_fresquinho = utils.load_catalog('catalogo_servicos')
-                    db_produtos_fresquinho = utils.load_catalog('catalogo_produtos')
-                    
-                    for _, kit in df_kits.iterrows():
-                        nome_kit_base = str(kit.get('nome_kit', 'Kit_Sem_Nome'))
-                        servico_nome = str(kit.get('servico_base', '')).strip()
-                        capa = str(kit.get('modelo_capa', 'Aquecedor Solar Tradicional'))
-                        itens_do_kit = kit.get('itens', [])
-                        if not isinstance(itens_do_kit, list): itens_do_kit = []
+            # --- NOVAS OPÇÕES DE CONFIGURAÇÃO DO LOTE ---
+            st.markdown("#### ⚙️ Configurações da Geração")
+            
+            # 1. Checkbox para preço unitário
+            mostrar_precos_lote = st.checkbox("Mostrar Preços Unitários no PDF?", value=False, key="check_precos_lote")
+            
+            # 2. Seleção de Kits Específicos
+            opcoes_kits = [k for k in df_kits['nome_kit'].tolist() if str(k).strip() != ""]
+            kits_selecionados = st.multiselect(
+                "Selecione os kits que deseja gerar:",
+                options=opcoes_kits,
+                default=opcoes_kits, # Vem todos selecionados por padrão
+                help="Deixe todos selecionados para gerar o lote completo, ou remova os que não deseja."
+            )
+            
+            if not kits_selecionados:
+                st.warning("⚠️ Selecione pelo menos um kit acima para prosseguir.")
+            else:
+                if st.button(f"🚀 GERAR TABELAS ATUALIZADAS ({nome_mes_atual_pt})", type="primary", use_container_width=True):
+                    with st.spinner("Cruzando dados de preço e desenhando PDFs..."):
+                        pdfs_gerados = []
                         
-                        nome_arquivo_final = f"{nome_kit_base}_{nome_mes_atual_pt}"
+                        # CARREGA OS DADOS FRESQUINHOS DIRETO DO BANCO ANTES DE GERAR
+                        db_servicos_fresquinho = utils.load_catalog('catalogo_servicos')
+                        db_produtos_fresquinho = utils.load_catalog('catalogo_produtos')
                         
-                        # 1. Puxar preço e descrição do serviço (AGORA COM BLINDAGEM DE TEXTO)
-                        val_serv = 0.0
-                        desc_serv = ""
-                        if servico_nome:
-                            # Compara tirando espaços e deixando tudo maiúsculo
-                            match_s = db_servicos_fresquinho[db_servicos_fresquinho['Item'].astype(str).str.strip().str.upper() == servico_nome.upper()]
-                            if not match_s.empty:
-                                try: val_serv = float(match_s['Venda (R$)'].values[0])
-                                except: pass
-                                
-                                nome_real_serv = str(match_s['Item'].values[0])
-                                desc_real_serv = str(match_s['Descrição'].values[0])
-                                
-                                desc_serv = f"{nome_real_serv}\n{desc_real_serv}"
-                                if desc_serv.endswith('\nnan') or desc_serv.endswith('\n'): 
-                                    desc_serv = nome_real_serv
+                        # Filtra o DataFrame apenas com os kits que o usuário selecionou
+                        df_kits_filtrado = df_kits[df_kits['nome_kit'].isin(kits_selecionados)]
                         
-                        lista_linhas_pdf = []
-                        total_prod = 0.0
-                        
-                        # 2. Varredura dos múltiplos produtos do Kit
-                        for ik in itens_do_kit:
-                            p_nome = str(ik.get('Produto', '')).strip()
-                            try: p_qtd = int(ik.get('Quantidade', 1))
-                            except: p_qtd = 1
+                        for _, kit in df_kits_filtrado.iterrows():
+                            nome_kit_base = str(kit.get('nome_kit', 'Kit_Sem_Nome'))
+                            servico_nome = str(kit.get('servico_base', '')).strip()
+                            capa = str(kit.get('modelo_capa', 'Aquecedor Solar Tradicional'))
+                            itens_do_kit = kit.get('itens', [])
+                            if not isinstance(itens_do_kit, list): itens_do_kit = []
                             
-                            p_preco = 0.0
-                            p_desc = ""
-                            if p_nome:
-                                match_p = db_produtos_fresquinho[db_produtos_fresquinho['Item'].astype(str).str.strip().str.upper() == p_nome.upper()]
-                                if not match_p.empty:
-                                    try: p_preco = float(match_p['Venda (R$)'].values[0])
+                            nome_arquivo_final = f"{nome_kit_base}_{nome_mes_atual_pt}"
+                            
+                            val_serv = 0.0
+                            desc_serv = ""
+                            if servico_nome:
+                                match_s = db_servicos_fresquinho[db_servicos_fresquinho['Item'].astype(str).str.strip().str.upper() == servico_nome.upper()]
+                                if not match_s.empty:
+                                    try: val_serv = float(match_s['Venda (R$)'].values[0])
                                     except: pass
-                                    p_desc = str(match_p['Descrição'].values[0])
-                                    if p_desc.lower() == 'nan': p_desc = ""
+                                    
+                                    nome_real_serv = str(match_s['Item'].values[0])
+                                    desc_real_serv = str(match_s['Descrição'].values[0])
+                                    
+                                    desc_serv = f"{nome_real_serv}\n{desc_real_serv}"
+                                    if desc_serv.endswith('\nnan') or desc_serv.endswith('\n'): 
+                                        desc_serv = nome_real_serv
                             
-                            subtotal_item = p_preco * p_qtd
-                            total_prod += subtotal_item
+                            lista_linhas_pdf = []
+                            total_prod = 0.0
                             
-                            lista_linhas_pdf.append({
-                                "Produto da Base": p_nome,
-                                "Produto Manual": "",
-                                "Descrição": p_desc,
-                                "Quantidade": p_qtd,
-                                "Venda (R$)": p_preco,
-                                "Venda Total": subtotal_item
+                            for ik in itens_do_kit:
+                                p_nome = str(ik.get('Produto', '')).strip()
+                                try: p_qtd = int(ik.get('Quantidade', 1))
+                                except: p_qtd = 1
+                                
+                                p_preco = 0.0
+                                p_desc = ""
+                                if p_nome:
+                                    match_p = db_produtos_fresquinho[db_produtos_fresquinho['Item'].astype(str).str.strip().str.upper() == p_nome.upper()]
+                                    if not match_p.empty:
+                                        try: p_preco = float(match_p['Venda (R$)'].values[0])
+                                        except: pass
+                                        p_desc = str(match_p['Descrição'].values[0])
+                                        if p_desc.lower() == 'nan': p_desc = ""
+                                
+                                subtotal_item = p_preco * p_qtd
+                                total_prod += subtotal_item
+                                
+                                lista_linhas_pdf.append({
+                                    "Produto da Base": p_nome,
+                                    "Produto Manual": "",
+                                    "Descrição": p_desc,
+                                    "Quantidade": p_qtd,
+                                    "Venda (R$)": p_preco,
+                                    "Venda Total": subtotal_item
+                                })
+                            
+                            df_itens_lote = pd.DataFrame(lista_linhas_pdf)
+                            if df_itens_lote.empty:
+                                df_itens_lote = pd.DataFrame(columns=["Produto da Base", "Produto Manual", "Descrição", "Quantidade", "Venda (R$)", "Venda Total"])
+                            
+                            total_lote = total_prod + val_serv
+                            
+                            obs_padrao = "Material hidráulico não incluso nesta proposta."
+                            
+                            pdf_buffer = utils.gerar_pdf_orcamento(
+                                nome=nome_kit_base,
+                                tel="-",
+                                capa=capa,
+                                df_items=df_itens_lote,
+                                d_s=desc_serv,
+                                v_s=val_serv,
+                                d_o="",
+                                v_o=0.0,
+                                total=total_lote,
+                                obs=obs_padrao,
+                                mostrar_un=mostrar_precos_lote # <--- AQUI APLICAMOS A NOVA REGRA DO CHECKBOX
+                            )
+                            
+                            pdfs_gerados.append({
+                                "nome_arquivo": f"{nome_arquivo_final}.pdf",
+                                "buffer": pdf_buffer
                             })
                         
-                        df_itens_lote = pd.DataFrame(lista_linhas_pdf)
-                        if df_itens_lote.empty:
-                            df_itens_lote = pd.DataFrame(columns=["Produto da Base", "Produto Manual", "Descrição", "Quantidade", "Venda (R$)", "Venda Total"])
-                        
-                        total_lote = total_prod + val_serv
-                        
-                        obs_padrao = "Material hidráulico não incluso nesta proposta."
-                        
-                        pdf_buffer = utils.gerar_pdf_orcamento(
-                            nome=nome_kit_base,
-                            tel="-",
-                            capa=capa,
-                            df_items=df_itens_lote,
-                            d_s=desc_serv,
-                            v_s=val_serv,
-                            d_o="",
-                            v_o=0.0,
-                            total=total_lote,
-                            obs=obs_padrao,
-                            mostrar_un=False
-                        )
-                        
-                        pdfs_gerados.append({
-                            "nome_arquivo": f"{nome_arquivo_final}.pdf",
-                            "buffer": pdf_buffer
-                        })
-                    
-                    st.session_state['pdf_gerados_lote'] = pdfs_gerados
-                    st.success("✅ PDFs gerados com sucesso usando a tabela de preços mais recente!")
+                        st.session_state['pdf_gerados_lote'] = pdfs_gerados
+                        st.success(f"✅ {len(pdfs_gerados)} PDFs gerados com sucesso!")
 
             if 'pdf_gerados_lote' in st.session_state:
                 st.markdown("---")
