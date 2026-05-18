@@ -6,7 +6,7 @@ import utils
 def renderizar():
     st.markdown("## ⚙️ Configurações e Catálogos")
     
-    tabs = st.tabs(["🛒 Produtos", "🛠️ Serviços", "🤝 Outros / Terceiros", "📊 Taxas", "📦 Kits em Lote"])
+    tabs = st.tabs(["🛒 Produtos", "🛠️ Serviços", "🤝 Outros / Terceiros", "📊 Taxas", "📦 Kits em Lote", "👷‍♂️ Instaladores"])
     
     def gerar_modelo_excel():
         # Cria um DataFrame vazio com as colunas perfeitas que o sistema espera ler
@@ -233,3 +233,62 @@ def renderizar():
                     st.error(f"Erro: {e}")
         else:
             st.info("Crie e grave um kit na tabela acima primeiro.")
+
+    # =========================================================================
+    # ABA: INSTALADORES
+    # =========================================================================
+    with tabs[5]:
+        st.subheader("👷‍♂️ Gestão de Instaladores")
+        st.caption("Cadastre os dados dos técnicos e instaladores parceiros da Ecoclim.")
+
+        try:
+            res_inst = st.session_state.supabase.table('config_instaladores').select('*').order('nome').execute()
+            df_inst = pd.DataFrame(res_inst.data)
+        except Exception:
+            df_inst = pd.DataFrame()
+
+        colunas_inst = ["nome", "email", "pix", "endereco", "telefone"]
+        for col in colunas_inst:
+            if col not in df_inst.columns:
+                df_inst[col] = ""
+
+        cfg_inst = {
+            "id": None,
+            "nome": st.column_config.TextColumn("Nome do Instalador", width="medium", required=True),
+            "email": st.column_config.TextColumn("E-mail", width="medium"),
+            "pix": st.column_config.TextColumn("Chave PIX", width="medium"),
+            "endereco": st.column_config.TextColumn("Endereço Completo", width="large"),
+            "telefone": st.column_config.TextColumn("Telefone / WhatsApp", width="medium")
+        }
+
+        df_inst_editado = st.data_editor(
+            df_inst[colunas_inst],
+            column_config=cfg_inst,
+            num_rows="dynamic",
+            use_container_width=True,
+            key="editor_instaladores",
+            hide_index=True
+        )
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        if st.button("💾 GRAVAR INSTALADORES", type="primary", use_container_width=True):
+            dados_salvar = []
+            for _, row in df_inst_editado.iterrows():
+                if str(row.get('nome', '')).strip() != "":
+                    dados_salvar.append({
+                        "nome": str(row.get('nome', '')).strip(),
+                        "email": str(row.get('email', '')).strip(),
+                        "pix": str(row.get('pix', '')).strip(),
+                        "endereco": str(row.get('endereco', '')).strip(),
+                        "telefone": str(row.get('telefone', '')).strip()
+                    })
+
+            try:
+                st.session_state.supabase.table('config_instaladores').delete().neq("nome", "____").execute() 
+                if dados_salvar:
+                    st.session_state.supabase.table('config_instaladores').insert(dados_salvar).execute()
+                st.success("✅ Equipe de instaladores salva com sucesso!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"⚠️ Erro ao salvar. Certifique-se de ter criado a tabela 'config_instaladores' no Supabase. Erro: {e}")
