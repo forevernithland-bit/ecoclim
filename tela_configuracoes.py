@@ -8,9 +8,17 @@ def renderizar():
     
     tabs = st.tabs(["🛒 Produtos", "🛠️ Serviços", "🤝 Outros / Terceiros", "📊 Taxas", "📦 Kits em Lote", "👷‍♂️ Instaladores"])
     
-    def gerar_modelo_excel():
-        # Cria um DataFrame vazio com as colunas perfeitas que o sistema espera ler
-        df_modelo = pd.DataFrame(columns=["ITEM", "DESCRIÇÃO", "CUSTO"])
+    def gerar_modelo_excel(df_dados=None):
+        # Se houver dados na base, preenche o modelo com eles. Se não, cria vazio.
+        if df_dados is not None and not df_dados.empty:
+            df_modelo = pd.DataFrame({
+                "ITEM": df_dados.get("Item", ""),
+                "DESCRIÇÃO": df_dados.get("Descrição", ""),
+                "CUSTO": df_dados.get("Custo (R$)", 0.0)
+            })
+        else:
+            df_modelo = pd.DataFrame(columns=["ITEM", "DESCRIÇÃO", "CUSTO"])
+            
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             df_modelo.to_excel(writer, index=False, sheet_name='MODELO_IMPORTACAO')
@@ -42,14 +50,14 @@ def renderizar():
         
         st.markdown(f"#### 📥 Importar Planilha de {titulo_aba}")
         
-        # --- NOVO BLOCO: Divisão em colunas para acomodar o botão de modelo ---
         col_file, col_btn = st.columns([3, 1])
         with col_file:
             arquivo_excel = st.file_uploader(f"Selecione o arquivo (.xlsx)", type=["xlsx"], key=f"upload_{nome_tabela}", label_visibility="collapsed")
         with col_btn:
+            # Agora enviamos o df_atual para que o excel já venha preenchido
             st.download_button(
                 label="📥 Baixar Modelo (.xlsx)",
-                data=gerar_modelo_excel(),
+                data=gerar_modelo_excel(df_atual),
                 file_name=f"modelo_importacao_{titulo_aba.lower()}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
