@@ -519,13 +519,15 @@ def renderizar():
 
     ativos_status = ["Em Andamento", "Aguardando Pagamento", "Aguardando Peças", "Concluído PIX", "Concluído CARTÃO"]
     
-    df_orc = df[~df['status_projeto'].isin(ativos_status)].reset_index(drop=True)
+    # -------------------------------------------------------------
+    # MÁGICA AQUI: Filtrando "Rascunho" para não aparecer na lista!
+    # -------------------------------------------------------------
+    df_orc = df[(~df['status_projeto'].isin(ativos_status)) & (df['status_projeto'] != 'Rascunho')].reset_index(drop=True)
     df_fin = df[df['ir_finalizados'] == True].reset_index(drop=True)
     df_atv = df[(df['status_projeto'].isin(ativos_status)) & (df['ir_finalizados'] == False)].reset_index(drop=True)
 
     aba1, aba2, aba3 = st.tabs(["🚀 Em Andamento", "📝 Orçamentos", "✅ Finalizados"])
     
-    # Nova ordem das colunas na tabela (Nº Orçamento ocultado)
     colunas_visiveis = ['nome_cliente', 'status_projeto', 'valor_venda_total_str', 'lucro_estimado_str', 'data_conclusao', 'instalador']
     
     config_colunas = {
