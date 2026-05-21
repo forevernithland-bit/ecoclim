@@ -94,16 +94,26 @@ def renderizar():
                             for it in itens:
                                 v_un = float(it.get('Venda Un.', 0.0))
                                 qtd = float(it.get('Qtd', 0))
+                                
+                                # Busca o custo salvo na base para o rascunho
+                                c_un = 0.0
+                                p_nome = it.get('Item', '')
+                                if p_nome:
+                                    match_c = cat_produtos[cat_produtos['Item'].astype(str).str.strip() == p_nome]
+                                    if not match_c.empty:
+                                        c_un = float(match_c.get('Custo (R$)', pd.Series([0.0])).values[0])
+
                                 novo_df.append({
-                                    "Produto da Base": it.get('Item', ''),
+                                    "Produto da Base": p_nome,
                                     "Produto Manual": "",
                                     "Descrição": it.get('Descrição', ''),
                                     "Quantidade": qtd,
+                                    "Custo (R$)": c_un,
                                     "Venda (R$)": v_un,
                                     "Venda Total": qtd * v_un
                                 })
                             while len(novo_df) < 5:
-                                novo_df.append({"Produto da Base": "", "Produto Manual": "", "Descrição": "", "Quantidade": 0, "Venda (R$)": 0.0, "Venda Total": 0.0})
+                                novo_df.append({"Produto da Base": "", "Produto Manual": "", "Descrição": "", "Quantidade": 0, "Custo (R$)": 0.0, "Venda (R$)": 0.0, "Venda Total": 0.0})
                             
                             st.session_state.df_orc = pd.DataFrame(novo_df)
                             st.session_state.df_orc_prev = st.session_state.df_orc.copy()
@@ -143,7 +153,7 @@ def renderizar():
             mostrar_precos_unitarios = st.checkbox("Mostrar Preços Unitários no PDF?", value=False)
             
             if 'df_orc' not in st.session_state:
-                st.session_state.df_orc = pd.DataFrame([{"Produto da Base": "", "Produto Manual": "", "Descrição": "", "Quantidade": 0, "Venda (R$)": 0.0, "Venda Total": 0.0} for _ in range(5)])
+                st.session_state.df_orc = pd.DataFrame([{"Produto da Base": "", "Produto Manual": "", "Descrição": "", "Quantidade": 0, "Custo (R$)": 0.0, "Venda (R$)": 0.0, "Venda Total": 0.0} for _ in range(5)])
             
             if 'df_orc_prev' not in st.session_state:
                 st.session_state.df_orc_prev = st.session_state.df_orc.copy()
@@ -153,6 +163,7 @@ def renderizar():
                 "Produto Manual": st.column_config.TextColumn("Nome Manual", width="medium"),
                 "Descrição": st.column_config.TextColumn("Detalhes / Garantia", width="large"),
                 "Quantidade": st.column_config.NumberColumn("Qtd", min_value=0, step=1),
+                "Custo (R$)": st.column_config.NumberColumn("Custo Un.", format="R$ %,.2f"),
                 "Venda (R$)": st.column_config.NumberColumn("Preço Venda", format="R$ %,.2f"),
                 "Venda Total": st.column_config.NumberColumn("Total", format="R$ %,.2f", disabled=True)
             }
@@ -178,12 +189,16 @@ def renderizar():
                     
                     if not match_base.empty:
                         val_venda = match_base['Venda (R$)'].values[0]
+                        val_custo = match_base.get('Custo (R$)', pd.Series([0.0])).values[0]
                         desc_base = match_base['Descrição'].values[0]
                         
                         try: preco_novo = float(val_venda)
                         except: preco_novo = 0.0
+                        try: custo_novo = float(val_custo)
+                        except: custo_novo = 0.0
                             
                         df_editavel.at[i, 'Venda (R$)'] = preco_novo
+                        df_editavel.at[i, 'Custo (R$)'] = custo_novo
                         df_editavel.at[i, 'Descrição'] = str(desc_base) if pd.notna(desc_base) and str(desc_base).lower() != 'nan' else ""
                         
                         if pd.isna(df_editavel.at[i, 'Quantidade']) or float(df_editavel.at[i, 'Quantidade']) <= 0:
@@ -271,6 +286,20 @@ def renderizar():
 
         total_investimento = subtotal_equipamentos + valor_final_servico + valor_final_outros
         st.markdown(f"<h3 style='color:#004488;'>💰 INVESTIMENTO TOTAL: {utils.to_br_currency(total_investimento)}</h3>", unsafe_allow_html=True)
+        
+        # =====================================================================
+        # NOVO: CHAVINHA DE EXIBIÇÃO DE LUCRO
+        # =====================================================================
+        mostrar_lucro = st.toggle("Exibir Margem e Lucro Estimado", value=False)
+        if mostrar_lucro:
+            # Soma o custo unitário multiplicado pela quantidade no Dataframe
+            custo_total_equipamentos = sum([float(r['Quantidade'] or 0) * float(r.get('Custo (R$)', 0)) for _, r in df_editavel.iterrows()])
+            
+            # Aqui calcula o lucro (Investimento Total menos Custo dos Produtos)
+            lucro = total_investimento - custo_total_equipamentos
+            margem = (lucro / total_investimento * 100) if total_investimento > 0 else 0.0
+            
+            st.markdown(f"<div style='background-color: #e6ffe6; padding: 10px; border-radius: 5px; border: 1px solid #006600; margin-bottom: 15px;'><span style='color: #006600; font-weight: bold; font-size: 16px;'>💸 Lucro Projetado: {utils.to_br_currency(lucro)} ({margem:.1f}%)</span><br><small style='color: #444;'><i>(Calculado com base no custo cadastrado dos equipamentos)</i></small></div>", unsafe_allow_html=True)
         
         if "input_obs_pdf" not in st.session_state: st.session_state.input_obs_pdf = "Material Hidráulico não incluído na proposta"
         obs_pdf = st.text_area("Observações no PDF:", key="input_obs_pdf")
@@ -487,13 +516,14 @@ def renderizar():
                                     "Produto Manual": "",
                                     "Descrição": p_desc,
                                     "Quantidade": p_qtd,
+                                    "Custo (R$)": 0.0, # Preenchido só para manter padrão
                                     "Venda (R$)": p_preco,
                                     "Venda Total": subtotal_item
                                 })
                             
                             df_itens_lote = pd.DataFrame(lista_linhas_pdf)
                             if df_itens_lote.empty:
-                                df_itens_lote = pd.DataFrame(columns=["Produto da Base", "Produto Manual", "Descrição", "Quantidade", "Venda (R$)", "Venda Total"])
+                                df_itens_lote = pd.DataFrame(columns=["Produto da Base", "Produto Manual", "Descrição", "Quantidade", "Custo (R$)", "Venda (R$)", "Venda Total"])
                             
                             total_lote = total_prod + val_serv
                             
