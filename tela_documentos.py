@@ -229,7 +229,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                 if sub_sel == "PAGOS": 
                     pertence = (r.get('status') == 'Pago')
                 else: 
-                    # TRAVA REMOVIDA: Agora exibe as contas do mês mesmo que já estejam pagas
                     pertence = (v_dt and v_dt.month == mes_sel_idx)
                 
                 if pertence:
@@ -285,6 +284,31 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
         st.warning("Nenhum item corresponde aos filtros selecionados.")
         return
 
+    # >>> NOVO BLOCO DE ORDENAÇÃO: ATRASADOS -> PENDENTES -> PAGOS <<<
+    if nome_principal == "Boletos":
+        hoje_ordem = datetime.date.today()
+        
+        def definir_prioridade(row):
+            s = row.get('Status', '')
+            v = row.get('Vencimento')
+            
+            if s == 'Pago':
+                return 3 # Prioridade 3 (Por último)
+            elif s == 'Pendente':
+                if pd.notna(v):
+                    try:
+                        v_dt = pd.to_datetime(v).date()
+                        if v_dt < hoje_ordem:
+                            return 1 # Prioridade 1 (Atrasado - Fica no topo)
+                    except:
+                        pass
+                return 2 # Prioridade 2 (Pendente normal)
+            return 4 # Outros
+            
+        df['prioridade'] = df.apply(definir_prioridade, axis=1)
+        # Ordena pela prioridade (1, 2, 3) e, secundariamente, pela data de vencimento mais próxima
+        df = df.sort_values(by=['prioridade', 'Vencimento']).drop(columns=['prioridade']).reset_index(drop=True)
+
     itens_por_pagina = 100
     total_paginas = (len(df) - 1) // itens_por_pagina + 1
     
@@ -330,12 +354,12 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             "Link": st.column_config.LinkColumn("PDF", display_text="👁️ Abrir", width="small")
         }
         
-        lista_desabilitados = ["Nome", "Data", "Tamanho", "Link", "Recorrente", "Status"] # Valor Removido daqui para ser editável!
+        lista_desabilitados = ["Nome", "Data", "Tamanho", "Link", "Recorrente", "Status"] 
 
         if nome_principal == "Boletos":
             config_colunas["Data"] = None # Oculta Data apenas em Boletos
-            config_colunas["Vencimento"] = st.column_config.DateColumn("Vencimento", format="DD/MM/YYYY", width="small") # LARGURA REDUZIDA
-            config_colunas["Valor"] = st.column_config.NumberColumn("Valor (R$)", format="%.2f", width="small") # Como NumberColumn para edição
+            config_colunas["Vencimento"] = st.column_config.DateColumn("Vencimento", format="DD/MM/YYYY", width="small") 
+            config_colunas["Valor"] = st.column_config.NumberColumn("Valor (R$)", format="%.2f", width="small") 
             config_colunas["Recorrente"] = st.column_config.TextColumn("Recorrente", width="small")
             config_colunas["Pagar"] = st.column_config.CheckboxColumn("Pagar", default=False, width="small")
             config_colunas["Status"] = st.column_config.TextColumn("Status", width="small")
@@ -344,11 +368,9 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             
             col_order = ["Excluir", "Nome", "Link", "Vencimento", "Valor", "Recorrente", "Pagar", "Status"]
         else:
-            # Nas outras abas, Data de Inclusão é liberada!
             config_colunas["Data"] = st.column_config.DatetimeColumn("Data de Inclusão", format="DD/MM/YYYY - HH:mm")
             col_order = ["Excluir", "Nome", "Link", "Data"]
 
-        # Força o dataframe a engolir a ordem das colunas para burlar o cache do Streamlit e reseta o Index
         todas_cols = col_order + [c for c in df_pagina.columns if c not in col_order]
         df_pagina = df_pagina[todas_cols].reset_index(drop=True)
 
@@ -374,7 +396,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
         else:
             df_exibicao = df_pagina
 
-        # Renderização do data_editor com a estilização aplicada
         df_editado = st.data_editor(
             df_exibicao, 
             column_config=config_colunas, 
@@ -408,7 +429,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
 
             # BLOCO: MARCAR COMO PAGO
             if "Pagar" in df_editado.columns:
-                # Segurança: Filtra para pagar apenas o que não estiver pago ainda
                 boletos_pagar = df_editado[(df_editado["Pagar"] == True) & (df_editado["Status"] != "Pago")]
                 
                 if not boletos_pagar.empty:
@@ -419,18 +439,15 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                                 id_db = r_pag.get("ID_DB")
                                 id_drive = r_pag.get("ID_Drive")
                                 
-                                # Move arquivo físico no Drive se houver
                                 if id_drive and not pd.isna(id_drive) and str(id_drive).strip().lower() not in ["none", "nan", ""]:
                                     mover_arquivo_drive(id_drive, ["Boletos", "PAGOS"])
                                     
-                                # Atualiza status no banco e mantém a janela de 1 mês projetada!
                                 if id_db and not pd.isna(id_db) and str(id_db).strip() != "":
                                     st.session_state.supabase.table('boletos_fornecedores').update({'status': 'Pago'}).eq('id', id_db).execute()
                                     try:
                                         orig = st.session_state.supabase.table('boletos_fornecedores').select('*').eq('id', id_db).execute().data[0]
                                         if orig.get('is_recorrente'):
                                             venc_antigo = datetime.datetime.strptime(orig['vencimento'], "%Y-%m-%d").date()
-                                            # Se ele pagou um, o sistema joga mais 1 mês pra frente, mantendo o ciclo vivo!
                                             novo_venc = add_months(venc_antigo, 1)
                                             st.session_state.supabase.table('boletos_fornecedores').insert({
                                                 'cliente': orig.get('cliente'), 
