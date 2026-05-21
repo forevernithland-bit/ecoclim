@@ -170,14 +170,14 @@ def renderizar():
                 st.session_state.df_orc_prev = st.session_state.df_orc.copy()
             
             configuracao_colunas = {
-                "Produto da Base": st.column_config.SelectboxColumn("Produto", options=[""] + lista_nomes_produtos + ["OUTRO"], width="medium"), 
+                "Produto da Base": st.column_config.SelectboxColumn("Produto", options=[""] + lista_nomes_produtos + ["OUTRO"], width="large"), 
                 "Produto Manual": st.column_config.TextColumn("Nome Manual", width="medium"),
                 "Descrição": st.column_config.TextColumn("Detalhes / Garantia"), 
-                "Quantidade": st.column_config.NumberColumn("Qtd", min_value=0, step=1),
-                "Custo (R$)": st.column_config.NumberColumn("Custo Unitário", format="R$ %,.2f"),
-                "Venda (R$)": st.column_config.NumberColumn("Preço Venda Un.", format="R$ %,.2f"),
-                "Custo Total": st.column_config.NumberColumn("Custo Total", format="R$ %,.2f", disabled=True),
-                "Venda Total": st.column_config.NumberColumn("Preço Venda Total", format="R$ %,.2f", disabled=True)
+                "Quantidade": st.column_config.NumberColumn("Qtd", min_value=0, step=1, width="small"),
+                "Custo (R$)": st.column_config.NumberColumn("Custo Unt.", format="R$ %,.2f", width="small"),
+                "Venda (R$)": st.column_config.NumberColumn("Venda Unt.", format="R$ %,.2f", width="small"),
+                "Custo Total": st.column_config.NumberColumn("Custo Total", format="R$ %,.2f", disabled=True, width="small"),
+                "Venda Total": st.column_config.NumberColumn("Total", format="R$ %,.2f", disabled=True, width="small")
             }
             
             sequencia_colunas = ["Produto da Base", "Produto Manual", "Quantidade", "Custo (R$)", "Venda (R$)", "Custo Total", "Venda Total"]
@@ -331,7 +331,9 @@ def renderizar():
         if mostrar_lucro:
             custo_total_equipamentos = df_editavel['Custo Total'].sum()
             lucro = total_investimento - custo_total_equipamentos
-            margem = (lucro / total_investimento * 100) if total_investimento > 0 else 0.0
+            
+            # A margem (Markup) agora será calculada sobre o Custo (como no seu exemplo)
+            margem = (lucro / custo_total_equipamentos * 100) if custo_total_equipamentos > 0 else (100.0 if lucro > 0 else 0.0)
             
             html_lucro = f"""
             <div style='background-color: #e6ffe6; padding: 10px; border-radius: 5px; border: 1px solid #006600; margin-bottom: 15px;'>
