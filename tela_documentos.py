@@ -207,7 +207,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             linha_arquivo["Pagar"] = False
             v_date = vencimentos_map.get(a['id'])
             linha_arquivo["Vencimento"] = v_date if pd.notna(v_date) else pd.NaT
-            linha_arquivo["Valor"] = utils.to_br_currency(valores_map.get(a['id'], 0.0))
+            linha_arquivo["Valor"] = float(valores_map.get(a['id'], 0.0)) # Mantido como float para ser editável
             linha_arquivo["Recorrente"] = "🔄 Sim" if is_rec_map.get(a['id'], False) else "-"
             linha_arquivo["Status"] = str(status_map.get(a['id'], "Pendente"))
         
@@ -246,7 +246,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                         "Tamanho": "-", 
                         "Link": None,
                         "Vencimento": v_dt if v_dt else pd.NaT,
-                        "Valor": utils.to_br_currency(float(r.get('valor', 0.0))),
+                        "Valor": float(r.get('valor', 0.0)), # Mantido como float para ser editável
                         "Recorrente": "🔄 Sim" if r.get('is_recorrente', False) else "-",
                         "Status": str(r.get('status', 'Pendente'))
                     })
@@ -330,12 +330,12 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             "Link": st.column_config.LinkColumn("PDF", display_text="👁️ Abrir", width="small")
         }
         
-        lista_desabilitados = ["Nome", "Data", "Tamanho", "Link", "Valor", "Recorrente", "Status"]
+        lista_desabilitados = ["Nome", "Data", "Tamanho", "Link", "Recorrente", "Status"] # Valor Removido daqui para ser editável!
 
         if nome_principal == "Boletos":
             config_colunas["Data"] = None # Oculta Data apenas em Boletos
             config_colunas["Vencimento"] = st.column_config.DateColumn("Vencimento", format="DD/MM/YYYY", width="small") # LARGURA REDUZIDA
-            config_colunas["Valor"] = st.column_config.TextColumn("Valor", width="small")
+            config_colunas["Valor"] = st.column_config.NumberColumn("Valor (R$)", format="%.2f", width="small") # Como NumberColumn para edição
             config_colunas["Recorrente"] = st.column_config.TextColumn("Recorrente", width="small")
             config_colunas["Pagar"] = st.column_config.CheckboxColumn("Pagar", default=False, width="small")
             config_colunas["Status"] = st.column_config.TextColumn("Status", width="small")
@@ -348,26 +348,64 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             config_colunas["Data"] = st.column_config.DatetimeColumn("Data de Inclusão", format="DD/MM/YYYY - HH:mm")
             col_order = ["Excluir", "Nome", "Link", "Data"]
 
-        # Força o dataframe a engolir a ordem das colunas para burlar o cache do Streamlit
+        # Força o dataframe a engolir a ordem das colunas para burlar o cache do Streamlit e reseta o Index
         todas_cols = col_order + [c for c in df_pagina.columns if c not in col_order]
-        df_pagina = df_pagina[todas_cols]
+        df_pagina = df_pagina[todas_cols].reset_index(drop=True)
 
-        # CHAVE RENOMEADA PARA V7 PARA QUEBRAR O CACHE VISUAL DO SEU NAVEGADOR
+        # Regra de Cores Personalizada
+        if nome_principal == "Boletos":
+            def colorir_boletos(row):
+                s = row.get('Status', '')
+                v = row.get('Vencimento', pd.NaT)
+                hoje = datetime.date.today()
+                
+                if s == 'Pago':
+                    cor = 'color: #008000; font-weight: 500;' # Verde
+                elif s == 'Pendente':
+                    if pd.notna(v) and v < hoje:
+                        cor = 'color: #cc0000; font-weight: bold;' # Vermelho Negrito (Atrasado)
+                    else:
+                        cor = 'color: #004488; font-weight: 500;' # Azul (Pendente no prazo)
+                else:
+                    cor = ''
+                return [cor] * len(row)
+
+            df_exibicao = df_pagina.style.apply(colorir_boletos, axis=1)
+        else:
+            df_exibicao = df_pagina
+
+        # Renderização do data_editor com a estilização aplicada
         df_editado = st.data_editor(
-            df_pagina, 
+            df_exibicao, 
             column_config=config_colunas, 
             column_order=col_order, 
             disabled=lista_desabilitados,
             hide_index=True, 
             use_container_width=True, 
-            key=f"editor_docs_v7_{nome_principal}" 
+            key=f"editor_docs_v9_{nome_principal}" 
         )
 
         # ==========================================
-        # 6. AÇÕES DE PAGAMENTO E EXCLUSÃO
+        # 6. AÇÕES DE PAGAMENTO, VALOR E EXCLUSÃO
         # ==========================================
         if df_editado is not None and not df_editado.empty:
             
+            # BLOCO: SALVAR VALORES ALTERADOS (MANUALMENTE)
+            if "Valor" in df_editado.columns and nome_principal == "Boletos":
+                diff_mask = abs(pd.to_numeric(df_editado["Valor"], errors='coerce').fillna(0) - pd.to_numeric(df_pagina["Valor"], errors='coerce').fillna(0)) > 0.01
+                boletos_alterados = df_editado[diff_mask]
+                
+                if not boletos_alterados.empty:
+                    st.warning(f"⚠️ Você alterou o valor de {len(boletos_alterados)} boleto(s). Confirme para salvar.")
+                    if st.button("💾 Salvar Novos Valores", type="primary", use_container_width=True):
+                        with st.spinner("Atualizando valores no banco de dados..."):
+                            for _, r_val in boletos_alterados.iterrows():
+                                id_db = r_val.get("ID_DB")
+                                if id_db and str(id_db).strip() not in ["none", "nan", ""]:
+                                    st.session_state.supabase.table('boletos_fornecedores').update({'valor': float(r_val['Valor'])}).eq('id', id_db).execute()
+                        st.success("✅ Valores atualizados com sucesso!")
+                        st.rerun()
+
             # BLOCO: MARCAR COMO PAGO
             if "Pagar" in df_editado.columns:
                 # Segurança: Filtra para pagar apenas o que não estiver pago ainda
@@ -385,7 +423,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                                 if id_drive and not pd.isna(id_drive) and str(id_drive).strip().lower() not in ["none", "nan", ""]:
                                     mover_arquivo_drive(id_drive, ["Boletos", "PAGOS"])
                                     
-                                # Atualiza status no banco e mantém a janela de 12 meses projetada!
+                                # Atualiza status no banco e mantém a janela de 1 mês projetada!
                                 if id_db and not pd.isna(id_db) and str(id_db).strip() != "":
                                     st.session_state.supabase.table('boletos_fornecedores').update({'status': 'Pago'}).eq('id', id_db).execute()
                                     try:
@@ -421,6 +459,22 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                                 st.session_state.supabase.table('boletos_fornecedores').delete().eq('id', id_bd).execute()
                     st.success("Excluídos com sucesso!")
                     st.rerun()
+
+        # ==========================================
+        # 7. RESUMO FINANCEIRO DO MÊS (SÓ EM BOLETOS)
+        # ==========================================
+        if nome_principal == "Boletos" and not df.empty:
+            st.markdown("---")
+            st.markdown(f"#### 📊 Resumo do Mês ({sub_sel})")
+            
+            total_pago = df[df['Status'] == 'Pago']['Valor'].sum()
+            total_pendente = df[df['Status'] == 'Pendente']['Valor'].sum()
+            total_geral = total_pago + total_pendente
+            
+            c_res1, c_res2, c_res3 = st.columns(3)
+            c_res1.metric("🔵 Pendentes a Pagar", utils.to_br_currency(total_pendente))
+            c_res2.metric("🟢 Boletos Pagos", utils.to_br_currency(total_pago))
+            c_res3.metric("💰 Total de Despesas do Mês", utils.to_br_currency(total_geral))
 
 def renderizar():
     st.markdown("<br><br>", unsafe_allow_html=True)
