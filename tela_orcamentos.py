@@ -18,9 +18,6 @@ def limpar_tela_orcamento():
             del st.session_state[k]
 
 def renderizar():
-    # =============================================================================
-    # TÍTULO REDUZIDO E BOTÃO ALINHADOS LADO A LADO
-    # =============================================================================
     col_tit, col_btn = st.columns([2, 1])
     
     with col_tit:
@@ -34,31 +31,23 @@ def renderizar():
                     del st.session_state[chave]
             st.rerun()
 
-    # Carregamento seguro dos catálogos
-    if 'db_produtos' not in st.session_state: st.session_state.db_produtos = utils.load_catalog('catalogo_produtos')
-    if 'db_servicos' not in st.session_state: st.session_state.db_servicos = utils.load_catalog('catalogo_servicos')
-    if 'db_outros' not in st.session_state: st.session_state.db_outros = utils.load_catalog('catalogo_outros')
+    if 'db_produtos' not in st.session_state: 
+        st.session_state.db_produtos = utils.load_catalog('catalogo_produtos')
+    if 'db_servicos' not in st.session_state: 
+        st.session_state.db_servicos = utils.load_catalog('catalogo_servicos')
+    if 'db_outros' not in st.session_state: 
+        st.session_state.db_outros = utils.load_catalog('catalogo_outros')
 
     cat_produtos = st.session_state.db_produtos
     lista_nomes_produtos = cat_produtos['Item'].dropna().tolist() if not cat_produtos.empty else []
     
-    # =========================================================================
-    # CRIAÇÃO DAS ABAS
-    # =========================================================================
     aba_personalizado, aba_lote = st.tabs(["📝 Orçamento Personalizado", "📦 Gerador em Lote (Tabelas)"])
 
-    # =========================================================================
-    # ABA 1: ORÇAMENTO PERSONALIZADO
-    # =========================================================================
     with aba_personalizado:
-        
-        # =====================================================================
-        # GESTOR DE RASCUNHOS
-        # =====================================================================
         try:
             res_rascunhos = st.session_state.supabase.table('servicos_andamento').select('id, nome_cliente, valor_venda_total').eq('status_projeto', 'Rascunho').execute()
             rascunhos_db = res_rascunhos.data
-        except:
+        except Exception:
             rascunhos_db = []
 
         if rascunhos_db or st.session_state.get('rascunho_id'):
@@ -112,12 +101,23 @@ def renderizar():
                                     "Custo Total": qtd * c_un,
                                     "Venda Total": qtd * v_un
                                 })
+                                
                             while len(novo_df) < 5:
-                                novo_df.append({"Produto da Base": "", "Produto Manual": "", "Descrição": "", "Quantidade": 0, "Custo (R$)": 0.0, "Venda (R$)": 0.0, "Custo Total": 0.0, "Venda Total": 0.0})
+                                novo_df.append({
+                                    "Produto da Base": "", 
+                                    "Produto Manual": "", 
+                                    "Descrição": "", 
+                                    "Quantidade": 0, 
+                                    "Custo (R$)": 0.0, 
+                                    "Venda (R$)": 0.0, 
+                                    "Custo Total": 0.0, 
+                                    "Venda Total": 0.0
+                                })
                             
                             st.session_state.df_orc = pd.DataFrame(novo_df)
                             st.session_state.df_orc_prev = st.session_state.df_orc.copy()
-                            if "editor_orc_base" in st.session_state: del st.session_state["editor_orc_base"]
+                            if "editor_orc_base" in st.session_state: 
+                                del st.session_state["editor_orc_base"]
                             st.rerun()
 
                     if c_btn_del.button("🗑️ Excluir", use_container_width=True):
@@ -126,15 +126,14 @@ def renderizar():
                         st.success("✅ Rascunho excluído permanentemente.")
                         st.rerun()
 
-        # =====================================================================
-        # FORMULÁRIO DE ORÇAMENTO
-        # =====================================================================
         with st.container(border=True):
             st.subheader("👤 Dados do Cliente")
             col1, col2 = st.columns(2)
             
-            if "input_nome_cliente" not in st.session_state: st.session_state.input_nome_cliente = ""
-            if "input_whatsapp" not in st.session_state: st.session_state.input_whatsapp = ""
+            if "input_nome_cliente" not in st.session_state: 
+                st.session_state.input_nome_cliente = ""
+            if "input_whatsapp" not in st.session_state: 
+                st.session_state.input_whatsapp = ""
             
             nome_cliente = col1.text_input("Nome do Cliente", key="input_nome_cliente")
             whatsapp = col2.text_input("WhatsApp", placeholder="(31) 99715-1596", key="input_whatsapp")
@@ -153,7 +152,19 @@ def renderizar():
             mostrar_precos_unitarios = st.checkbox("Mostrar Preços Unitários no PDF?", value=False)
             
             if 'df_orc' not in st.session_state:
-                st.session_state.df_orc = pd.DataFrame([{"Produto da Base": "", "Produto Manual": "", "Descrição": "", "Quantidade": 0, "Custo (R$)": 0.0, "Venda (R$)": 0.0, "Custo Total": 0.0, "Venda Total": 0.0} for _ in range(5)])
+                linhas_iniciais = []
+                for _ in range(5):
+                    linhas_iniciais.append({
+                        "Produto da Base": "", 
+                        "Produto Manual": "", 
+                        "Descrição": "", 
+                        "Quantidade": 0, 
+                        "Custo (R$)": 0.0, 
+                        "Venda (R$)": 0.0, 
+                        "Custo Total": 0.0, 
+                        "Venda Total": 0.0
+                    })
+                st.session_state.df_orc = pd.DataFrame(linhas_iniciais)
             
             if 'df_orc_prev' not in st.session_state:
                 st.session_state.df_orc_prev = st.session_state.df_orc.copy()
@@ -161,7 +172,7 @@ def renderizar():
             configuracao_colunas = {
                 "Produto da Base": st.column_config.SelectboxColumn("Produto", options=[""] + lista_nomes_produtos + ["OUTRO"], width="medium"), 
                 "Produto Manual": st.column_config.TextColumn("Nome Manual", width="medium"),
-                "Descrição": st.column_config.TextColumn("Detalhes / Garantia"), # Ficará oculta pelo column_order
+                "Descrição": st.column_config.TextColumn("Detalhes / Garantia"), 
                 "Quantidade": st.column_config.NumberColumn("Qtd", min_value=0, step=1),
                 "Custo (R$)": st.column_config.NumberColumn("Custo Unitário", format="R$ %,.2f"),
                 "Venda (R$)": st.column_config.NumberColumn("Preço Venda Un.", format="R$ %,.2f"),
@@ -169,7 +180,6 @@ def renderizar():
                 "Venda Total": st.column_config.NumberColumn("Preço Venda Total", format="R$ %,.2f", disabled=True)
             }
             
-            # Sequência exata de colunas solicitada (omitindo a 'Descrição' da exibição visual)
             sequencia_colunas = ["Produto da Base", "Produto Manual", "Quantidade", "Custo (R$)", "Venda (R$)", "Custo Total", "Venda Total"]
             
             df_editavel = st.data_editor(
@@ -186,12 +196,14 @@ def renderizar():
             
             for i in range(len(df_editavel)):
                 produto_atual = str(df_editavel.at[i, 'Produto da Base']).strip()
-                if produto_atual.lower() in ['nan', 'none', '']: produto_atual = ""
+                if produto_atual.lower() in ['nan', 'none', '']: 
+                    produto_atual = ""
                 
                 produto_anterior = ""
                 if i < len(st.session_state.df_orc_prev):
                     produto_anterior = str(st.session_state.df_orc_prev.at[i, 'Produto da Base']).strip()
-                    if produto_anterior.lower() in ['nan', 'none', '']: produto_anterior = ""
+                    if produto_anterior.lower() in ['nan', 'none', '']: 
+                        produto_anterior = ""
 
                 df_editavel.at[i, 'Produto da Base'] = produto_atual
 
@@ -203,10 +215,15 @@ def renderizar():
                         val_custo = match_base.get('Custo (R$)', pd.Series([0.0])).values[0]
                         desc_base = match_base['Descrição'].values[0]
                         
-                        try: preco_novo = float(val_venda)
-                        except: preco_novo = 0.0
-                        try: custo_novo = float(val_custo)
-                        except: custo_novo = 0.0
+                        try: 
+                            preco_novo = float(val_venda)
+                        except Exception: 
+                            preco_novo = 0.0
+                            
+                        try: 
+                            custo_novo = float(val_custo)
+                        except Exception: 
+                            custo_novo = 0.0
                             
                         df_editavel.at[i, 'Venda (R$)'] = preco_novo
                         df_editavel.at[i, 'Custo (R$)'] = custo_novo
@@ -217,7 +234,6 @@ def renderizar():
                             
                         precisa_atualizar_tela = True
 
-                # Lógica de cálculo matemático do Custo Total e Venda Total multiplicados pela Qtd
                 qtd = float(df_editavel.at[i, 'Quantidade']) if pd.notna(df_editavel.at[i, 'Quantidade']) else 0.0
                 preco = float(df_editavel.at[i, 'Venda (R$)']) if pd.notna(df_editavel.at[i, 'Venda (R$)']) else 0.0
                 custo_un = float(df_editavel.at[i, 'Custo (R$)']) if pd.notna(df_editavel.at[i, 'Custo (R$)']) else 0.0
@@ -250,9 +266,12 @@ def renderizar():
             st.subheader("🛠️ 2. Serviços")
             
             lista_servicos = st.session_state.db_servicos['Item'].dropna().tolist() if not st.session_state.db_servicos.empty else []
-            if 'servico_selecionado_anterior' not in st.session_state: st.session_state.servico_selecionado_anterior = ""
-            if "txt_servico" not in st.session_state: st.session_state.txt_servico = ""
-            if "val_servico" not in st.session_state: st.session_state.val_servico = 0.0
+            if 'servico_selecionado_anterior' not in st.session_state: 
+                st.session_state.servico_selecionado_anterior = ""
+            if "txt_servico" not in st.session_state: 
+                st.session_state.txt_servico = ""
+            if "val_servico" not in st.session_state: 
+                st.session_state.val_servico = 0.0
             
             servico_atual = st.selectbox("Selecionar Serviço da Base:", [""] + lista_servicos + ["Manual"])
             
@@ -278,9 +297,12 @@ def renderizar():
             st.subheader("🤝 3. Outros / Terceiros")
 
             lista_outros = st.session_state.db_outros['Item'].dropna().tolist() if not st.session_state.db_outros.empty else []
-            if 'outros_selecionado_anterior' not in st.session_state: st.session_state.outros_selecionado_anterior = ""
-            if "txt_outros" not in st.session_state: st.session_state.txt_outros = ""
-            if "val_outros" not in st.session_state: st.session_state.val_outros = 0.0
+            if 'outros_selecionado_anterior' not in st.session_state: 
+                st.session_state.outros_selecionado_anterior = ""
+            if "txt_outros" not in st.session_state: 
+                st.session_state.txt_outros = ""
+            if "val_outros" not in st.session_state: 
+                st.session_state.val_outros = 0.0
             
             outros_atual = st.selectbox("Adicionar Outros / Terceiros:", [""] + lista_outros + ["Manual"])
             
@@ -305,37 +327,62 @@ def renderizar():
         total_investimento = subtotal_equipamentos + valor_final_servico + valor_final_outros
         st.markdown(f"<h3 style='color:#004488;'>💰 INVESTIMENTO TOTAL: {utils.to_br_currency(total_investimento)}</h3>", unsafe_allow_html=True)
         
-        # =====================================================================
-        # EXIBIÇÃO DE LUCRO (ATUALIZADO COM O SOMATÓRIO DIRETO DE CUSTO TOTAL)
-        # =====================================================================
         mostrar_lucro = st.toggle("Exibir Margem e Lucro Estimado", value=False)
         if mostrar_lucro:
             custo_total_equipamentos = df_editavel['Custo Total'].sum()
             lucro = total_investimento - custo_total_equipamentos
             margem = (lucro / total_investimento * 100) if total_investimento > 0 else 0.0
             
-            st.markdown(f"<div style='background-color: #e6ffe6; padding: 10px; border-radius: 5px; border: 1px solid #006600; margin-bottom: 15px;'><span style='color: #006600; font-weight: bold; font-size: 16px;'>💸 Lucro Projetado: {utils.to_br_currency(lucro)} ({margem:.1f}%)</span><br><small style='color: #444;'><i>(Calculado com base no custo total acumulado dos equipamentos)</i></small></div>", unsafe_allow_html=True)
+            html_lucro = f"""
+            <div style='background-color: #e6ffe6; padding: 10px; border-radius: 5px; border: 1px solid #006600; margin-bottom: 15px;'>
+                <span style='color: #006600; font-weight: bold; font-size: 16px;'>💸 Lucro Projetado: {utils.to_br_currency(lucro)} ({margem:.1f}%)</span><br>
+                <small style='color: #444;'><i>(Calculado com base no custo total acumulado dos equipamentos)</i></small>
+            </div>
+            """
+            st.markdown(html_lucro, unsafe_allow_html=True)
         
-        if "input_obs_pdf" not in st.session_state: st.session_state.input_obs_pdf = "Material Hidráulico não incluído na proposta"
+        if "input_obs_pdf" not in st.session_state: 
+            st.session_state.input_obs_pdf = "Material Hidráulico não incluído na proposta"
+        
         obs_pdf = st.text_area("Observações no PDF:", key="input_obs_pdf")
 
         def formatar_telefone(tel):
             numeros = ''.join(filter(str.isdigit, tel))
-            if len(numeros) == 11: return f"({numeros[:2]}) {numeros[2:7]}-{numeros[7:]}"
+            if len(numeros) == 11: 
+                return f"({numeros[:2]}) {numeros[2:7]}-{numeros[7:]}"
             return tel
 
         col_btn_previa, col_btn_rasc, col_btn_salvar = st.columns([1, 1.2, 1.2])
         
         with col_btn_previa:
             if st.button("👁️ GERAR PRÉVIA", use_container_width=True):
-                if not nome_cliente: st.warning("Preencha o nome do cliente!")
+                if not nome_cliente: 
+                    st.warning("Preencha o nome do cliente!")
                 else:
                     tel_formatado = formatar_telefone(whatsapp)
-                    st.session_state['pdf_gerado'] = utils.gerar_pdf_orcamento(nome_cliente, tel_formatado, modelo_capa, df_editavel, descricao_final_servico, valor_final_servico, descricao_final_outros, valor_final_outros, total_investimento, obs_pdf, mostrar_precos_unitarios)
+                    st.session_state['pdf_gerado'] = utils.gerar_pdf_orcamento(
+                        nome_cliente, 
+                        tel_formatado, 
+                        modelo_capa, 
+                        df_editavel, 
+                        descricao_final_servico, 
+                        valor_final_servico, 
+                        descricao_final_outros, 
+                        valor_final_outros, 
+                        total_investimento, 
+                        obs_pdf, 
+                        mostrar_precos_unitarios
+                    )
                     st.session_state['nome_cliente_previa'] = nome_cliente
             
             if 'pdf_gerado' in st.session_state and st.session_state.get('nome_cliente_previa') == nome_cliente:
-                st.download_button("📥 BAIXAR RASCUNHO", data=st.session_state['pdf_gerado'], file_name=f"ORCAMENTO_{nome_cliente}.pdf", mime="application/pdf", use_container_width=True)
+                st.download_button(
+                    "📥 BAIXAR RASCUNHO", 
+                    data=st.session_state['pdf_gerado'], 
+                    file_name=f"ORCAMENTO_{nome_cliente}.pdf", 
+                    mime="application/pdf", 
+                    use_container_width=True
+                )
 
         with col_btn_rasc:
             if st.button("💾 SALVAR RASCUNHO", use_container_width=True):
@@ -346,7 +393,13 @@ def renderizar():
                     snapshot_itens = []
                     for _, r in df_editavel.iterrows():
                         if r['Quantidade'] > 0 or r['Produto da Base'] != "":
-                            snapshot_itens.append({"Item": r['Produto da Base'] or r['Produto Manual'], "Qtd": r['Quantidade'], "Venda Un.": r['Venda (R$)'], "Descrição": r['Descrição']})
+                            nome_item = r['Produto da Base'] or r['Produto Manual']
+                            snapshot_itens.append({
+                                "Item": nome_item, 
+                                "Qtd": r['Quantidade'], 
+                                "Venda Un.": r['Venda (R$)'], 
+                                "Descrição": r['Descrição']
+                            })
 
                     payload_rascunho = {
                         "nome_cliente": nome_cliente,
@@ -366,36 +419,50 @@ def renderizar():
 
                     if st.session_state.get('rascunho_id'):
                         st.session_state.supabase.table("servicos_andamento").update(payload_rascunho).eq('id', st.session_state.rascunho_id).execute()
-                        st.success("✅ Rascunho updated com sucesso!")
+                        st.success("✅ Rascunho atualizado com sucesso!")
                     else:
-                        payload_rascunho["numero_orcamento"] = f"RASC-{datetime.datetime.now().strftime('%y%m%d-%H%M')}"
+                        string_data = datetime.datetime.now().strftime('%y%m%d-%H%M')
+                        payload_rascunho["numero_orcamento"] = f"RASC-{string_data}"
                         res = st.session_state.supabase.table("servicos_andamento").insert(payload_rascunho).execute()
                         st.session_state.rascunho_id = res.data[0]['id']
                         st.success("✅ Rascunho criado com sucesso!")
 
         with col_btn_salvar:
             if st.button("✅ SALVAR NO SISTEMA", type="primary", use_container_width=True):
-                if not nome_cliente: st.error("Preencha o nome do cliente!")
+                if not nome_cliente: 
+                    st.error("Preencha o nome do cliente!")
                 else:
-                    numero_do_orcamento = f"ORC-{datetime.datetime.now().strftime('%y%m%d-%H%M')}"
+                    string_data = datetime.datetime.now().strftime('%y%m%d-%H%M')
+                    numero_do_orcamento = f"ORC-{string_data}"
                     try:
                         tel_formatado = formatar_telefone(whatsapp)
                         snapshot_itens = []
+                        lista_prods_texto = []
+                        
                         for _, r in df_editavel.iterrows():
                             if r['Quantidade'] > 0:
-                                snapshot_itens.append({"Item": r['Produto da Base'] or r['Produto Manual'], "Qtd": r['Quantidade'], "Venda Un.": r['Venda (R$)'], "Descrição": r['Descrição']})
+                                nome_item = r['Produto da Base'] or r['Produto Manual']
+                                snapshot_itens.append({
+                                    "Item": nome_item, 
+                                    "Qtd": r['Quantidade'], 
+                                    "Venda Un.": r['Venda (R$)'], 
+                                    "Descrição": r['Descrição']
+                                })
+                                lista_prods_texto.append(f"{int(r['Quantidade'])}x {r['Produto da Base']}")
+                        
+                        string_produtos = ", ".join(lista_prods_texto)
                         
                         payload_final = {
                             "numero_orcamento": numero_do_orcamento,
                             "nome_cliente": nome_cliente, 
                             "telefone_cliente": tel_formatado, 
-                            "produtos_adquiridos": ", ".join([f"{int(r['Quantidade'])}x {r['Produto da Base']}" for _, r in df_editavel.iterrows() if r['Quantidade']>0]),
+                            "produtos_adquiridos": string_produtos,
                             "servicos_adquiridos": descricao_final_servico,
                             "valor_venda_total": total_investimento,
                             "status_projeto": "Orçamento Enviado",
                             "detalhamento_itens": snapshot_itens,
                             "data_conclusao": datetime.date.today().strftime('%Y-%m-%d'),
-                            "dados_contrato": {} # Resetando configurações temporárias do rascunho
+                            "dados_contrato": {}
                         }
                         
                         if st.session_state.get('rascunho_id'):
@@ -409,9 +476,6 @@ def renderizar():
                     except Exception as e:
                         st.error(f"Erro ao salvar: {e}")
 
-    # =========================================================================
-    # ABA 2: GERADOR EM LOTE
-    # =========================================================================
     with aba_lote:
         st.markdown("### 📦 Geração de Orçamentos em Lote")
         st.caption("Esta ferramenta lê os 'Kits' criados em Configurações, cruza com os preços atualizados de hoje e gera todos os PDFs automaticamente.")
@@ -419,7 +483,7 @@ def renderizar():
         try:
             res_kits = st.session_state.supabase.table('config_kits_lote').select('*').execute()
             df_kits = pd.DataFrame(res_kits.data)
-        except:
+        except Exception:
             df_kits = pd.DataFrame()
 
         if df_kits.empty:
@@ -486,7 +550,8 @@ def renderizar():
                             servico_nome = str(kit.get('servico_base', '')).strip()
                             capa = str(kit.get('modelo_capa', 'Aquecedor Solar Tradicional'))
                             itens_do_kit = kit.get('itens', [])
-                            if not isinstance(itens_do_kit, list): itens_do_kit = []
+                            if not isinstance(itens_do_kit, list): 
+                                itens_do_kit = []
                             
                             nome_arquivo_final = f"{nome_kit_base}_{nome_mes_atual_pt}"
                             
@@ -495,8 +560,10 @@ def renderizar():
                             if servico_nome:
                                 match_s = db_servicos_fresquinho[db_servicos_fresquinho['Item'].astype(str).str.strip().str.upper() == servico_nome.upper()]
                                 if not match_s.empty:
-                                    try: val_serv = float(match_s['Venda (R$)'].values[0])
-                                    except: pass
+                                    try: 
+                                        val_serv = float(match_s['Venda (R$)'].values[0])
+                                    except Exception: 
+                                        pass
                                     
                                     nome_real_serv = str(match_s['Item'].values[0])
                                     desc_real_serv = str(match_s['Descrição'].values[0])
@@ -510,18 +577,23 @@ def renderizar():
                             
                             for ik in itens_do_kit:
                                 p_nome = str(ik.get('Produto', '')).strip()
-                                try: p_qtd = int(ik.get('Quantidade', 1))
-                                except: p_qtd = 1
+                                try: 
+                                    p_qtd = int(ik.get('Quantidade', 1))
+                                except Exception: 
+                                    p_qtd = 1
                                 
                                 p_preco = 0.0
                                 p_desc = ""
                                 if p_nome:
                                     match_p = db_produtos_fresquinho[db_produtos_fresquinho['Item'].astype(str).str.strip().str.upper() == p_nome.upper()]
                                     if not match_p.empty:
-                                        try: p_preco = float(match_p['Venda (R$)'].values[0])
-                                        except: pass
+                                        try: 
+                                            p_preco = float(match_p['Venda (R$)'].values[0])
+                                        except Exception: 
+                                            pass
                                         p_desc = str(match_p['Descrição'].values[0])
-                                        if p_desc.lower() == 'nan': p_desc = ""
+                                        if p_desc.lower() == 'nan': 
+                                            p_desc = ""
                                 
                                 subtotal_item = p_preco * p_qtd
                                 total_prod += subtotal_item
@@ -539,10 +611,13 @@ def renderizar():
                             
                             df_itens_lote = pd.DataFrame(lista_linhas_pdf)
                             if df_itens_lote.empty:
-                                df_itens_lote = pd.DataFrame(columns=["Produto da Base", "Produto Manual", "Descrição", "Quantidade", "Custo (R$)", "Venda (R$)", "Custo Total", "Venda Total"])
+                                df_itens_lote = pd.DataFrame(columns=[
+                                    "Produto da Base", "Produto Manual", "Descrição", 
+                                    "Quantidade", "Custo (R$)", "Venda (R$)", 
+                                    "Custo Total", "Venda Total"
+                                ])
                             
                             total_lote = total_prod + val_serv
-                            
                             obs_padrao = "Material hidráulico não incluso nesta proposta."
                             
                             pdf_buffer = utils.gerar_pdf_orcamento(
@@ -594,8 +669,31 @@ def renderizar():
                             pasta_lote = ["Orçamentos", "Lote", utils.mes_atual_nome]
                             erros_up = 0
                             for arq in st.session_state['pdf_gerados_lote']:
-                                sucesso, msg = utils.upload_to_drive(arq["buffer"], arq["nome_arquivo"], "application/pdf", pasta_lote)
-                                if not sucesso: erros_up += 1
+                                sucesso, msg = utils.upload_to_drive(
+                                    arq["buffer"], 
+                                    arq["nome_arquivo"], 
+                                    "application/pdf", 
+                                    pasta_lote
+                                )
+                                if not sucesso: 
+                                    erros_up += 1
                                 
                             if erros_up == 0:
-                                st.success(f"☁️ Todos os {len(st.session_state
+                                st.success(f"☁️ Todos os {len(st.session_state['pdf_gerados_lote'])} arquivos foram salvos (Orçamentos -> Lote -> {utils.mes_atual_nome}).")
+                            else:
+                                st.warning(f"⚠️ {erros_up} arquivo(s) não puderam ser enviados ao Drive.")
+                
+                st.markdown("<br>", unsafe_allow_html=True)
+                st.caption("Downloads individuais:")
+                
+                cols_download = st.columns(2)
+                for idx, pdf_dict in enumerate(st.session_state['pdf_gerados_lote']):
+                    with cols_download[idx % 2]:
+                        st.download_button(
+                            label=f"⬇️ {pdf_dict['nome_arquivo']}",
+                            data=pdf_dict['buffer'].getvalue(),
+                            file_name=pdf_dict['nome_arquivo'],
+                            mime="application/pdf",
+                            key=f"dl_lote_{idx}",
+                            use_container_width=True
+                        )
