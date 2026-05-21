@@ -4,6 +4,7 @@ import datetime
 import utils
 import zipfile
 import io
+import math
 
 def limpar_tela_orcamento():
     chaves = [
@@ -30,6 +31,43 @@ def renderizar():
                 if chave in st.session_state: 
                     del st.session_state[chave]
             st.rerun()
+
+    # =========================================================================
+    # CAIXINHA DE LEMBRETES (POP-UP DE CÁLCULO RÁPIDO)
+    # =========================================================================
+    with st.popover("💡 Lembretes e Cálculos Rápidos", use_container_width=True):
+        st.markdown("<h5 style='color:#004488; margin-top:0;'>🧮 Calculadoras de Dimensionamento</h5>", unsafe_allow_html=True)
+        t_banho, t_tubo, t_col = st.tabs(["🚿 Banhos por Litro", "🧪 Tubos (Vácuo)", "☀️ Coletores (Planos)"])
+        
+        with t_banho:
+            st.caption("Calcule quantos banhos o boiler suporta.")
+            c1, c2 = st.columns(2)
+            v_b = c1.number_input("Volume do Boiler (Litros)", min_value=0, step=10, key="calc_vol_banho")
+            l_b = c2.number_input("Litros por Banho", min_value=1, value=45, step=1, key="calc_litro_banho")
+            if v_b > 0:
+                qtd_banhos = int(v_b / l_b)
+                st.success(f"**Resultado:** {qtd_banhos} Banhos\n\n*(1 banho está configurado para {l_b} litros)*")
+                
+        with t_tubo:
+            st.caption("Calcule a quantidade de tubos a vácuo necessários.")
+            v_t = st.number_input("Volume do Boiler (Litros)", min_value=0, step=10, key="calc_vol_tubo")
+            if v_t > 0:
+                c1, c2 = st.columns(2)
+                c1.info(f"**BOM (20L por tubo):**\n### {math.ceil(v_t / 20)} tubos")
+                c2.success(f"**ÓTIMO (15L por tubo):**\n### {math.ceil(v_t / 15)} tubos")
+                
+        with t_col:
+            st.caption("Calcule a quantidade de coletores (1 placa para cada 200L).")
+            v_c = st.number_input("Volume do Boiler (Litros)", min_value=0, step=10, key="calc_vol_col")
+            if v_c > 0:
+                exato = v_c / 200
+                arredondado = math.ceil(exato)
+                if arredondado > exato:
+                    st.success(f"**Resultado:** ### {arredondado} coletores\n\n⚠️ *O sistema colocou 1 coletor a mais para o sistema ficar mais eficiente.*")
+                else:
+                    st.success(f"**Resultado:** ### {arredondado} coletores\n\n✅ *Cálculo exato de 1 coletor para cada 200L.*")
+
+    st.markdown("<br>", unsafe_allow_html=True)
 
     if 'db_produtos' not in st.session_state: 
         st.session_state.db_produtos = utils.load_catalog('catalogo_produtos')
@@ -169,9 +207,6 @@ def renderizar():
             if 'df_orc_prev' not in st.session_state:
                 st.session_state.df_orc_prev = st.session_state.df_orc.copy()
             
-            # Ajuste de larguras para garantir melhor visualização (sem scroll horizontal):
-            # Produto agora é "medium", Nome Manual "medium", e as 4 de valores monetários não têm 'width' 
-            # forçado, assim o Streamlit divide o espaço restante da tela de forma igualitária para elas.
             configuracao_colunas = {
                 "Produto da Base": st.column_config.SelectboxColumn("Produto", options=[""] + lista_nomes_produtos + ["OUTRO"], width="medium"), 
                 "Produto Manual": st.column_config.TextColumn("Nome Manual", width="medium"),
@@ -335,7 +370,6 @@ def renderizar():
             custo_total_equipamentos = df_editavel['Custo Total'].sum()
             lucro = total_investimento - custo_total_equipamentos
             
-            # Cálculo da margem com base no Custo Total (Markup)
             margem = (lucro / custo_total_equipamentos * 100) if custo_total_equipamentos > 0 else (100.0 if lucro > 0 else 0.0)
             
             html_lucro = f"""
