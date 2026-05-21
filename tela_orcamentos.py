@@ -169,15 +169,18 @@ def renderizar():
             if 'df_orc_prev' not in st.session_state:
                 st.session_state.df_orc_prev = st.session_state.df_orc.copy()
             
+            # Ajuste de larguras para garantir melhor visualização (sem scroll horizontal):
+            # Produto agora é "medium", Nome Manual "medium", e as 4 de valores monetários não têm 'width' 
+            # forçado, assim o Streamlit divide o espaço restante da tela de forma igualitária para elas.
             configuracao_colunas = {
-                "Produto da Base": st.column_config.SelectboxColumn("Produto", options=[""] + lista_nomes_produtos + ["OUTRO"], width="large"), 
+                "Produto da Base": st.column_config.SelectboxColumn("Produto", options=[""] + lista_nomes_produtos + ["OUTRO"], width="medium"), 
                 "Produto Manual": st.column_config.TextColumn("Nome Manual", width="medium"),
                 "Descrição": st.column_config.TextColumn("Detalhes / Garantia"), 
                 "Quantidade": st.column_config.NumberColumn("Qtd", min_value=0, step=1, width="small"),
-                "Custo (R$)": st.column_config.NumberColumn("Custo Unt.", format="R$ %,.2f", width="small"),
-                "Venda (R$)": st.column_config.NumberColumn("Venda Unt.", format="R$ %,.2f", width="small"),
-                "Custo Total": st.column_config.NumberColumn("Custo Total", format="R$ %,.2f", disabled=True, width="small"),
-                "Venda Total": st.column_config.NumberColumn("Total", format="R$ %,.2f", disabled=True, width="small")
+                "Custo (R$)": st.column_config.NumberColumn("Custo Unt.", format="R$ %,.2f"),
+                "Venda (R$)": st.column_config.NumberColumn("Venda Unt.", format="R$ %,.2f"),
+                "Custo Total": st.column_config.NumberColumn("Custo Total", format="R$ %,.2f", disabled=True),
+                "Venda Total": st.column_config.NumberColumn("Total", format="R$ %,.2f", disabled=True)
             }
             
             sequencia_colunas = ["Produto da Base", "Produto Manual", "Quantidade", "Custo (R$)", "Venda (R$)", "Custo Total", "Venda Total"]
@@ -332,7 +335,7 @@ def renderizar():
             custo_total_equipamentos = df_editavel['Custo Total'].sum()
             lucro = total_investimento - custo_total_equipamentos
             
-            # A margem (Markup) agora será calculada sobre o Custo (como no seu exemplo)
+            # Cálculo da margem com base no Custo Total (Markup)
             margem = (lucro / custo_total_equipamentos * 100) if custo_total_equipamentos > 0 else (100.0 if lucro > 0 else 0.0)
             
             html_lucro = f"""
