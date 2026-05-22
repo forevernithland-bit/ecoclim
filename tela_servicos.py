@@ -56,30 +56,69 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
     novo_instalador = col_dir.selectbox("Instalador Responsável", opcoes_inst, index=idx_inst, key=f"inst_{prefix_key}")
 
     # ==============================================================
-    # 🛒 ITENS VENDIDOS
+    # 🛒 ITENS VENDIDOS (COM LÓGICA DE PREENCHIMENTO AUTOMÁTICO)
     # ==============================================================
     st.markdown("#### 🛒 Itens Vendidos (Ajuste Quantidades e Custos)")
+    
+    lista_prod = df_produtos['Item'].dropna().tolist() if not df_produtos.empty else []
+    
     itens_json = projeto_selecionado.get('detalhamento_itens', [])
     df_itens = pd.DataFrame(itens_json) if (isinstance(itens_json, list) and len(itens_json) > 0) else pd.DataFrame(columns=['Item', 'Qtd', 'Custo Un.', 'Venda Un.'])
+    
     for col in ['Item', 'Qtd', 'Custo Un.', 'Venda Un.']:
         if col not in df_itens.columns: df_itens[col] = 0.0 if 'Un.' in col or 'Qtd' in col else ""
 
-    if not df_produtos.empty:
-        for idx, row in df_itens.iterrows():
-            if safe_float(row.get('Custo Un.')) == 0.0:
-                nome_procurado = str(row.get('Item', '')).strip().upper()
-                for _, prod_row in df_produtos.iterrows():
-                    if str(prod_row.get('Item', '')).strip().upper() == nome_procurado:
-                        df_itens.at[idx, 'Custo Un.'] = safe_float(prod_row.get('Custo', prod_row.get('Custo (R$)', 0)))
-                        break
+    session_key = f"itens_state_{prefix_key}"
+    if session_key not in st.session_state:
+        # Preenche vazios vindos de orçamentos antigos
+        if not df_produtos.empty:
+            for idx, row in df_itens.iterrows():
+                if safe_float(row.get('Custo Un.')) == 0.0:
+                    nome_procurado = str(row.get('Item', '')).strip().upper()
+                    match = df_produtos[df_produtos['Item'].astype(str).str.strip().str.upper() == nome_procurado]
+                    if not match.empty:
+                        df_itens.at[idx, 'Custo Un.'] = safe_float(match.iloc[0].get('Custo (R$)', 0))
+                if safe_float(row.get('Venda Un.')) == 0.0:
+                    nome_procurado = str(row.get('Item', '')).strip().upper()
+                    match = df_produtos[df_produtos['Item'].astype(str).str.strip().str.upper() == nome_procurado]
+                    if not match.empty:
+                        df_itens.at[idx, 'Venda Un.'] = safe_float(match.iloc[0].get('Venda (R$)', 0))
+        st.session_state[session_key] = df_itens.copy()
 
     config_itens = {
-        "Item": st.column_config.TextColumn("Produto", width="medium"),
+        "Item": st.column_config.SelectboxColumn("Produto", options=[""] + lista_prod + ["OUTRO"], width="medium"),
         "Qtd": st.column_config.NumberColumn("Qtd", min_value=0),
         "Custo Un.": st.column_config.NumberColumn("Custo Fábrica (Un.)", format="R$ %.2f"),
         "Venda Un.": st.column_config.NumberColumn("Venda (Un.)", format="R$ %.2f")
     }
-    df_itens_final = st.data_editor(df_itens, column_config=config_itens, num_rows="dynamic", use_container_width=True, key=f"edit_itens_{prefix_key}")
+    
+    df_itens_editavel = st.data_editor(st.session_state[session_key], column_config=config_itens, num_rows="dynamic", use_container_width=True, key=f"edit_itens_{prefix_key}")
+    
+    precisa_atualizar = False
+    
+    # Motor de Auto-Fill: Quando escolhe um produto da lista, puxa Custo e Venda automaticamente
+    for idx in range(len(df_itens_editavel)):
+        item_atual = str(df_itens_editavel.at[idx, 'Item'] if pd.notna(df_itens_editavel.at[idx, 'Item']) else "").strip()
+        item_ant = ""
+        if idx < len(st.session_state[session_key]):
+            item_ant = str(st.session_state[session_key].at[idx, 'Item'] if pd.notna(st.session_state[session_key].at[idx, 'Item']) else "").strip()
+            
+        if item_atual != item_ant and item_atual != "" and item_atual != "OUTRO":
+            match = df_produtos[df_produtos['Item'].astype(str).str.strip().str.upper() == item_atual.upper()]
+            if not match.empty:
+                df_itens_editavel.at[idx, 'Custo Un.'] = safe_float(match.iloc[0].get('Custo (R$)', 0))
+                df_itens_editavel.at[idx, 'Venda Un.'] = safe_float(match.iloc[0].get('Venda (R$)', 0))
+                if pd.isna(df_itens_editavel.at[idx, 'Qtd']) or float(df_itens_editavel.at[idx, 'Qtd']) <= 0:
+                    df_itens_editavel.at[idx, 'Qtd'] = 1
+                precisa_atualizar = True
+
+    if precisa_atualizar:
+        st.session_state[session_key] = df_itens_editavel
+        st.rerun()
+        
+    df_itens_final = df_itens_editavel
+    st.session_state[session_key] = df_itens_final.copy()
+    
     custo_total_produtos = (pd.to_numeric(df_itens_final['Custo Un.'], errors='coerce').fillna(0) * pd.to_numeric(df_itens_final['Qtd'], errors='coerce').fillna(0)).sum()
 
     # ==============================================================
@@ -255,8 +294,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         ], index=3, key=f"capa_{prefix_key}")
         
         if col_pdf2.button("GERAR PRÉVIA DO PDF", use_container_width=True, key=f"btn_pdf_{prefix_key}"):
-            itens_pdf = projeto_selecionado.get('detalhamento_itens', [])
-            df_pdf = pd.DataFrame(itens_pdf)
+            df_pdf = df_itens_final.copy()
             if not df_pdf.empty:
                 df_pdf['Quantidade'] = df_pdf.get('Qtd', 0)
                 df_pdf['Produto da Base'] = df_pdf.get('Item', '')
@@ -398,7 +436,6 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             if f'pdf_contrato_{prefix_key}' in st.session_state:
                 st.download_button("📥 BAIXAR CONTRATO (PDF)", data=st.session_state[f'pdf_contrato_{prefix_key}'], file_name=f"CONTRATO_{c_nome.split()[0]}.pdf", mime="application/pdf", use_container_width=True, key=f"dl_ct_{prefix_key}")
                 
-                # --- NOVO BLOCO: SALVAR CONTRATO NO DRIVE USANDO ST.CONTAINER NATIVO ---
                 with st.container(border=True):
                     st.markdown("☁️ **Salvar no Drive (Pasta: Contratos)**")
                     
@@ -458,6 +495,9 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             }
             try:
                 supabase.table('servicos_andamento').update(dados).eq('id', int(projeto_selecionado['id'])).execute()
+                # Limpa o estado temporário de itens para forçar recarga atualizada na próxima visualização
+                if f"itens_state_{prefix_key}" in st.session_state:
+                    del st.session_state[f"itens_state_{prefix_key}"]
                 st.success("✅ Atualizado com sucesso!")
                 st.rerun()
             except Exception as e: 
