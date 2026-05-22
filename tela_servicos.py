@@ -7,6 +7,9 @@ def safe_float(val):
     try:
         if pd.isna(val) or val is None or str(val).strip() == '': 
             return 0.0
+        # Caso receba um número como string, limpa formatações básicas
+        if isinstance(val, str):
+            val = val.replace('R$', '').replace(' ', '').replace(',', '.')
         return float(val)
     except:
         return 0.0
@@ -56,17 +59,22 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
     novo_instalador = col_dir.selectbox("Instalador Responsável", opcoes_inst, index=idx_inst, key=f"inst_{prefix_key}")
 
     # ==============================================================
-    # 🛒 ITENS VENDIDOS (COM LÓGICA DE PREENCHIMENTO AUTOMÁTICO)
+    # 🛒 ITENS VENDIDOS (COM LÓGICA DE PREENCHIMENTO AUTOMÁTICO E EDIÇÃO LIVRE)
     # ==============================================================
     st.markdown("#### 🛒 Itens Vendidos (Ajuste Quantidades e Custos)")
     
     lista_prod = df_produtos['Item'].dropna().tolist() if not df_produtos.empty else []
     
     itens_json = projeto_selecionado.get('detalhamento_itens', [])
-    df_itens = pd.DataFrame(itens_json) if (isinstance(itens_json, list) and len(itens_json) > 0) else pd.DataFrame(columns=['Item', 'Qtd', 'Custo Un.', 'Venda Un.'])
+    df_itens = pd.DataFrame(itens_json) if (isinstance(itens_json, list) and len(itens_json) > 0) else pd.DataFrame()
     
-    for col in ['Item', 'Qtd', 'Custo Un.', 'Venda Un.']:
-        if col not in df_itens.columns: df_itens[col] = 0.0 if 'Un.' in col or 'Qtd' in col else ""
+    # Garante que as colunas existam e converte para float (corrige bug de edição bloqueada)
+    for col in ['Item', 'Descrição', 'Qtd', 'Custo Un.', 'Venda Un.']:
+        if col not in df_itens.columns: 
+            df_itens[col] = 0.0 if 'Un.' in col or 'Qtd' in col else ""
+        
+        if col in ['Qtd', 'Custo Un.', 'Venda Un.']:
+            df_itens[col] = df_itens[col].apply(lambda x: safe_float(x))
 
     session_key = f"itens_state_{prefix_key}"
     if session_key not in st.session_state:
@@ -86,13 +94,23 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         st.session_state[session_key] = df_itens.copy()
 
     config_itens = {
-        "Item": st.column_config.SelectboxColumn("Produto", options=[""] + lista_prod + ["OUTRO"], width="medium"),
-        "Qtd": st.column_config.NumberColumn("Qtd", min_value=0),
-        "Custo Un.": st.column_config.NumberColumn("Custo Fábrica (Un.)", format="R$ %.2f"),
-        "Venda Un.": st.column_config.NumberColumn("Venda (Un.)", format="R$ %.2f")
+        "Item": st.column_config.SelectboxColumn("Produto", options=[""] + lista_prod + ["OUTRO"], width="large"),
+        "Descrição": st.column_config.TextColumn("Descrição", width="medium"),
+        "Qtd": st.column_config.NumberColumn("Qtd", min_value=0, width="small"),
+        "Custo Un.": st.column_config.NumberColumn("Custo Fábrica", format="R$ %.2f", width="small"),
+        "Venda Un.": st.column_config.NumberColumn("Venda Unt.", format="R$ %.2f", width="small")
     }
     
-    df_itens_editavel = st.data_editor(st.session_state[session_key], column_config=config_itens, num_rows="dynamic", use_container_width=True, key=f"edit_itens_{prefix_key}")
+    ordem_cols = ["Item", "Descrição", "Qtd", "Custo Un.", "Venda Un."]
+    
+    df_itens_editavel = st.data_editor(
+        st.session_state[session_key], 
+        column_config=config_itens, 
+        column_order=ordem_cols,
+        num_rows="dynamic", 
+        use_container_width=True, 
+        key=f"edit_itens_{prefix_key}"
+    )
     
     precisa_atualizar = False
     
@@ -180,11 +198,23 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         valor_comissao = venda_final * (comissao_pct / 100)
         f_col4.caption(f"Valor: - {utils.to_br_currency(valor_comissao)}")
 
-        custo_ext = f_col5.number_input("Materiais Extras (R$)", value=safe_float(projeto_selecionado.get('custo_adicional_materiais')), format="%.2f", step=None, key=f"mat_{prefix_key}")
-        f_col5.caption("&nbsp;", unsafe_allow_html=True) # Caption invisível para alinhar
+        # RECUPERANDO MÃO DE OBRA E MATERIAIS DE PROJETOS ANTIGOS
+        d_ct_fallback = projeto_selecionado.get('dados_contrato')
+        if not isinstance(d_ct_fallback, dict): d_ct_fallback = {}
+        
+        val_mo_salvo = safe_float(projeto_selecionado.get('custo_terceirizados'))
+        if val_mo_salvo == 0.0 and safe_float(d_ct_fallback.get('val_servico')) > 0:
+            val_mo_salvo = safe_float(d_ct_fallback.get('val_servico'))
+            
+        val_ext_salvo = safe_float(projeto_selecionado.get('custo_adicional_materiais'))
+        if val_ext_salvo == 0.0 and safe_float(d_ct_fallback.get('val_outros')) > 0:
+            val_ext_salvo = safe_float(d_ct_fallback.get('val_outros'))
 
-        custo_mo = f_col6.number_input("Mão de Obra / Terceiros (R$)", value=safe_float(projeto_selecionado.get('custo_terceirizados')), format="%.2f", step=None, key=f"mao_{prefix_key}")
-        f_col6.caption("&nbsp;", unsafe_allow_html=True) # Caption invisível para alinhar
+        custo_ext = f_col5.number_input("Materiais Extras (R$)", value=val_ext_salvo, format="%.2f", step=None, key=f"mat_{prefix_key}")
+        f_col5.caption("&nbsp;", unsafe_allow_html=True) 
+
+        custo_mo = f_col6.number_input("Mão de Obra / Terceiros (R$)", value=val_mo_salvo, format="%.2f", step=None, key=f"mao_{prefix_key}")
+        f_col6.caption("&nbsp;", unsafe_allow_html=True) 
 
         abatimentos = valor_nf + valor_cartao_taxa + valor_comissao + custo_ext + custo_mo
         lucro_final = venda_final - custo_total_produtos - abatimentos
