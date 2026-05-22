@@ -197,7 +197,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
     for a in arquivos_brutos:
         linha_arquivo = {
             "Excluir": False,
-            "Baixar": False, # Nova coluna
             "ID_Drive": str(a.get('id', '')),
             "ID_DB": str(db_id_map.get(a['id'], "")),
             "ID": str(a.get('id', '')),
@@ -210,7 +209,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             linha_arquivo["Pagar"] = False
             v_date = vencimentos_map.get(a['id'])
             linha_arquivo["Vencimento"] = v_date if pd.notna(v_date) else pd.NaT
-            linha_arquivo["Valor"] = float(valores_map.get(a['id'], 0.0))
+            linha_arquivo["Valor"] = float(valores_map.get(a['id'], 0.0)) 
             linha_arquivo["Recorrente"] = "🔄 Sim" if is_rec_map.get(a['id'], False) else "-"
             linha_arquivo["Status"] = str(status_map.get(a['id'], "Pendente"))
         
@@ -239,7 +238,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                     
                     dados_tabela.append({
                         "Excluir": False, 
-                        "Baixar": False, # Nova coluna
                         "Pagar": False, 
                         "ID_Drive": None, 
                         "ID_DB": str(r['id']),
@@ -288,7 +286,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
         st.warning("Nenhum item corresponde aos filtros selecionados.")
         return
 
-    # >>> NOVO BLOCO DE ORDENAÇÃO: ATRASADOS -> PENDENTES -> PAGOS <<<
+    # ORDENAÇÃO: ATRASADOS -> PENDENTES -> PAGOS
     if nome_principal == "Boletos":
         hoje_ordem = datetime.date.today()
         
@@ -347,9 +345,9 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                     utils.delete_drive_file(row['ID'])
                     st.rerun()
     else:
+        # Removido totalmente a coluna "Baixar" da Grid para manter o layout limpo!
         config_colunas = {
             "Excluir": st.column_config.CheckboxColumn("🗑️", default=False, width="small"),
-            "Baixar": st.column_config.CheckboxColumn("📥", default=False, width="small"), # Nova Coluna UI
             "ID": None, 
             "ID_Drive": None, 
             "ID_DB": None,
@@ -370,10 +368,10 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             
             lista_desabilitados.append("Vencimento")
             
-            col_order = ["Excluir", "Baixar", "Nome", "Link", "Vencimento", "Valor", "Recorrente", "Pagar", "Status"]
+            col_order = ["Excluir", "Nome", "Link", "Vencimento", "Valor", "Recorrente", "Pagar", "Status"]
         else:
             config_colunas["Data"] = st.column_config.DatetimeColumn("Data de Inclusão", format="DD/MM/YYYY - HH:mm")
-            col_order = ["Excluir", "Baixar", "Nome", "Link", "Data"]
+            col_order = ["Excluir", "Nome", "Link", "Data"]
 
         todas_cols = col_order + [c for c in df_pagina.columns if c not in col_order]
         df_pagina = df_pagina[todas_cols].reset_index(drop=True)
@@ -407,61 +405,15 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             disabled=lista_desabilitados,
             hide_index=True, 
             use_container_width=True, 
-            key=f"editor_docs_v10_{nome_principal}" 
+            key=f"editor_docs_v11_{nome_principal}" 
         )
 
         # ==========================================
-        # 6. AÇÕES DE PAGAMENTO, VALOR, EXCLUSÃO E DOWNLOAD
+        # 6. AÇÕES DE SALVAMENTO, PAGAMENTO E EXCLUSÃO
         # ==========================================
         if df_editado is not None and not df_editado.empty:
             
-            # BLOCO A: DOWNLOAD EM LOTE (ZIP)
-            arquivos_para_baixar = df_editado[df_editado["Baixar"] == True]
-            if not arquivos_para_baixar.empty:
-                st.info(f"💡 Você marcou {len(arquivos_para_baixar)} item(ns) para download.")
-                
-                if st.button("📦 Preparar Download em Lote", key=f"btn_zip_{nome_principal}", use_container_width=True):
-                    with st.spinner("Baixando do Google Drive e gerando pacote .ZIP..."):
-                        try:
-                            service = utils.get_drive_service()
-                            zip_buffer = io.BytesIO()
-                            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-                                for _, row_down in arquivos_para_baixar.iterrows():
-                                    file_id = row_down.get("ID_Drive")
-                                    file_name = row_down.get("Nome")
-                                    
-                                    # Ignora itens manuais (sem arquivo físico no Drive)
-                                    if file_name.startswith("📝 "):
-                                        continue
-                                        
-                                    if file_id and pd.notna(file_id) and str(file_id).strip().lower() not in ["none", "nan", ""]:
-                                        try:
-                                            file_content = service.files().get_media(fileId=file_id).execute()
-                                            zip_file.writestr(file_name, file_content)
-                                        except Exception:
-                                            pass
-                            
-                            zip_buffer.seek(0)
-                            st.session_state[f"zip_ready_{nome_principal}"] = zip_buffer.getvalue()
-                            st.session_state[f"zip_name_{nome_principal}"] = f"Lote_{nome_principal}_{datetime.date.today().strftime('%d%m%Y')}.zip"
-                        except Exception as e:
-                            st.error(f"Erro ao conectar ao Google Drive: {e}")
-                            
-                if f"zip_ready_{nome_principal}" in st.session_state:
-                    st.download_button(
-                        label="📥 BAIXAR ARQUIVOS SELECIONADOS (.ZIP)",
-                        data=st.session_state[f"zip_ready_{nome_principal}"],
-                        file_name=st.session_state[f"zip_name_{nome_principal}"],
-                        mime="application/zip",
-                        use_container_width=True,
-                        type="primary",
-                        key=f"dl_zip_btn_{nome_principal}"
-                    )
-            else:
-                if f"zip_ready_{nome_principal}" in st.session_state:
-                    del st.session_state[f"zip_ready_{nome_principal}"]
-
-            # BLOCO B: SALVAR VALORES ALTERADOS
+            # BLOCO A: SALVAR VALORES ALTERADOS
             if "Valor" in df_editado.columns and nome_principal == "Boletos":
                 diff_mask = abs(pd.to_numeric(df_editado["Valor"], errors='coerce').fillna(0) - pd.to_numeric(df_pagina["Valor"], errors='coerce').fillna(0)) > 0.01
                 boletos_alterados = df_editado[diff_mask]
@@ -474,10 +426,10 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                                 id_db = r_val.get("ID_DB")
                                 if id_db and str(id_db).strip() not in ["none", "nan", ""]:
                                     st.session_state.supabase.table('boletos_fornecedores').update({'valor': float(r_val['Valor'])}).eq('id', id_db).execute()
-                        st.success("✅ Valores updated com sucesso!")
+                        st.success("✅ Valores atualizados com sucesso!")
                         st.rerun()
 
-            # BLOCO C: MARCAR COMO PAGO
+            # BLOCO B: MARCAR COMO PAGO
             if "Pagar" in df_editado.columns:
                 boletos_pagar = df_editado[(df_editado["Pagar"] == True) & (df_editado["Status"] != "Pago")]
                 
@@ -511,7 +463,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                         st.success("✅ Tudo atualizado! Boletos pagos e próxima recorrência gerada (caso aplicável).")
                         st.rerun()
             
-            # BLOCO D: EXCLUSÃO 
+            # BLOCO C: EXCLUSÃO 
             arquivos_para_apagar = df_editado[df_editado["Excluir"] == True]
             if not arquivos_para_apagar.empty:
                 st.error(f"⚠️ Selecionou {len(arquivos_para_apagar)} item(ns) para exclusão permanente.")
@@ -528,7 +480,61 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                     st.rerun()
 
         # ==========================================
-        # 7. RESUMO FINANCEIRO DO MÊS (SÓ EM BOLETOS)
+        # 7. NOVA SOLUÇÃO: SELETOR DE DOWNLOAD EM LOTE FORA DA TABELA
+        # ==========================================
+        #Filtra apenas arquivos físicos reais (ignora os lembretes manuais "📝 ")
+        arquivos_reais_disponiveis = df_pagina[df_pagina["ID_Drive"].notna() & (~df_pagina["Nome"].str.startswith("📝 "))]
+        
+        if not arquivos_reais_disponiveis.empty:
+            st.markdown("<br>", unsafe_allow_html=True)
+            with st.container(border=True):
+                st.markdown("📦 **Download Multiplo de Documentos**")
+                arquivos_selecionados = st.multiselect(
+                    "Selecione na lista os documentos que deseja baixar juntos:",
+                    options=arquivos_reais_disponiveis["Nome"].tolist(),
+                    key=f"multiselect_down_{nome_principal}"
+                )
+                
+                if arquivos_selecionados:
+                    if st.button("📦 Preparar Pacote .ZIP para Baixar", key=f"btn_zip_gen_{nome_principal}", use_container_width=True):
+                        with st.spinner("Buscando arquivos no Google Drive e compactando..."):
+                            try:
+                                service = utils.get_drive_service()
+                                zip_buffer = io.BytesIO()
+                                with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                                    df_filtrado_down = arquivos_reais_disponiveis[arquivos_reais_disponiveis["Nome"].isin(arquivos_selecionados)]
+                                    
+                                    for _, row_down in df_filtrado_down.iterrows():
+                                        file_id = row_down.get("ID_Drive")
+                                        file_name = row_down.get("Nome")
+                                        
+                                        if file_id:
+                                            try:
+                                                file_content = service.files().get_media(fileId=file_id).execute()
+                                                zip_file.writestr(file_name, file_content)
+                                            except Exception:
+                                                pass
+                                zip_buffer.seek(0)
+                                st.session_state[f"zip_bytes_{nome_principal}"] = zip_buffer.getvalue()
+                            except Exception as e:
+                                st.error(f"Erro ao conectar com o Drive: {e}")
+                    
+                    if f"zip_bytes_{nome_principal}" in st.session_state:
+                        st.download_button(
+                            label="📥 CLIQUE AQUI PARA BAIXAR O PACOTE (.ZIP)",
+                            data=st.session_state[f"zip_bytes_{nome_principal}"],
+                            file_name=f"Lote_{nome_principal}_{datetime.date.today().strftime('%d%m%Y')}.zip",
+                            mime="application/zip",
+                            use_container_width=True,
+                            type="primary",
+                            key=f"download_zip_final_{nome_principal}"
+                        )
+                else:
+                    if f"zip_bytes_{nome_principal}" in st.session_state:
+                        del st.session_state[f"zip_bytes_{nome_principal}"]
+
+        # ==========================================
+        # 8. RESUMO FINANCEIRO DO MÊS (SÓ EM BOLETOS)
         # ==========================================
         if nome_principal == "Boletos" and not df.empty:
             st.markdown("---")
