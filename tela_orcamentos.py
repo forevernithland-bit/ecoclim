@@ -212,7 +212,6 @@ def renderizar():
             if 'df_orc_prev' not in st.session_state:
                 st.session_state.df_orc_prev = st.session_state.df_orc.copy()
             
-            # Ajuste de larguras para garantir melhor visualização (sem scroll horizontal):
             configuracao_colunas = {
                 "Produto da Base": st.column_config.SelectboxColumn("Produto", options=[""] + lista_nomes_produtos + ["OUTRO"], width="medium"), 
                 "Produto Manual": st.column_config.TextColumn("Nome Manual", width="medium"),
@@ -305,6 +304,25 @@ def renderizar():
             
             subtotal_equipamentos = df_editavel['Venda Total'].sum()
             st.markdown(f"**Subtotal Equipamentos:** :blue[{utils.to_br_currency(subtotal_equipamentos)}]")
+            
+            # =====================================================================
+            # NOVO LOCAL DO CÁLCULO DE LUCRO (SOMENTE PRODUTOS)
+            # =====================================================================
+            mostrar_lucro = st.toggle("Exibir Margem e Lucro Estimado", value=False)
+            if mostrar_lucro:
+                custo_total_equipamentos = df_editavel['Custo Total'].sum()
+                lucro_equip = subtotal_equipamentos - custo_total_equipamentos
+                
+                # Cálculo da margem com base no Custo Total dos Equipamentos (Markup)
+                margem_equip = (lucro_equip / custo_total_equipamentos * 100) if custo_total_equipamentos > 0 else (100.0 if lucro_equip > 0 else 0.0)
+                
+                html_lucro = f"""
+                <div style='background-color: #e6ffe6; padding: 10px; border-radius: 5px; border: 1px solid #006600; margin-top: 10px; margin-bottom: 5px;'>
+                    <span style='color: #006600; font-weight: bold; font-size: 16px;'>💸 Lucro Projetado: {utils.to_br_currency(lucro_equip)} ({margem_equip:.1f}%)</span><br>
+                    <small style='color: #444;'><i>(Calculado apenas sobre o custo total acumulado dos equipamentos)</i></small>
+                </div>
+                """
+                st.markdown(html_lucro, unsafe_allow_html=True)
 
         with st.container(border=True):
             st.subheader("🛠️ 2. Serviços")
@@ -370,22 +388,6 @@ def renderizar():
 
         total_investimento = subtotal_equipamentos + valor_final_servico + valor_final_outros
         st.markdown(f"<h3 style='color:#004488;'>💰 INVESTIMENTO TOTAL: {utils.to_br_currency(total_investimento)}</h3>", unsafe_allow_html=True)
-        
-        mostrar_lucro = st.toggle("Exibir Margem e Lucro Estimado", value=False)
-        if mostrar_lucro:
-            custo_total_equipamentos = df_editavel['Custo Total'].sum()
-            lucro = total_investimento - custo_total_equipamentos
-            
-            # Cálculo da margem com base no Custo Total (Markup)
-            margem = (lucro / custo_total_equipamentos * 100) if custo_total_equipamentos > 0 else (100.0 if lucro > 0 else 0.0)
-            
-            html_lucro = f"""
-            <div style='background-color: #e6ffe6; padding: 10px; border-radius: 5px; border: 1px solid #006600; margin-bottom: 15px;'>
-                <span style='color: #006600; font-weight: bold; font-size: 16px;'>💸 Lucro Projetado: {utils.to_br_currency(lucro)} ({margem:.1f}%)</span><br>
-                <small style='color: #444;'><i>(Calculado com base no custo total acumulado dos equipamentos)</i></small>
-            </div>
-            """
-            st.markdown(html_lucro, unsafe_allow_html=True)
         
         if "input_obs_pdf" not in st.session_state: 
             st.session_state.input_obs_pdf = "Material Hidráulico não incluído na proposta"
