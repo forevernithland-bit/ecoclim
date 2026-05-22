@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import datetime
 import utils
+import zipfile
+import io
 
 def formatar_tamanho(tamanho_bytes):
     try:
@@ -195,6 +197,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
     for a in arquivos_brutos:
         linha_arquivo = {
             "Excluir": False,
+            "Baixar": False, # Nova coluna
             "ID_Drive": str(a.get('id', '')),
             "ID_DB": str(db_id_map.get(a['id'], "")),
             "ID": str(a.get('id', '')),
@@ -207,7 +210,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             linha_arquivo["Pagar"] = False
             v_date = vencimentos_map.get(a['id'])
             linha_arquivo["Vencimento"] = v_date if pd.notna(v_date) else pd.NaT
-            linha_arquivo["Valor"] = float(valores_map.get(a['id'], 0.0)) # Mantido como float para ser editável
+            linha_arquivo["Valor"] = float(valores_map.get(a['id'], 0.0))
             linha_arquivo["Recorrente"] = "🔄 Sim" if is_rec_map.get(a['id'], False) else "-"
             linha_arquivo["Status"] = str(status_map.get(a['id'], "Pendente"))
         
@@ -236,6 +239,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                     
                     dados_tabela.append({
                         "Excluir": False, 
+                        "Baixar": False, # Nova coluna
                         "Pagar": False, 
                         "ID_Drive": None, 
                         "ID_DB": str(r['id']),
@@ -245,7 +249,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                         "Tamanho": "-", 
                         "Link": None,
                         "Vencimento": v_dt if v_dt else pd.NaT,
-                        "Valor": float(r.get('valor', 0.0)), # Mantido como float para ser editável
+                        "Valor": float(r.get('valor', 0.0)), 
                         "Recorrente": "🔄 Sim" if r.get('is_recorrente', False) else "-",
                         "Status": str(r.get('status', 'Pendente'))
                     })
@@ -293,20 +297,19 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             v = row.get('Vencimento')
             
             if s == 'Pago':
-                return 3 # Prioridade 3 (Por último)
+                return 3
             elif s == 'Pendente':
                 if pd.notna(v):
                     try:
                         v_dt = pd.to_datetime(v).date()
                         if v_dt < hoje_ordem:
-                            return 1 # Prioridade 1 (Atrasado - Fica no topo)
+                            return 1
                     except:
                         pass
-                return 2 # Prioridade 2 (Pendente normal)
-            return 4 # Outros
+                return 2
+            return 4
             
         df['prioridade'] = df.apply(definir_prioridade, axis=1)
-        # Ordena pela prioridade (1, 2, 3) e, secundariamente, pela data de vencimento mais próxima
         df = df.sort_values(by=['prioridade', 'Vencimento']).drop(columns=['prioridade']).reset_index(drop=True)
 
     itens_por_pagina = 100
@@ -345,7 +348,8 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                     st.rerun()
     else:
         config_colunas = {
-            "Excluir": st.column_config.CheckboxColumn("🗑️", default=False, width="small"), # APENAS O ÍCONE
+            "Excluir": st.column_config.CheckboxColumn("🗑️", default=False, width="small"),
+            "Baixar": st.column_config.CheckboxColumn("📥", default=False, width="small"), # Nova Coluna UI
             "ID": None, 
             "ID_Drive": None, 
             "ID_DB": None,
@@ -354,10 +358,10 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             "Link": st.column_config.LinkColumn("PDF", display_text="👁️ Abrir", width="small")
         }
         
-        lista_desabilitados = ["Nome", "Data", "Tamanho", "Link", "Recorrente", "Status"] 
+        lista_desabilitados = ["Nome", "Data", "Tamanho", "Link", "Recorrente", "Status"]
 
         if nome_principal == "Boletos":
-            config_colunas["Data"] = None # Oculta Data apenas em Boletos
+            config_colunas["Data"] = None 
             config_colunas["Vencimento"] = st.column_config.DateColumn("Vencimento", format="DD/MM/YYYY", width="small") 
             config_colunas["Valor"] = st.column_config.NumberColumn("Valor (R$)", format="%.2f", width="small") 
             config_colunas["Recorrente"] = st.column_config.TextColumn("Recorrente", width="small")
@@ -366,10 +370,10 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             
             lista_desabilitados.append("Vencimento")
             
-            col_order = ["Excluir", "Nome", "Link", "Vencimento", "Valor", "Recorrente", "Pagar", "Status"]
+            col_order = ["Excluir", "Baixar", "Nome", "Link", "Vencimento", "Valor", "Recorrente", "Pagar", "Status"]
         else:
             config_colunas["Data"] = st.column_config.DatetimeColumn("Data de Inclusão", format="DD/MM/YYYY - HH:mm")
-            col_order = ["Excluir", "Nome", "Link", "Data"]
+            col_order = ["Excluir", "Baixar", "Nome", "Link", "Data"]
 
         todas_cols = col_order + [c for c in df_pagina.columns if c not in col_order]
         df_pagina = df_pagina[todas_cols].reset_index(drop=True)
@@ -382,12 +386,12 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                 hoje = datetime.date.today()
                 
                 if s == 'Pago':
-                    cor = 'color: #008000; font-weight: 500;' # Verde
+                    cor = 'color: #008000; font-weight: 500;' 
                 elif s == 'Pendente':
                     if pd.notna(v) and v < hoje:
-                        cor = 'color: #cc0000; font-weight: bold;' # Vermelho Negrito (Atrasado)
+                        cor = 'color: #cc0000; font-weight: bold;' 
                     else:
-                        cor = 'color: #004488; font-weight: 500;' # Azul (Pendente no prazo)
+                        cor = 'color: #004488; font-weight: 500;' 
                 else:
                     cor = ''
                 return [cor] * len(row)
@@ -403,15 +407,61 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             disabled=lista_desabilitados,
             hide_index=True, 
             use_container_width=True, 
-            key=f"editor_docs_v9_{nome_principal}" 
+            key=f"editor_docs_v10_{nome_principal}" 
         )
 
         # ==========================================
-        # 6. AÇÕES DE PAGAMENTO, VALOR E EXCLUSÃO
+        # 6. AÇÕES DE PAGAMENTO, VALOR, EXCLUSÃO E DOWNLOAD
         # ==========================================
         if df_editado is not None and not df_editado.empty:
             
-            # BLOCO: SALVAR VALORES ALTERADOS (MANUALMENTE)
+            # BLOCO A: DOWNLOAD EM LOTE (ZIP)
+            arquivos_para_baixar = df_editado[df_editado["Baixar"] == True]
+            if not arquivos_para_baixar.empty:
+                st.info(f"💡 Você marcou {len(arquivos_para_baixar)} item(ns) para download.")
+                
+                if st.button("📦 Preparar Download em Lote", key=f"btn_zip_{nome_principal}", use_container_width=True):
+                    with st.spinner("Baixando do Google Drive e gerando pacote .ZIP..."):
+                        try:
+                            service = utils.get_drive_service()
+                            zip_buffer = io.BytesIO()
+                            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                                for _, row_down in arquivos_para_baixar.iterrows():
+                                    file_id = row_down.get("ID_Drive")
+                                    file_name = row_down.get("Nome")
+                                    
+                                    # Ignora itens manuais (sem arquivo físico no Drive)
+                                    if file_name.startswith("📝 "):
+                                        continue
+                                        
+                                    if file_id and pd.notna(file_id) and str(file_id).strip().lower() not in ["none", "nan", ""]:
+                                        try:
+                                            file_content = service.files().get_media(fileId=file_id).execute()
+                                            zip_file.writestr(file_name, file_content)
+                                        except Exception:
+                                            pass
+                            
+                            zip_buffer.seek(0)
+                            st.session_state[f"zip_ready_{nome_principal}"] = zip_buffer.getvalue()
+                            st.session_state[f"zip_name_{nome_principal}"] = f"Lote_{nome_principal}_{datetime.date.today().strftime('%d%m%Y')}.zip"
+                        except Exception as e:
+                            st.error(f"Erro ao conectar ao Google Drive: {e}")
+                            
+                if f"zip_ready_{nome_principal}" in st.session_state:
+                    st.download_button(
+                        label="📥 BAIXAR ARQUIVOS SELECIONADOS (.ZIP)",
+                        data=st.session_state[f"zip_ready_{nome_principal}"],
+                        file_name=st.session_state[f"zip_name_{nome_principal}"],
+                        mime="application/zip",
+                        use_container_width=True,
+                        type="primary",
+                        key=f"dl_zip_btn_{nome_principal}"
+                    )
+            else:
+                if f"zip_ready_{nome_principal}" in st.session_state:
+                    del st.session_state[f"zip_ready_{nome_principal}"]
+
+            # BLOCO B: SALVAR VALORES ALTERADOS
             if "Valor" in df_editado.columns and nome_principal == "Boletos":
                 diff_mask = abs(pd.to_numeric(df_editado["Valor"], errors='coerce').fillna(0) - pd.to_numeric(df_pagina["Valor"], errors='coerce').fillna(0)) > 0.01
                 boletos_alterados = df_editado[diff_mask]
@@ -424,10 +474,10 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                                 id_db = r_val.get("ID_DB")
                                 if id_db and str(id_db).strip() not in ["none", "nan", ""]:
                                     st.session_state.supabase.table('boletos_fornecedores').update({'valor': float(r_val['Valor'])}).eq('id', id_db).execute()
-                        st.success("✅ Valores atualizados com sucesso!")
+                        st.success("✅ Valores updated com sucesso!")
                         st.rerun()
 
-            # BLOCO: MARCAR COMO PAGO
+            # BLOCO C: MARCAR COMO PAGO
             if "Pagar" in df_editado.columns:
                 boletos_pagar = df_editado[(df_editado["Pagar"] == True) & (df_editado["Status"] != "Pago")]
                 
@@ -461,7 +511,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                         st.success("✅ Tudo atualizado! Boletos pagos e próxima recorrência gerada (caso aplicável).")
                         st.rerun()
             
-            # BLOCO: EXCLUSÃO 
+            # BLOCO D: EXCLUSÃO 
             arquivos_para_apagar = df_editado[df_editado["Excluir"] == True]
             if not arquivos_para_apagar.empty:
                 st.error(f"⚠️ Selecionou {len(arquivos_para_apagar)} item(ns) para exclusão permanente.")
