@@ -280,6 +280,11 @@ else:
         
         st.caption(f"📅 Calendário Operacional: {utils.hoje.strftime('%d/%m/%Y')}")
 
+        # NOVO: Executa sincronização do Calendar ao entrar na Home para rodar as regras de datas
+        if 'calendar_sync_inicial' not in st.session_state:
+            utils.sincronizar_boletos_com_calendar()
+            st.session_state.calendar_sync_inicial = True
+
         # =========================================================================
         # NOVO: DASHBOARD DE ALERTAS (EFEITO TABELA COLADA)
         # =========================================================================
@@ -359,6 +364,9 @@ else:
                                                 'is_recorrente': True
                                             }).execute()
                                     except: pass
+                            
+                            # Atualiza no Google Calendar em tempo real após alteração para Pago
+                            utils.sincronizar_boletos_com_calendar()
                             st.success("✅ Pago! Lembrete atualizado.")
                             st.rerun()
             else:
