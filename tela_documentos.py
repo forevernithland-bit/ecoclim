@@ -156,6 +156,9 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                             "status": "Pendente", 
                             "is_recorrente": rec_man
                         }).execute()
+                        
+                        # NOVO: Sincroniza Calendar na adição manual
+                        utils.sincronizar_boletos_com_calendar()
                         st.success("Lembrete salvo com sucesso!")
                         st.rerun()
         st.markdown("<br>", unsafe_allow_html=True)
@@ -231,7 +234,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                 if sub_sel == "PAGOS": 
                     pertence = (r.get('status') == 'Pago')
                 else: 
-                    pertence = (v_dt and v_dt.month == mes_sel_idx)
+                    pertence = (v_dt and v_dt.month == mes_sel_idx and r.get('status') != 'Pago')
                 
                 if pertence:
                     v_dt_datetime = datetime.datetime.combine(v_dt, datetime.time()) if v_dt else pd.NaT
@@ -345,7 +348,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                     utils.delete_drive_file(row['ID'])
                     st.rerun()
     else:
-        # Removido totalmente a coluna "Baixar" da Grid para manter o layout limpo!
         config_colunas = {
             "Excluir": st.column_config.CheckboxColumn("🗑️", default=False, width="small"),
             "ID": None, 
@@ -426,6 +428,9 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                                 id_db = r_val.get("ID_DB")
                                 if id_db and str(id_db).strip() not in ["none", "nan", ""]:
                                     st.session_state.supabase.table('boletos_fornecedores').update({'valor': float(r_val['Valor'])}).eq('id', id_db).execute()
+                        
+                        # NOVO: Sincroniza Calendar ao editar valor
+                        utils.sincronizar_boletos_com_calendar()
                         st.success("✅ Valores atualizados com sucesso!")
                         st.rerun()
 
@@ -460,6 +465,9 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                                             }).execute()
                                     except: 
                                         pass
+                        
+                        # NOVO: Sincroniza Calendar ao Pagar
+                        utils.sincronizar_boletos_com_calendar()
                         st.success("✅ Tudo atualizado! Boletos pagos e próxima recorrência gerada (caso aplicável).")
                         st.rerun()
             
@@ -476,6 +484,9 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                             id_bd = row_del.get("ID_DB")
                             if id_bd and not pd.isna(id_bd) and str(id_bd).strip() != "":
                                 st.session_state.supabase.table('boletos_fornecedores').delete().eq('id', id_bd).execute()
+                    
+                    # NOVO: Sincroniza Calendar ao Excluir (Remove do calendário)
+                    utils.sincronizar_boletos_com_calendar()
                     st.success("Excluídos com sucesso!")
                     st.rerun()
 
