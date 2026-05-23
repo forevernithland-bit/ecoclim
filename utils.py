@@ -18,7 +18,7 @@ try:
 except ImportError:
     pass
 
-# IMPORTAÇÕES DO GOOGLE DRIVE OAUTH (NOVO MOTOR)
+# IMPORTAÇÕES DO GOOGLE DRIVE E CALENDAR OAUTH (NOVO MOTOR)
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
@@ -510,3 +510,121 @@ def extrair_dados_boleto(file_buffer):
     except Exception as e:
         file_buffer.seek(0)
         return None, 0.0
+
+# ==========================================
+# SINCRONIZAÇÃO INTELIGENTE COM GOOGLE CALENDAR
+# ==========================================
+def sincronizar_boletos_com_calendar():
+    """Sincroniza todos os lembretes do banco com o Google Calendar com regras dinâmicas e auto-limpeza"""
+    service = None
+    try:
+        oauth_info = st.secrets["google_oauth"]
+        creds = Credentials(
+            token=None,
+            refresh_token=oauth_info["refresh_token"],
+            client_id=oauth_info["client_id"],
+            client_secret=oauth_info["client_secret"],
+            token_uri="https://oauth2.googleapis.com/token"
+        )
+        service = build('calendar', 'v3', credentials=creds)
+    except:
+        return
+
+    if not service:
+        return
+
+    try:
+        # 1. Busca todos os boletos no Supabase
+        res = st.session_state.supabase.table('boletos_fornecedores').select('*').execute()
+        boletos_db = res.data if res.data else []
+        db_ids = {b['id'] for b in boletos_db}
+
+        # 2. Mapeia eventos Ecoclim ativos no Calendar
+        events_result = service.events().list(calendarId='primary', q='[Ecoclim ID:', singleEvents=True).execute()
+        events_calendar = events_result.get('items', [])
+        
+        calendar_map = {}
+        for ev in events_calendar:
+            desc = ev.get('description', '')
+            match = re.search(r'\[Ecoclim ID:\s*(\d+)\]', desc)
+            if match:
+                ev_id_db = int(match.group(1))
+                calendar_map[ev_id_db] = ev['id']
+
+        hoje_dt = datetime.date.today()
+
+        # 3. Processa e aplica as regras dinâmicas do calendário
+        for b in boletos_db:
+            id_db = b['id']
+            cliente = b['cliente']
+            try:
+                valor = float(b['valor'])
+            except:
+                valor = 0.0
+                
+            status = b['status']
+            
+            try:
+                venc_dt = datetime.datetime.strptime(b['vencimento'], "%Y-%m-%d").date()
+            except:
+                continue # Se a data for inválida, pula o registro
+            
+            description = f"Identificador interno do ERP Ecoclim: [Ecoclim ID: {id_db}]"
+            valor_formatado = f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+            if status == 'Pago':
+                # Regra: Se pago, fixa no dia de vencimento original como histórico de controle (Verde)
+                start_date = venc_dt
+                end_date = venc_dt + datetime.timedelta(days=1)
+                summary = f"✅ [PAGO] Boleto: {cliente} - {valor_formatado}"
+                color_id = '10' # Verde (Basil)
+            else:
+                # Regra: Boletos Pendentes (Futuro, Amanhã, Hoje, Vencidos)
+                diff_days = (venc_dt - hoje_dt).days
+                
+                if diff_days > 1:
+                    # Futuro: Aparece na data original de vencimento para monitoramento futuro (Azul Claro)
+                    start_date = venc_dt
+                    end_date = venc_dt + datetime.timedelta(days=1)
+                    summary = f"📅 [PENDENTE] Boleto: {cliente} - {valor_formatado}"
+                    color_id = '1' # Azul (Lavender)
+                elif diff_days == 1:
+                    # 1 Dia antes do vencimento: Aparece amanhã (Amarelo)
+                    start_date = venc_dt
+                    end_date = venc_dt + datetime.timedelta(days=1)
+                    summary = f"⏳ [VENCE AMANHÃ] Boleto: {cliente} - {valor_formatado}"
+                    color_id = '5' # Amarelo (Banana)
+                elif diff_days == 0:
+                    # No dia de vencer: Aparece hoje! (Laranja)
+                    start_date = hoje_dt
+                    end_date = hoje_dt + datetime.timedelta(days=1)
+                    summary = f"⚠️ [VENCE HOJE] Boleto: {cliente} - {valor_formatado}"
+                    color_id = '6' # Laranja (Tangerine)
+                else:
+                    # VENCIDO: Rola de data automaticamente para continuar aparecendo HOJE até virar pago (Vermelho)
+                    start_date = hoje_dt
+                    end_date = hoje_dt + datetime.timedelta(days=1)
+                    summary = f"🚨 [ATRASADO] Boleto: {cliente} - {valor_formatado} (Venceu em {venc_dt.strftime('%d/%m')})"
+                    color_id = '11' # Vermelho (Tomato)
+
+            event_body = {
+                'summary': summary,
+                'description': description,
+                'start': {'date': start_date.strftime('%Y-%m-%d')},
+                'end': {'date': end_date.strftime('%Y-%m-%d')},
+                'colorId': color_id
+            }
+
+            if id_db in calendar_map:
+                service.events().update(calendarId='primary', eventId=calendar_map[id_db], body=event_body).execute()
+            else:
+                service.events().insert(calendarId='primary', body=event_body).execute()
+
+        # 4. Limpeza automática: Apaga eventos de boletos removidos do Supabase
+        for ev_id_db, ev_cal_id in calendar_map.items():
+            if ev_id_db not in db_ids:
+                service.events().delete(calendarId='primary', eventId=ev_cal_id).execute()
+
+    except Exception as e:
+        # Silencia erros para não quebrar a interface caso haja falha na API do Google
+        pass
