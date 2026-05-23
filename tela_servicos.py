@@ -302,7 +302,11 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                             }
                             try:
                                 supabase.table('boletos_fornecedores').insert(novo_boleto).execute()
-                                st.success(f"✅ Boleto salvo com sucesso na aba Documentos -> Boletos -> {nome_mes_pasta} e lembrete gerado!")
+                                
+                                # NOVO: Sincroniza Calendar na adição de boleto por dentro do serviço
+                                utils.sincronizar_boletos_com_calendar()
+                                
+                                st.success(f"✅ Boleto salvo com sucesso na aba Documentos -> Boletos -> {nome_mes_pasta} e lembrete gerado no Calendar!")
                                 del st.session_state[f"dados_bol_{prefix_key}"]
                             except Exception as e:
                                 st.error(f"Erro no banco de dados. Tabela 'boletos_fornecedores' existe? Erro: {e}")
@@ -592,7 +596,7 @@ def renderizar():
     # -------------------------------------------------------------
     # MÁGICA AQUI: Filtrando "Rascunho" para não aparecer na lista!
     # -------------------------------------------------------------
-    df_orc = df[(~df['status_projeto'].isin(ativos_status)) & (df['status_projeto'] != 'Rascunho')].reset_index(drop=True)
+    df_orc = df[(~df['status_projeto'].isin(ativos_status)) & (df['status_projeto'] != 'Rascunho') & (df['status_projeto'] != 'Rascunho Rápido')].reset_index(drop=True)
     df_fin = df[df['ir_finalizados'] == True].reset_index(drop=True)
     df_atv = df[(df['status_projeto'].isin(ativos_status)) & (df['ir_finalizados'] == False)].reset_index(drop=True)
 
