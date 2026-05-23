@@ -62,9 +62,11 @@ def limpar_tela_orcamento():
 # RENDERIZAÇÃO DA TELA
 # =========================================================================
 def renderizar():
-    # =============================================================================
-    # NOVO: BLINDAGEM ANTI-RESET (GARANTE MEMÓRIA DOS CAMPOS ANTES DE QUALQUER RERUN)
-    # =============================================================================
+    # -------------------------------------------------------------------------
+    # BLINDAGEM DE ESTADO: Evita perda de dados em atualizações
+    # -------------------------------------------------------------------------
+    deve_rerun = False
+    
     if "input_nome_cliente" not in st.session_state: st.session_state.input_nome_cliente = ""
     if "input_whatsapp" not in st.session_state: st.session_state.input_whatsapp = ""
     if "txt_servico" not in st.session_state: st.session_state.txt_servico = ""
@@ -134,7 +136,7 @@ def renderizar():
                     st.success("✏️ Você está editando um rascunho em andamento.")
                     if st.button("❌ Fechar Rascunho e Iniciar Novo Orçamento", use_container_width=True):
                         limpar_tela_orcamento()
-                        st.rerun()
+                        deve_rerun = True
                 else:
                     c_sel, c_btn_load, c_btn_del = st.columns([3, 1, 1])
                     opcoes_rascunhos = {f"{r['nome_cliente']} (R$ {r.get('valor_venda_total', 0):.2f}) - ID: {r['id']}": r['id'] for r in rascunhos_db}
@@ -196,13 +198,13 @@ def renderizar():
                             st.session_state.df_orc_prev = st.session_state.df_orc.copy()
                             if "editor_orc_base" in st.session_state: 
                                 del st.session_state["editor_orc_base"]
-                            st.rerun()
+                            deve_rerun = True
 
                     if c_btn_del.button("🗑️ Excluir", use_container_width=True):
                         id_r = opcoes_rascunhos[rasc_selecionado]
                         st.session_state.supabase.table('servicos_andamento').delete().eq('id', id_r).execute()
                         st.success("✅ Rascunho excluído permanentemente.")
-                        st.rerun()
+                        deve_rerun = True
 
         with st.container(border=True):
             st.subheader("👤 Dados do Cliente")
@@ -327,7 +329,7 @@ def renderizar():
                 st.session_state.df_orc_prev = df_editavel.copy()
                 if "editor_orc_base" in st.session_state:
                     del st.session_state["editor_orc_base"]
-                st.rerun()
+                deve_rerun = True
 
             st.session_state.df_orc = df_editavel
             st.session_state.df_orc_prev = df_editavel.copy()
@@ -335,7 +337,6 @@ def renderizar():
             subtotal_equipamentos = df_editavel['Venda Total'].sum()
             st.markdown(f"**Subtotal Equipamentos:** :blue[{utils.to_br_currency(subtotal_equipamentos)}]")
             
-            # Local do Cálculo de Lucro
             mostrar_lucro = st.toggle("Exibir Margem e Lucro Estimado", value=False)
             if mostrar_lucro:
                 custo_total_equipamentos = df_editavel['Custo Total'].sum()
@@ -356,11 +357,7 @@ def renderizar():
             
             lista_servicos = st.session_state.db_servicos['Item'].dropna().tolist() if not st.session_state.db_servicos.empty else []
             
-            # NOVO: Preservação de Índice do Selectbox de Serviços Base
-            opcoes_servicos_lista = [""] + lista_servicos + ["Manual"]
-            idx_servico_atual = opcoes_servicos_lista.index(st.session_state.servico_selecionado_anterior) if st.session_state.servico_selecionado_anterior in opcoes_servicos_lista else 0
-            
-            servico_atual = st.selectbox("Selecionar Serviço da Base:", opcoes_servicos_lista, index=idx_servico_atual)
+            servico_atual = st.selectbox("Selecionar Serviço da Base:", [""] + lista_servicos + ["Manual"])
             
             if servico_atual != st.session_state.servico_selecionado_anterior:
                 st.session_state.servico_selecionado_anterior = servico_atual
@@ -375,7 +372,6 @@ def renderizar():
                 else:
                     st.session_state.txt_servico = ""
                     st.session_state.val_servico = 0.0
-                st.rerun()
 
             descricao_final_servico = st.text_area("Descrição detalhada do Serviço:", key="txt_servico", height=100)
             valor_final_servico = st.number_input("Valor do Serviço (R$):", key="val_servico", format="%.2f")
@@ -385,11 +381,7 @@ def renderizar():
 
             lista_outros = st.session_state.db_outros['Item'].dropna().tolist() if not st.session_state.db_outros.empty else []
             
-            # NOVO: Preservação de Índice do Selectbox de Outros/Terceiros Base
-            opcoes_outros_lista = [""] + lista_outros + ["Manual"]
-            idx_outros_atual = opcoes_outros_lista.index(st.session_state.outros_selecionado_anterior) if st.session_state.outros_selecionado_anterior in opcoes_outros_lista else 0
-            
-            outros_atual = st.selectbox("Adicionar Outros / Terceiros:", opcoes_outros_lista, index=idx_outros_atual)
+            outros_atual = st.selectbox("Adicionar Outros / Terceiros:", [""] + lista_outros + ["Manual"])
             
             if outros_atual != st.session_state.outros_selecionado_anterior:
                 st.session_state.outros_selecionado_anterior = outros_atual
@@ -404,7 +396,6 @@ def renderizar():
                 else:
                     st.session_state.txt_outros = ""
                     st.session_state.val_outros = 0.0
-                st.rerun()
 
             descricao_final_outros = st.text_area("Descrição de Diversos:", key="txt_outros", height=80)
             valor_final_outros = st.number_input("Valor Adicional (R$):", key="val_outros", format="%.2f")
@@ -490,7 +481,7 @@ def renderizar():
 
                     if st.session_state.get('rascunho_id'):
                         st.session_state.supabase.table("servicos_andamento").update(payload_rascunho).eq('id', st.session_state.rascunho_id).execute()
-                        st.success("✅ Rascunho updated com sucesso!")
+                        st.success("✅ Rascunho atualizado com sucesso!")
                     else:
                         string_data = datetime.datetime.now().strftime('%y%m%d-%H%M')
                         payload_rascunho["numero_orcamento"] = f"RASC-{string_data}"
@@ -543,7 +534,7 @@ def renderizar():
                         
                         st.success(f"✅ Orçamento {numero_do_orcamento} salvo com sucesso no banco de dados!")
                         limpar_tela_orcamento()
-                        st.rerun()
+                        deve_rerun = True
                     except Exception as e:
                         st.error(f"Erro ao salvar: {e}")
 
@@ -579,13 +570,13 @@ def renderizar():
                 st.session_state.lote_check_all = True
                 if "grid_selecao_kits" in st.session_state:
                     del st.session_state["grid_selecao_kits"]
-                st.rerun()
+                deve_rerun = True
                 
             if col_sel2.button("❌ Desmarcar Todos", use_container_width=True):
                 st.session_state.lote_check_all = False
                 if "grid_selecao_kits" in st.session_state:
                     del st.session_state["grid_selecao_kits"]
-                st.rerun()
+                deve_rerun = True
             
             df_selecao = pd.DataFrame({
                 "Gerar PDF": [st.session_state.lote_check_all] * len(opcoes_kits),
@@ -791,7 +782,7 @@ def renderizar():
                     st.success("✏️ Você está editando um cálculo rápido em andamento.")
                     if st.button("❌ Fechar e Iniciar Novo Cálculo", use_container_width=True):
                         limpar_tela_orcamento()
-                        st.rerun()
+                        deve_rerun = True
                 else:
                     c_sel, c_load, c_del = st.columns([3, 1, 1])
                     opcoes_rapidas = {f"{r['nome_cliente']} ({utils.to_br_currency(r['valor_venda_total'])})": r['id'] for r in rascunhos_rapidos}
@@ -830,12 +821,12 @@ def renderizar():
                         st.session_state.rapido_df_orc = pd.DataFrame(df_rec)
                         if "editor_rapido" in st.session_state:
                             del st.session_state["editor_rapido"]
-                        st.rerun()
+                        deve_rerun = True
                         
                     if c_del.button("🗑️ Apagar", use_container_width=True):
                         st.session_state.supabase.table('servicos_andamento').delete().eq('id', opcoes_rapidas[sel_r]).execute()
                         st.success("Cálculo apagado!")
-                        st.rerun()
+                        deve_rerun = True
 
         # Dados Iniciais
         nome_rapido = st.text_input("Nome do Cliente (Identificação)", key="rapido_input_nome_cliente")
@@ -891,7 +882,7 @@ def renderizar():
         if refresh_rapido:
             st.session_state.rapido_df_orc = df_r_ed
             if "editor_rapido" in st.session_state: del st.session_state["editor_rapido"]
-            st.rerun()
+            deve_rerun = True
             
         st.session_state.rapido_df_orc = df_r_ed
 
@@ -1003,4 +994,10 @@ def renderizar():
                     st.session_state.rapido_rascunho_id = res.data[0]['id']
                 
                 st.success("✅ Cálculo salvo com sucesso! Você pode continuar editando ou criar um novo.")
-                st.rerun()
+                deve_rerun = True
+
+    # -------------------------------------------------------------------------
+    # GATILHO DE RERUN SEGURO (Executado apenas após toda a tela ser renderizada)
+    # -------------------------------------------------------------------------
+    if deve_rerun:
+        st.rerun()
