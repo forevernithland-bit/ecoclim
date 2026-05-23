@@ -63,6 +63,27 @@ def limpar_tela_orcamento():
 # =========================================================================
 def renderizar():
     # =============================================================================
+    # NOVO: BLINDAGEM ANTI-RESET (GARANTE MEMÓRIA DOS CAMPOS ANTES DE QUALQUER RERUN)
+    # =============================================================================
+    if "input_nome_cliente" not in st.session_state: st.session_state.input_nome_cliente = ""
+    if "input_whatsapp" not in st.session_state: st.session_state.input_whatsapp = ""
+    if "txt_servico" not in st.session_state: st.session_state.txt_servico = ""
+    if "val_servico" not in st.session_state: st.session_state.val_servico = 0.0
+    if "txt_outros" not in st.session_state: st.session_state.txt_outros = ""
+    if "val_outros" not in st.session_state: st.session_state.val_outros = 0.0
+    if "servico_selecionado_anterior" not in st.session_state: st.session_state.servico_selecionado_anterior = ""
+    if "outros_selecionado_anterior" not in st.session_state: st.session_state.outros_selecionado_anterior = ""
+    
+    if "rapido_input_nome_cliente" not in st.session_state: st.session_state.rapido_input_nome_cliente = ""
+    if "rapido_custo_servico" not in st.session_state: st.session_state.rapido_custo_servico = 0.0
+    if "rapido_venda_servico" not in st.session_state: st.session_state.rapido_venda_servico = 0.0
+    if "rapido_custo_outros" not in st.session_state: st.session_state.rapido_custo_outros = 0.0
+    if "rapido_venda_outros" not in st.session_state: st.session_state.rapido_venda_outros = 0.0
+    if "rapido_nf" not in st.session_state: st.session_state.rapido_nf = "Não"
+    if "rapido_taxa_cartao" not in st.session_state: st.session_state.rapido_taxa_cartao = "Nenhum / Dinheiro / PIX"
+    if "rapido_comissao" not in st.session_state: st.session_state.rapido_comissao = 0.0
+
+    # =============================================================================
     # TÍTULO E BOTÕES LATERAIS DIREITOS
     # =============================================================================
     col_tit, col_btn = st.columns([2, 1])
@@ -186,11 +207,6 @@ def renderizar():
         with st.container(border=True):
             st.subheader("👤 Dados do Cliente")
             col1, col2 = st.columns(2)
-            
-            if "input_nome_cliente" not in st.session_state: 
-                st.session_state.input_nome_cliente = ""
-            if "input_whatsapp" not in st.session_state: 
-                st.session_state.input_whatsapp = ""
             
             nome_cliente = col1.text_input("Nome do Cliente", key="input_nome_cliente")
             whatsapp = col2.text_input("WhatsApp", placeholder="(31) 99715-1596", key="input_whatsapp")
@@ -319,6 +335,7 @@ def renderizar():
             subtotal_equipamentos = df_editavel['Venda Total'].sum()
             st.markdown(f"**Subtotal Equipamentos:** :blue[{utils.to_br_currency(subtotal_equipamentos)}]")
             
+            # Local do Cálculo de Lucro
             mostrar_lucro = st.toggle("Exibir Margem e Lucro Estimado", value=False)
             if mostrar_lucro:
                 custo_total_equipamentos = df_editavel['Custo Total'].sum()
@@ -338,14 +355,12 @@ def renderizar():
             st.subheader("🛠️ 2. Serviços")
             
             lista_servicos = st.session_state.db_servicos['Item'].dropna().tolist() if not st.session_state.db_servicos.empty else []
-            if 'servico_selecionado_anterior' not in st.session_state: 
-                st.session_state.servico_selecionado_anterior = ""
-            if "txt_servico" not in st.session_state: 
-                st.session_state.txt_servico = ""
-            if "val_servico" not in st.session_state: 
-                st.session_state.val_servico = 0.0
             
-            servico_atual = st.selectbox("Selecionar Serviço da Base:", [""] + lista_servicos + ["Manual"])
+            # NOVO: Preservação de Índice do Selectbox de Serviços Base
+            opcoes_servicos_lista = [""] + lista_servicos + ["Manual"]
+            idx_servico_atual = opcoes_servicos_lista.index(st.session_state.servico_selecionado_anterior) if st.session_state.servico_selecionado_anterior in opcoes_servicos_lista else 0
+            
+            servico_atual = st.selectbox("Selecionar Serviço da Base:", opcoes_servicos_lista, index=idx_servico_atual)
             
             if servico_atual != st.session_state.servico_selecionado_anterior:
                 st.session_state.servico_selecionado_anterior = servico_atual
@@ -369,14 +384,12 @@ def renderizar():
             st.subheader("🤝 3. Outros / Terceiros")
 
             lista_outros = st.session_state.db_outros['Item'].dropna().tolist() if not st.session_state.db_outros.empty else []
-            if 'outros_selecionado_anterior' not in st.session_state: 
-                st.session_state.outros_selecionado_anterior = ""
-            if "txt_outros" not in st.session_state: 
-                st.session_state.txt_outros = ""
-            if "val_outros" not in st.session_state: 
-                st.session_state.val_outros = 0.0
             
-            outros_atual = st.selectbox("Adicionar Outros / Terceiros:", [""] + lista_outros + ["Manual"])
+            # NOVO: Preservação de Índice do Selectbox de Outros/Terceiros Base
+            opcoes_outros_lista = [""] + lista_outros + ["Manual"]
+            idx_outros_atual = opcoes_outros_lista.index(st.session_state.outros_selecionado_anterior) if st.session_state.outros_selecionado_anterior in opcoes_outros_lista else 0
+            
+            outros_atual = st.selectbox("Adicionar Outros / Terceiros:", opcoes_outros_lista, index=idx_outros_atual)
             
             if outros_atual != st.session_state.outros_selecionado_anterior:
                 st.session_state.outros_selecionado_anterior = outros_atual
@@ -477,7 +490,7 @@ def renderizar():
 
                     if st.session_state.get('rascunho_id'):
                         st.session_state.supabase.table("servicos_andamento").update(payload_rascunho).eq('id', st.session_state.rascunho_id).execute()
-                        st.success("✅ Rascunho atualizado com sucesso!")
+                        st.success("✅ Rascunho updated com sucesso!")
                     else:
                         string_data = datetime.datetime.now().strftime('%y%m%d-%H%M')
                         payload_rascunho["numero_orcamento"] = f"RASC-{string_data}"
@@ -825,7 +838,6 @@ def renderizar():
                         st.rerun()
 
         # Dados Iniciais
-        if "rapido_input_nome_cliente" not in st.session_state: st.session_state.rapido_input_nome_cliente = ""
         nome_rapido = st.text_input("Nome do Cliente (Identificação)", key="rapido_input_nome_cliente")
 
         # Equipamentos
@@ -886,11 +898,6 @@ def renderizar():
         # Serviços e Outros
         st.markdown("#### 🛠️ Mão de Obra e Outros")
         
-        if "rapido_custo_servico" not in st.session_state: st.session_state.rapido_custo_servico = 0.0
-        if "rapido_venda_servico" not in st.session_state: st.session_state.rapido_venda_servico = 0.0
-        if "rapido_custo_outros" not in st.session_state: st.session_state.rapido_custo_outros = 0.0
-        if "rapido_venda_outros" not in st.session_state: st.session_state.rapido_venda_outros = 0.0
-        
         c_s1, c_s2 = st.columns(2)
         c_serv = c_s1.number_input("Custo de Serviço (R$)", min_value=0.0, format="%.2f", key="rapido_custo_servico")
         v_serv = c_s2.number_input("Preço de Venda Serviço (R$)", min_value=0.0, format="%.2f", key="rapido_venda_servico")
@@ -907,7 +914,6 @@ def renderizar():
             venda_bruta = df_r_ed["Venda Total"].sum() + v_serv + v_outros
             
             # Nota Fiscal
-            if "rapido_nf" not in st.session_state: st.session_state.rapido_nf = "Não"
             emite_nf = col_t1.radio("Nota Fiscal?", ["Não", "Sim"], horizontal=True, key="rapido_nf")
             taxa_nf_val = 6.0
             if not st.session_state.db_taxas.empty:
@@ -931,14 +937,12 @@ def renderizar():
                         opcoes_cartao.append(item_nome)
                         dict_taxas[item_nome] = taxa_val
             
-            if "rapido_taxa_cartao" not in st.session_state: st.session_state.rapido_taxa_cartao = opcoes_cartao[0]
             sel_cartao = col_t2.selectbox("Parcelamento Cartão", opcoes_cartao, key="rapido_taxa_cartao")
             taxa_c_pct = dict_taxas[sel_cartao]
             custo_cartao = venda_bruta * (taxa_c_pct / 100)
             col_t2.caption(f"Taxa Cartão ({taxa_c_pct}%): - {utils.to_br_currency(custo_cartao)}")
 
             # Comissão
-            if "rapido_comissao" not in st.session_state: st.session_state.rapido_comissao = 0.0
             comissao_pct = col_t3.number_input("Comissão (%)", min_value=0.0, format="%.1f", key="rapido_comissao")
             custo_comissao = venda_bruta * (comissao_pct / 100)
             col_t3.caption(f"Valor Comissão: - {utils.to_br_currency(custo_comissao)}")
