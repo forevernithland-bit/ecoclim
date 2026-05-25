@@ -276,12 +276,33 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         if pd.notna(venc_boleto_banco) and str(venc_boleto_banco).lower() not in ['none', 'nan', 'nat', '']:
             try: venc_boleto_inicial = pd.to_datetime(venc_boleto_banco).date()
             except: pass
+
+        # --- NOVO: Checa se já existe boleto do fornecedor importado ---
+        try:
+            res_bol_check = supabase.table('boletos_fornecedores').select('id, vencimento').eq('servico_id', int(projeto_selecionado['id'])).execute()
+            boletos_importados = res_bol_check.data
+        except:
+            boletos_importados = []
+            
+        if boletos_importados and venc_boleto_inicial is None:
+            # Puxa a data do boleto do fornecedor caso o vencimento do cliente ainda não esteja preenchido
+            try:
+                venc_boleto_inicial = pd.to_datetime(boletos_importados[0]['vencimento']).date()
+            except:
+                pass
+        # ---------------------------------------------------------------
         
         nova_nf_entrada = c_nf.text_input("NF de Entrada", value=str(nf_entrada_banco) if str(nf_entrada_banco) != 'nan' else '', placeholder="Opcional", key=f"nf_ent_{prefix_key}")
         novo_venc_boleto = c_venc.date_input("Vencimento Boleto (Cliente)", value=venc_boleto_inicial, format="DD/MM/YYYY", key=f"venc_bol_{prefix_key}")
 
         with st.container(border=True):
             st.markdown("##### 📥 Importar Boleto de Fornecedor (PDF)")
+            
+            # --- NOVO: Aviso de importação bem sucedida ---
+            if boletos_importados:
+                st.success("✅ O boleto do fornecedor já foi importado para este serviço.")
+            # ----------------------------------------------
+            
             arquivo_boleto = st.file_uploader("Anexar PDF do Boleto para leitura de IA", type=["pdf"], key=f"up_bol_{prefix_key}")
             
             if arquivo_boleto:
@@ -330,11 +351,18 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                             try:
                                 supabase.table('boletos_fornecedores').insert(novo_boleto).execute()
                                 
-                                # NOVO: Sincroniza Calendar na adição de boleto por dentro do serviço
+                                # Sincroniza Calendar na adição de boleto por dentro do serviço
                                 utils.sincronizar_boletos_com_calendar()
+                                
+                                # --- NOVO: Atualiza o Vencimento Boleto do Cliente automaticamente ---
+                                if pd.isna(venc_boleto_banco) or str(venc_boleto_banco).lower() in ['none', 'nan', 'nat', '']:
+                                    supabase.table('servicos_andamento').update({'vencimento_boleto': data_confirmada.strftime('%Y-%m-%d')}).eq('id', int(projeto_selecionado['id'])).execute()
+                                # ---------------------------------------------------------------------
                                 
                                 st.success(f"✅ Boleto salvo com sucesso na aba Documentos -> Boletos -> {nome_mes_pasta} e lembrete gerado no Calendar!")
                                 del st.session_state[f"dados_bol_{prefix_key}"]
+                                
+                                st.rerun() # Atualiza a tela instantaneamente
                             except Exception as e:
                                 st.error(f"Erro no banco de dados. Tabela 'boletos_fornecedores' existe? Erro: {e}")
                         else:
