@@ -886,6 +886,19 @@ def renderizar():
             
         st.session_state.rapido_df_orc = df_r_ed
 
+        # --- NOVO: TOTAIS DE EQUIPAMENTOS ---
+        custo_total_produtos = pd.to_numeric(df_r_ed["Custo Total"], errors='coerce').fillna(0).sum()
+        venda_total_produtos = pd.to_numeric(df_r_ed["Venda Total"], errors='coerce').fillna(0).sum()
+        lucro_total_produtos = venda_total_produtos - custo_total_produtos
+        
+        st.markdown(f"""
+            <div style='display: flex; justify-content: flex-end; gap: 25px; margin-top: -10px; margin-bottom: 25px;'>
+                <span style='color: #cc0000; font-size: 15px;'><b>Custo Total Produtos:</b> {utils.to_br_currency(custo_total_produtos)}</span>
+                <span style='color: #006600; font-size: 15px;'><b>Lucro Total Produtos:</b> {utils.to_br_currency(lucro_total_produtos)}</span>
+            </div>
+        """, unsafe_allow_html=True)
+        # ------------------------------------
+
         # Serviços e Outros
         st.markdown("#### 🛠️ Mão de Obra e Outros")
         
