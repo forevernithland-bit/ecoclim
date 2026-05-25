@@ -894,6 +894,7 @@ def renderizar():
         st.markdown(f"""
             <div style='display: flex; justify-content: flex-end; gap: 25px; margin-top: -10px; margin-bottom: 25px;'>
                 <span style='color: #cc0000; font-size: 15px;'><b>Custo Total Produtos:</b> {utils.to_br_currency(custo_total_produtos)}</span>
+                <span style='color: #004488; font-size: 15px;'><b>Venda Total Produtos:</b> {utils.to_br_currency(venda_total_produtos)}</span>
                 <span style='color: #006600; font-size: 15px;'><b>Lucro Total Produtos:</b> {utils.to_br_currency(lucro_total_produtos)}</span>
             </div>
         """, unsafe_allow_html=True)
