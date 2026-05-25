@@ -69,11 +69,11 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
     df_itens = pd.DataFrame(itens_json) if (isinstance(itens_json, list) and len(itens_json) > 0) else pd.DataFrame()
     
     # Garante que as colunas existam e converte para float (corrige bug de edição bloqueada)
-    for col in ['Item', 'Descrição', 'Qtd', 'Custo Un.', 'Venda Un.']:
+    for col in ['Item', 'Descrição', 'Qtd', 'Custo Un.', 'Venda Un.', 'Custo Total', 'Venda Total']:
         if col not in df_itens.columns: 
-            df_itens[col] = 0.0 if 'Un.' in col or 'Qtd' in col else ""
+            df_itens[col] = 0.0 if 'Un.' in col or 'Qtd' in col or 'Total' in col else ""
         
-        if col in ['Qtd', 'Custo Un.', 'Venda Un.']:
+        if col in ['Qtd', 'Custo Un.', 'Venda Un.', 'Custo Total', 'Venda Total']:
             df_itens[col] = df_itens[col].apply(lambda x: safe_float(x))
 
     session_key = f"itens_state_{prefix_key}"
@@ -98,10 +98,12 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         "Descrição": st.column_config.TextColumn("Descrição", width="medium"),
         "Qtd": st.column_config.NumberColumn("Qtd", min_value=0, width="small"),
         "Custo Un.": st.column_config.NumberColumn("Custo Fábrica", format="R$ %.2f", width="small"),
-        "Venda Un.": st.column_config.NumberColumn("Venda Unt.", format="R$ %.2f", width="small")
+        "Venda Un.": st.column_config.NumberColumn("Venda Unt.", format="R$ %.2f", width="small"),
+        "Custo Total": st.column_config.NumberColumn("Custo Total", format="R$ %.2f", disabled=True, width="small"),
+        "Venda Total": st.column_config.NumberColumn("Venda Total", format="R$ %.2f", disabled=True, width="small")
     }
     
-    ordem_cols = ["Item", "Descrição", "Qtd", "Custo Un.", "Venda Un."]
+    ordem_cols = ["Item", "Descrição", "Qtd", "Custo Un.", "Venda Un.", "Custo Total", "Venda Total"]
     
     df_itens_editavel = st.data_editor(
         st.session_state[session_key], 
@@ -130,6 +132,19 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     df_itens_editavel.at[idx, 'Qtd'] = 1
                 precisa_atualizar = True
 
+        # Cálculos de Total da Linha
+        qtd_calc = safe_float(df_itens_editavel.at[idx, 'Qtd'])
+        c_un_calc = safe_float(df_itens_editavel.at[idx, 'Custo Un.'])
+        v_un_calc = safe_float(df_itens_editavel.at[idx, 'Venda Un.'])
+        
+        tot_c = qtd_calc * c_un_calc
+        tot_v = qtd_calc * v_un_calc
+        
+        if abs(tot_c - safe_float(df_itens_editavel.at[idx, 'Custo Total'])) > 0.01 or abs(tot_v - safe_float(df_itens_editavel.at[idx, 'Venda Total'])) > 0.01:
+            df_itens_editavel.at[idx, 'Custo Total'] = tot_c
+            df_itens_editavel.at[idx, 'Venda Total'] = tot_v
+            precisa_atualizar = True
+
     if precisa_atualizar:
         st.session_state[session_key] = df_itens_editavel
         st.rerun()
@@ -137,7 +152,18 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
     df_itens_final = df_itens_editavel
     st.session_state[session_key] = df_itens_final.copy()
     
-    custo_total_produtos = (pd.to_numeric(df_itens_final['Custo Un.'], errors='coerce').fillna(0) * pd.to_numeric(df_itens_final['Qtd'], errors='coerce').fillna(0)).sum()
+    # Cálculos das somas globais da tabela
+    custo_total_produtos = pd.to_numeric(df_itens_final['Custo Total'], errors='coerce').fillna(0).sum()
+    venda_total_produtos = pd.to_numeric(df_itens_final['Venda Total'], errors='coerce').fillna(0).sum()
+    lucro_total_produtos = venda_total_produtos - custo_total_produtos
+
+    # Exibição dos totais logo abaixo da tabela
+    st.markdown(f"""
+        <div style='display: flex; justify-content: flex-end; gap: 25px; margin-top: -10px; margin-bottom: 25px;'>
+            <span style='color: #cc0000; font-size: 15px;'><b>Custo Total Produtos:</b> {utils.to_br_currency(custo_total_produtos)}</span>
+            <span style='color: #006600; font-size: 15px;'><b>Lucro Total Produtos:</b> {utils.to_br_currency(lucro_total_produtos)}</span>
+        </div>
+    """, unsafe_allow_html=True)
 
     # ==============================================================
     # 🧮 ABATIMENTOS E IMPOSTOS
@@ -146,7 +172,8 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
     with st.container(border=True):
         f_col1, f_col2, f_col3 = st.columns(3)
         venda_final = f_col1.number_input("Valor da Venda (R$)", value=safe_float(projeto_selecionado.get('valor_venda_total')), format="%.2f", step=None, key=f"venda_{prefix_key}")
-        f_col1.caption("&nbsp;", unsafe_allow_html=True) # Caption invisível para alinhar
+        # Info do Custo de Produto colada logo abaixo da Venda
+        f_col1.caption(f"Custo Produtos: - {utils.to_br_currency(custo_total_produtos)}") 
         
         emite_nf = f_col2.radio("Nota Fiscal?", ["Não", "Sim"], index=1 if safe_float(projeto_selecionado.get('custo_impostos')) > 0 else 0, key=f"nf_{prefix_key}")
         valor_nf = 0.0
