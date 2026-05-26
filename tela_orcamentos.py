@@ -62,11 +62,61 @@ def limpar_tela_orcamento():
 # RENDERIZAÇÃO DA TELA
 # =========================================================================
 def renderizar():
-    # -------------------------------------------------------------------------
-    # BLINDAGEM DE ESTADO: Evita perda de dados em atualizações
-    # -------------------------------------------------------------------------
     deve_rerun = False
     
+    # -------------------------------------------------------------------------
+    # TRANSFERÊNCIA SEGURA DO ORÇAMENTO RÁPIDO PARA O PERSONALIZADO
+    # Feito no topo do renderizar para não dar o erro do widget state!
+    # -------------------------------------------------------------------------
+    if st.session_state.get('transferir_agora'):
+        novo_df = []
+        df_r = st.session_state.get('rapido_df_orc', pd.DataFrame())
+        cat_p = utils.load_catalog('catalogo_produtos')
+        
+        if not df_r.empty:
+            for _, r in df_r.iterrows():
+                p_nome = str(r.get("Produto da Base", "")).strip()
+                q = float(r.get("Quantidade", 0))
+                c = float(r.get("Custo (R$)", 0.0))
+                v = float(r.get("Venda (R$)", 0.0))
+                
+                desc = ""
+                if p_nome and not cat_p.empty:
+                    match = cat_p[cat_p['Item'].astype(str).str.strip().str.upper() == p_nome.upper()]
+                    if not match.empty:
+                        desc = str(match.iloc[0].get('Descrição', ''))
+                        if desc.lower() == 'nan': desc = ""
+                        
+                novo_df.append({
+                    "Produto da Base": p_nome,
+                    "Produto Manual": "",
+                    "Descrição": desc,
+                    "Quantidade": q,
+                    "Custo (R$)": c,
+                    "Venda (R$)": v,
+                    "Custo Total": q * c,
+                    "Venda Total": q * v
+                })
+        
+        while len(novo_df) < 5:
+            novo_df.append({"Produto da Base": "", "Produto Manual": "", "Descrição": "", "Quantidade": 0, "Custo (R$)": 0.0, "Venda (R$)": 0.0, "Custo Total": 0.0, "Venda Total": 0.0})
+        
+        st.session_state.df_orc = pd.DataFrame(novo_df)
+        st.session_state.df_orc_prev = st.session_state.df_orc.copy()
+        
+        st.session_state.input_nome_cliente = st.session_state.get("rapido_input_nome_cliente", "")
+        st.session_state.val_servico = st.session_state.get("rapido_venda_servico", 0.0)
+        st.session_state.val_outros = st.session_state.get("rapido_venda_outros", 0.0)
+        
+        if "editor_orc_base" in st.session_state:
+            del st.session_state["editor_orc_base"]
+            
+        st.session_state.transferir_agora = False
+        st.session_state.show_transfer_success = True
+
+    # -------------------------------------------------------------------------
+    # BLINDAGEM DE ESTADO INICIAL
+    # -------------------------------------------------------------------------
     if "input_nome_cliente" not in st.session_state: st.session_state.input_nome_cliente = ""
     if "input_whatsapp" not in st.session_state: st.session_state.input_whatsapp = ""
     if "txt_servico" not in st.session_state: st.session_state.txt_servico = ""
@@ -101,19 +151,13 @@ def renderizar():
                     del st.session_state[chave]
             st.rerun()
             
-        # BOTÃO QUE CHAMA O POP-UP MODAL
         if st.button("💡 Lembretes e Cálculos Rápidos", use_container_width=True):
             abrir_lembretes()
 
-    # Carrega bases de dados apenas se não estiverem no session_state
-    if 'db_produtos' not in st.session_state: 
-        st.session_state.db_produtos = utils.load_catalog('catalogo_produtos')
-    if 'db_servicos' not in st.session_state: 
-        st.session_state.db_servicos = utils.load_catalog('catalogo_servicos')
-    if 'db_outros' not in st.session_state: 
-        st.session_state.db_outros = utils.load_catalog('catalogo_outros')
-    if 'db_taxas' not in st.session_state: 
-        st.session_state.db_taxas = utils.load_taxas()
+    if 'db_produtos' not in st.session_state: st.session_state.db_produtos = utils.load_catalog('catalogo_produtos')
+    if 'db_servicos' not in st.session_state: st.session_state.db_servicos = utils.load_catalog('catalogo_servicos')
+    if 'db_outros' not in st.session_state: st.session_state.db_outros = utils.load_catalog('catalogo_outros')
+    if 'db_taxas' not in st.session_state: st.session_state.db_taxas = utils.load_taxas()
 
     cat_produtos = st.session_state.db_produtos
     lista_nomes_produtos = cat_produtos['Item'].dropna().tolist() if not cat_produtos.empty else []
@@ -183,16 +227,7 @@ def renderizar():
                                 })
                                 
                             while len(novo_df) < 5:
-                                novo_df.append({
-                                    "Produto da Base": "", 
-                                    "Produto Manual": "", 
-                                    "Descrição": "", 
-                                    "Quantidade": 0, 
-                                    "Custo (R$)": 0.0, 
-                                    "Venda (R$)": 0.0, 
-                                    "Custo Total": 0.0, 
-                                    "Venda Total": 0.0
-                                })
+                                novo_df.append({"Produto da Base": "", "Produto Manual": "", "Descrição": "", "Quantidade": 0, "Custo (R$)": 0.0, "Venda (R$)": 0.0, "Custo Total": 0.0, "Venda Total": 0.0})
                             
                             st.session_state.df_orc = pd.DataFrame(novo_df)
                             st.session_state.df_orc_prev = st.session_state.df_orc.copy()
@@ -290,15 +325,11 @@ def renderizar():
                         val_custo = match_base.get('Custo (R$)', pd.Series([0.0])).values[0]
                         desc_base = match_base['Descrição'].values[0]
                         
-                        try: 
-                            preco_novo = float(val_venda)
-                        except Exception: 
-                            preco_novo = 0.0
+                        try: preco_novo = float(val_venda)
+                        except Exception: preco_novo = 0.0
                             
-                        try: 
-                            custo_novo = float(val_custo)
-                        except Exception: 
-                            custo_novo = 0.0
+                        try: custo_novo = float(val_custo)
+                        except Exception: custo_novo = 0.0
                             
                         df_editavel.at[i, 'Venda (R$)'] = preco_novo
                         df_editavel.at[i, 'Custo (R$)'] = custo_novo
@@ -324,8 +355,6 @@ def renderizar():
                     df_editavel.at[i, 'Custo Total'] = total_custo_calc
                     precisa_atualizar_tela = True
 
-            # Correção do Bug de apagar a digitação do usuário: 
-            # NÃO deletamos mais a key "editor_orc_base" aqui dentro do loop!
             if precisa_atualizar_tela:
                 st.session_state.df_orc = df_editavel
                 st.session_state.df_orc_prev = df_editavel.copy()
@@ -334,19 +363,32 @@ def renderizar():
             st.session_state.df_orc = df_editavel
             st.session_state.df_orc_prev = df_editavel.copy()
             
-            # --- NOVO: TOTAIS DE EQUIPAMENTOS NA ABA 1 ---
-            custo_total_produtos = pd.to_numeric(df_editavel["Custo Total"], errors='coerce').fillna(0).sum()
-            venda_total_produtos = pd.to_numeric(df_editavel["Venda Total"], errors='coerce').fillna(0).sum()
-            lucro_total_produtos = venda_total_produtos - custo_total_produtos
+            subtotal_equipamentos = df_editavel['Venda Total'].sum()
+            st.markdown(f"**Subtotal Equipamentos:** :blue[{utils.to_br_currency(subtotal_equipamentos)}]")
             
-            st.markdown(f"""
-                <div style='display: flex; justify-content: flex-end; gap: 25px; margin-top: -10px; margin-bottom: 25px;'>
-                    <span style='color: #cc0000; font-size: 15px;'><b>Custo Total Produtos:</b> {utils.to_br_currency(custo_total_produtos)}</span>
-                    <span style='color: #004488; font-size: 15px;'><b>Venda Total Produtos:</b> {utils.to_br_currency(venda_total_produtos)}</span>
-                    <span style='color: #006600; font-size: 15px;'><b>Lucro Total Produtos:</b> {utils.to_br_currency(lucro_total_produtos)}</span>
+            # --- PROTEÇÃO E PRIVACIDADE DE CUSTOS ---
+            mostrar_lucro = st.toggle("Exibir Custos, Margem e Lucro Estimado", value=False)
+            if mostrar_lucro:
+                custo_total_produtos = pd.to_numeric(df_editavel["Custo Total"], errors='coerce').fillna(0).sum()
+                venda_total_produtos = subtotal_equipamentos
+                lucro_total_produtos = venda_total_produtos - custo_total_produtos
+                
+                st.markdown(f"""
+                    <div style='display: flex; justify-content: flex-start; gap: 25px; margin-top: 10px; margin-bottom: 5px;'>
+                        <span style='color: #cc0000; font-size: 15px;'><b>Custo Total Produtos:</b> {utils.to_br_currency(custo_total_produtos)}</span>
+                        <span style='color: #006600; font-size: 15px;'><b>Lucro Total Produtos:</b> {utils.to_br_currency(lucro_total_produtos)}</span>
+                    </div>
+                """, unsafe_allow_html=True)
+                
+                margem_equip = (lucro_total_produtos / custo_total_produtos * 100) if custo_total_produtos > 0 else (100.0 if lucro_total_produtos > 0 else 0.0)
+                
+                html_lucro = f"""
+                <div style='background-color: #e6ffe6; padding: 10px; border-radius: 5px; border: 1px solid #006600; margin-top: 10px; margin-bottom: 5px;'>
+                    <span style='color: #006600; font-weight: bold; font-size: 16px;'>💸 Lucro Projetado: {utils.to_br_currency(lucro_total_produtos)} ({margem_equip:.1f}%)</span><br>
+                    <small style='color: #444;'><i>(Calculado apenas sobre o custo total acumulado dos equipamentos)</i></small>
                 </div>
-            """, unsafe_allow_html=True)
-            # ---------------------------------------------
+                """
+                st.markdown(html_lucro, unsafe_allow_html=True)
 
         with st.container(border=True):
             st.subheader("🛠️ 2. Serviços")
@@ -396,7 +438,7 @@ def renderizar():
             descricao_final_outros = st.text_area("Descrição de Diversos:", key="txt_outros", height=80)
             valor_final_outros = st.number_input("Valor Adicional (R$):", key="val_outros", format="%.2f")
 
-        total_investimento = venda_total_produtos + valor_final_servico + valor_final_outros
+        total_investimento = subtotal_equipamentos + valor_final_servico + valor_final_outros
         st.markdown(f"<h3 style='color:#004488;'>💰 INVESTIMENTO TOTAL: {utils.to_br_currency(total_investimento)}</h3>", unsafe_allow_html=True)
         
         if "input_obs_pdf" not in st.session_state: 
@@ -766,6 +808,10 @@ def renderizar():
         st.markdown("### ⚡ Calculadora de Custo e Venda Rápida")
         st.caption("Apenas para cálculo interno de margem. Salva como rascunho específico desta aba.")
 
+        if st.session_state.get("show_transfer_success"):
+            st.success("✅ Produtos e Valores enviados com sucesso! Acesse a aba **'Orçamento Personalizado'** no topo da página para continuar e gerar o PDF.")
+            st.session_state.show_transfer_success = False
+
         try:
             res_r = st.session_state.supabase.table('servicos_andamento').select('id, nome_cliente, valor_venda_total').eq('status_projeto', 'Rascunho Rápido').execute()
             rascunhos_rapidos = res_r.data
@@ -875,8 +921,6 @@ def renderizar():
                 df_r_ed.at[i, "Venda Total"] = tot_v_calc
                 refresh_rapido = True
 
-        # Correção do Bug de apagar a digitação do usuário: 
-        # NÃO deletamos mais a key "editor_rapido" aqui dentro do loop!
         if refresh_rapido:
             st.session_state.rapido_df_orc = df_r_ed
             deve_rerun = True
@@ -972,44 +1016,8 @@ def renderizar():
         
         with col_btn_r1:
             if st.button("➡️ ENVIAR PARA ORÇAMENTO PERSONALIZADO", use_container_width=True):
-                novo_df = []
-                for _, r in st.session_state.rapido_df_orc.iterrows():
-                    p_nome = str(r.get("Produto da Base", "")).strip()
-                    q = float(r.get("Quantidade", 0))
-                    c = float(r.get("Custo (R$)", 0.0))
-                    v = float(r.get("Venda (R$)", 0.0))
-                    
-                    desc = ""
-                    if p_nome:
-                        match = cat_produtos[cat_produtos['Item'].astype(str).str.strip().str.upper() == p_nome.upper()]
-                        if not match.empty:
-                            desc = str(match.iloc[0].get('Descrição', ''))
-                            if desc.lower() == 'nan': desc = ""
-                            
-                    novo_df.append({
-                        "Produto da Base": p_nome,
-                        "Produto Manual": "",
-                        "Descrição": desc,
-                        "Quantidade": q,
-                        "Custo (R$)": c,
-                        "Venda (R$)": v,
-                        "Custo Total": q * c,
-                        "Venda Total": q * v
-                    })
-                
-                while len(novo_df) < 5:
-                    novo_df.append({"Produto da Base": "", "Produto Manual": "", "Descrição": "", "Quantidade": 0, "Custo (R$)": 0.0, "Venda (R$)": 0.0, "Custo Total": 0.0, "Venda Total": 0.0})
-                
-                st.session_state.df_orc = pd.DataFrame(novo_df)
-                st.session_state.df_orc_prev = st.session_state.df_orc.copy()
-                st.session_state.input_nome_cliente = nome_rapido
-                st.session_state.val_servico = v_serv
-                st.session_state.val_outros = v_outros
-                
-                if "editor_orc_base" in st.session_state:
-                    del st.session_state["editor_orc_base"]
-                    
-                st.success("✅ Produtos e Valores enviados com sucesso! Acesse a aba **'Orçamento Personalizado'** no topo da página para continuar e gerar o PDF.")
+                st.session_state.transferir_agora = True
+                st.rerun()
 
         with col_btn_r2:
             if st.button("💾 SALVAR CÁLCULO RÁPIDO", type="primary", use_container_width=True):
