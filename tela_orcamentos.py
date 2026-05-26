@@ -324,33 +324,29 @@ def renderizar():
                     df_editavel.at[i, 'Custo Total'] = total_custo_calc
                     precisa_atualizar_tela = True
 
+            # Correção do Bug de apagar a digitação do usuário: 
+            # NÃO deletamos mais a key "editor_orc_base" aqui dentro do loop!
             if precisa_atualizar_tela:
                 st.session_state.df_orc = df_editavel
                 st.session_state.df_orc_prev = df_editavel.copy()
-                if "editor_orc_base" in st.session_state:
-                    del st.session_state["editor_orc_base"]
                 deve_rerun = True
 
             st.session_state.df_orc = df_editavel
             st.session_state.df_orc_prev = df_editavel.copy()
             
-            subtotal_equipamentos = df_editavel['Venda Total'].sum()
-            st.markdown(f"**Subtotal Equipamentos:** :blue[{utils.to_br_currency(subtotal_equipamentos)}]")
+            # --- NOVO: TOTAIS DE EQUIPAMENTOS NA ABA 1 ---
+            custo_total_produtos = pd.to_numeric(df_editavel["Custo Total"], errors='coerce').fillna(0).sum()
+            venda_total_produtos = pd.to_numeric(df_editavel["Venda Total"], errors='coerce').fillna(0).sum()
+            lucro_total_produtos = venda_total_produtos - custo_total_produtos
             
-            mostrar_lucro = st.toggle("Exibir Margem e Lucro Estimado", value=False)
-            if mostrar_lucro:
-                custo_total_equipamentos = df_editavel['Custo Total'].sum()
-                lucro_equip = subtotal_equipamentos - custo_total_equipamentos
-                
-                margem_equip = (lucro_equip / custo_total_equipamentos * 100) if custo_total_equipamentos > 0 else (100.0 if lucro_equip > 0 else 0.0)
-                
-                html_lucro = f"""
-                <div style='background-color: #e6ffe6; padding: 10px; border-radius: 5px; border: 1px solid #006600; margin-top: 10px; margin-bottom: 5px;'>
-                    <span style='color: #006600; font-weight: bold; font-size: 16px;'>💸 Lucro Projetado: {utils.to_br_currency(lucro_equip)} ({margem_equip:.1f}%)</span><br>
-                    <small style='color: #444;'><i>(Calculado apenas sobre o custo total acumulado dos equipamentos)</i></small>
+            st.markdown(f"""
+                <div style='display: flex; justify-content: flex-end; gap: 25px; margin-top: -10px; margin-bottom: 25px;'>
+                    <span style='color: #cc0000; font-size: 15px;'><b>Custo Total Produtos:</b> {utils.to_br_currency(custo_total_produtos)}</span>
+                    <span style='color: #004488; font-size: 15px;'><b>Venda Total Produtos:</b> {utils.to_br_currency(venda_total_produtos)}</span>
+                    <span style='color: #006600; font-size: 15px;'><b>Lucro Total Produtos:</b> {utils.to_br_currency(lucro_total_produtos)}</span>
                 </div>
-                """
-                st.markdown(html_lucro, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
+            # ---------------------------------------------
 
         with st.container(border=True):
             st.subheader("🛠️ 2. Serviços")
@@ -400,7 +396,7 @@ def renderizar():
             descricao_final_outros = st.text_area("Descrição de Diversos:", key="txt_outros", height=80)
             valor_final_outros = st.number_input("Valor Adicional (R$):", key="val_outros", format="%.2f")
 
-        total_investimento = subtotal_equipamentos + valor_final_servico + valor_final_outros
+        total_investimento = venda_total_produtos + valor_final_servico + valor_final_outros
         st.markdown(f"<h3 style='color:#004488;'>💰 INVESTIMENTO TOTAL: {utils.to_br_currency(total_investimento)}</h3>", unsafe_allow_html=True)
         
         if "input_obs_pdf" not in st.session_state: 
@@ -879,23 +875,24 @@ def renderizar():
                 df_r_ed.at[i, "Venda Total"] = tot_v_calc
                 refresh_rapido = True
 
+        # Correção do Bug de apagar a digitação do usuário: 
+        # NÃO deletamos mais a key "editor_rapido" aqui dentro do loop!
         if refresh_rapido:
             st.session_state.rapido_df_orc = df_r_ed
-            if "editor_rapido" in st.session_state: del st.session_state["editor_rapido"]
             deve_rerun = True
             
         st.session_state.rapido_df_orc = df_r_ed
 
-        # --- NOVO: TOTAIS DE EQUIPAMENTOS ---
-        custo_total_produtos = pd.to_numeric(df_r_ed["Custo Total"], errors='coerce').fillna(0).sum()
-        venda_total_produtos = pd.to_numeric(df_r_ed["Venda Total"], errors='coerce').fillna(0).sum()
-        lucro_total_produtos = venda_total_produtos - custo_total_produtos
+        # --- TOTAIS DE EQUIPAMENTOS ---
+        custo_total_produtos_r = pd.to_numeric(df_r_ed["Custo Total"], errors='coerce').fillna(0).sum()
+        venda_total_produtos_r = pd.to_numeric(df_r_ed["Venda Total"], errors='coerce').fillna(0).sum()
+        lucro_total_produtos_r = venda_total_produtos_r - custo_total_produtos_r
         
         st.markdown(f"""
             <div style='display: flex; justify-content: flex-end; gap: 25px; margin-top: -10px; margin-bottom: 25px;'>
-                <span style='color: #cc0000; font-size: 15px;'><b>Custo Total Produtos:</b> {utils.to_br_currency(custo_total_produtos)}</span>
-                <span style='color: #004488; font-size: 15px;'><b>Venda Total Produtos:</b> {utils.to_br_currency(venda_total_produtos)}</span>
-                <span style='color: #006600; font-size: 15px;'><b>Lucro Total Produtos:</b> {utils.to_br_currency(lucro_total_produtos)}</span>
+                <span style='color: #cc0000; font-size: 15px;'><b>Custo Total Produtos:</b> {utils.to_br_currency(custo_total_produtos_r)}</span>
+                <span style='color: #004488; font-size: 15px;'><b>Venda Total Produtos:</b> {utils.to_br_currency(venda_total_produtos_r)}</span>
+                <span style='color: #006600; font-size: 15px;'><b>Lucro Total Produtos:</b> {utils.to_br_currency(lucro_total_produtos_r)}</span>
             </div>
         """, unsafe_allow_html=True)
         # ------------------------------------
@@ -967,48 +964,94 @@ def renderizar():
         res2.metric("Preço de Venda Final", utils.to_br_currency(venda_bruta))
         res3.metric("LUCRO LÍQUIDO", utils.to_br_currency(lucro_est), delta=f"{margem_pct:.1f}% Margem Real")
 
-        # Salvar Rascunho
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("💾 SALVAR CÁLCULO RÁPIDO", type="primary", use_container_width=True):
-            if not nome_rapido:
-                st.error("⚠️ Preencha o Nome do Cliente (Identificação) para poder salvar.")
-            else:
-                snapshot = []
-                for _, r in df_r_ed.iterrows():
-                    if r["Quantidade"] > 0 or r["Produto da Base"] != "":
-                        snapshot.append({
-                            "Item": r["Produto da Base"], 
-                            "Qtd": r["Quantidade"], 
-                            "Venda Un.": r["Venda (R$)"], 
-                            "Custo Un.": r["Custo (R$)"]
-                        })
+        # ==============================================================
+        # BOTÕES FINAIS DA ABA ORÇAMENTO RÁPIDO
+        # ==============================================================
+        st.markdown("<hr style='margin-top: 20px; margin-bottom: 20px;'>", unsafe_allow_html=True)
+        col_btn_r1, col_btn_r2 = st.columns(2)
+        
+        with col_btn_r1:
+            if st.button("➡️ ENVIAR PARA ORÇAMENTO PERSONALIZADO", use_container_width=True):
+                novo_df = []
+                for _, r in st.session_state.rapido_df_orc.iterrows():
+                    p_nome = str(r.get("Produto da Base", "")).strip()
+                    q = float(r.get("Quantidade", 0))
+                    c = float(r.get("Custo (R$)", 0.0))
+                    v = float(r.get("Venda (R$)", 0.0))
+                    
+                    desc = ""
+                    if p_nome:
+                        match = cat_produtos[cat_produtos['Item'].astype(str).str.strip().str.upper() == p_nome.upper()]
+                        if not match.empty:
+                            desc = str(match.iloc[0].get('Descrição', ''))
+                            if desc.lower() == 'nan': desc = ""
+                            
+                    novo_df.append({
+                        "Produto da Base": p_nome,
+                        "Produto Manual": "",
+                        "Descrição": desc,
+                        "Quantidade": q,
+                        "Custo (R$)": c,
+                        "Venda (R$)": v,
+                        "Custo Total": q * c,
+                        "Venda Total": q * v
+                    })
                 
-                payload = {
-                    "nome_cliente": nome_rapido,
-                    "valor_venda_total": venda_bruta,
-                    "lucro_estimado": lucro_est,
-                    "status_projeto": "Rascunho Rápido",
-                    "detalhamento_itens": snapshot,
-                    "data_conclusao": datetime.date.today().strftime('%Y-%m-%d'),
-                    "dados_contrato": {
-                        "custo_servico": c_serv, 
-                        "venda_servico": v_serv,
-                        "custo_outros": c_outros, 
-                        "venda_outros": v_outros,
-                        "nf": emite_nf, 
-                        "taxa_cartao": sel_cartao, 
-                        "comissao": comissao_pct
-                    }
-                }
+                while len(novo_df) < 5:
+                    novo_df.append({"Produto da Base": "", "Produto Manual": "", "Descrição": "", "Quantidade": 0, "Custo (R$)": 0.0, "Venda (R$)": 0.0, "Custo Total": 0.0, "Venda Total": 0.0})
                 
-                if st.session_state.get('rapido_rascunho_id'):
-                    st.session_state.supabase.table('servicos_andamento').update(payload).eq('id', st.session_state.rapido_rascunho_id).execute()
+                st.session_state.df_orc = pd.DataFrame(novo_df)
+                st.session_state.df_orc_prev = st.session_state.df_orc.copy()
+                st.session_state.input_nome_cliente = nome_rapido
+                st.session_state.val_servico = v_serv
+                st.session_state.val_outros = v_outros
+                
+                if "editor_orc_base" in st.session_state:
+                    del st.session_state["editor_orc_base"]
+                    
+                st.success("✅ Produtos e Valores enviados com sucesso! Acesse a aba **'Orçamento Personalizado'** no topo da página para continuar e gerar o PDF.")
+
+        with col_btn_r2:
+            if st.button("💾 SALVAR CÁLCULO RÁPIDO", type="primary", use_container_width=True):
+                if not nome_rapido:
+                    st.error("⚠️ Preencha o Nome do Cliente (Identificação) para poder salvar.")
                 else:
-                    res = st.session_state.supabase.table('servicos_andamento').insert(payload).execute()
-                    st.session_state.rapido_rascunho_id = res.data[0]['id']
-                
-                st.success("✅ Cálculo salvo com sucesso! Você pode continuar editando ou criar um novo.")
-                deve_rerun = True
+                    snapshot = []
+                    for _, r in df_r_ed.iterrows():
+                        if r["Quantidade"] > 0 or r["Produto da Base"] != "":
+                            snapshot.append({
+                                "Item": r["Produto da Base"], 
+                                "Qtd": r["Quantidade"], 
+                                "Venda Un.": r["Venda (R$)"], 
+                                "Custo Un.": r["Custo (R$)"]
+                            })
+                    
+                    payload = {
+                        "nome_cliente": nome_rapido,
+                        "valor_venda_total": venda_bruta,
+                        "lucro_estimado": lucro_est,
+                        "status_projeto": "Rascunho Rápido",
+                        "detalhamento_itens": snapshot,
+                        "data_conclusao": datetime.date.today().strftime('%Y-%m-%d'),
+                        "dados_contrato": {
+                            "custo_servico": c_serv, 
+                            "venda_servico": v_serv,
+                            "custo_outros": c_outros, 
+                            "venda_outros": v_outros,
+                            "nf": emite_nf, 
+                            "taxa_cartao": sel_cartao, 
+                            "comissao": comissao_pct
+                        }
+                    }
+                    
+                    if st.session_state.get('rapido_rascunho_id'):
+                        st.session_state.supabase.table('servicos_andamento').update(payload).eq('id', st.session_state.rapido_rascunho_id).execute()
+                    else:
+                        res = st.session_state.supabase.table('servicos_andamento').insert(payload).execute()
+                        st.session_state.rapido_rascunho_id = res.data[0]['id']
+                    
+                    st.success("✅ Cálculo salvo com sucesso! Você pode continuar editando ou criar um novo.")
+                    deve_rerun = True
 
     # -------------------------------------------------------------------------
     # GATILHO DE RERUN SEGURO (Executado apenas após toda a tela ser renderizada)
