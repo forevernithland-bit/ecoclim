@@ -8,6 +8,9 @@ def renderizar():
     
     tabs = st.tabs(["🛒 Produtos", "🛠️ Serviços", "🤝 Outros / Terceiros", "📊 Taxas", "📦 Kits em Lote", "👷‍♂️ Instaladores"])
     
+    # =========================================================================
+    # FUNÇÕES DE IMPORTAÇÃO/EXPORTAÇÃO DE CATÁLOGOS
+    # =========================================================================
     def gerar_modelo_excel(df_dados=None):
         # Se houver dados na base, preenche o modelo com eles. Se não, cria vazio.
         if df_dados is not None and not df_dados.empty:
@@ -45,6 +48,43 @@ def renderizar():
         df_final["Venda (R$)"] = df_final["Custo (R$)"]
         return df_final
 
+    # =========================================================================
+    # FUNÇÕES DE IMPORTAÇÃO/EXPORTAÇÃO ESPECÍFICAS PARA TAXAS
+    # =========================================================================
+    def gerar_modelo_taxas(df_dados=None):
+        if df_dados is not None and not df_dados.empty:
+            df_modelo = pd.DataFrame({
+                "ITEM": df_dados.get("Item", ""),
+                "TAXA (%)": df_dados.get("Taxa (%)", 0.0)
+            })
+        else:
+            df_modelo = pd.DataFrame(columns=["ITEM", "TAXA (%)"])
+            
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df_modelo.to_excel(writer, index=False, sheet_name='TAXAS_IMPOSTOS')
+        return output.getvalue()
+
+    def processar_upload_taxas(arquivo_subido):
+        df_excel = pd.read_excel(arquivo_subido)
+        df_excel.columns = df_excel.columns.str.strip().str.upper()
+        df_final = pd.DataFrame()
+        
+        if "ITEM" in df_excel.columns: df_final["Item"] = df_excel["ITEM"]
+        elif "TAXA" in df_excel.columns and "NOME" in df_excel.columns: df_final["Item"] = df_excel["NOME"]
+        else: df_final["Item"] = "Sem Nome"
+        
+        col_taxa = next((col for col in df_excel.columns if "TAXA" in col), None)
+        if col_taxa:
+            df_final["Taxa (%)"] = pd.to_numeric(df_excel[col_taxa], errors='coerce').fillna(0.0)
+        else:
+            df_final["Taxa (%)"] = 0.0
+            
+        return df_final
+
+    # =========================================================================
+    # RENDERIZAÇÃO DAS ABAS DE CATÁLOGOS (PRODUTOS, SERVIÇOS, TERCEIROS)
+    # =========================================================================
     def exibir_aba_catalogo(nome_tabela, titulo_aba):
         df_atual = utils.load_catalog(nome_tabela)
         
@@ -123,13 +163,49 @@ def renderizar():
     with tabs[0]: exibir_aba_catalogo('catalogo_produtos', 'Produtos')
     with tabs[1]: exibir_aba_catalogo('catalogo_servicos', 'Serviços')
     with tabs[2]: exibir_aba_catalogo('catalogo_outros', 'Terceiros')
+    
+    # =========================================================================
+    # ABA: TAXAS
+    # =========================================================================
     with tabs[3]:
         st.subheader("📊 Taxas e Impostos")
-        df_t = utils.load_taxas()
-        df_t_edit = st.data_editor(df_t, use_container_width=True, num_rows="dynamic")
+        df_atual_taxas = utils.load_taxas()
+        
+        st.markdown("#### 📥 Importar Planilha de Taxas")
+        col_file_taxas, col_btn_taxas = st.columns([3, 1])
+        
+        with col_file_taxas:
+            arquivo_excel_taxas = st.file_uploader("Selecione o arquivo (.xlsx)", type=["xlsx"], key="upload_taxas", label_visibility="collapsed")
+        
+        with col_btn_taxas:
+            st.download_button(
+                label="📥 Baixar Dados Atuais (.xlsx)",
+                data=gerar_modelo_taxas(df_atual_taxas),
+                file_name="taxas_atuais_exportadas.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+            
+        if arquivo_excel_taxas:
+            if st.button("Processar Planilha - Taxas"):
+                df_novo_taxas = processar_upload_taxas(arquivo_excel_taxas)
+                df_combinado_taxas = pd.concat([df_atual_taxas, df_novo_taxas], ignore_index=True).drop_duplicates(subset=['Item'], keep='last')
+                df_combinado_taxas = df_combinado_taxas.reset_index(drop=True)
+                st.session_state['temp_df_taxas'] = df_combinado_taxas
+                st.success("✅ Taxas processadas! Verifique na tabela e clique em Gravar.")
+
+        if 'temp_df_taxas' in st.session_state:
+            df_atual_taxas = st.session_state['temp_df_taxas']
+
+        st.markdown("#### 📋 Edição de Taxas")
+        df_t_edit = st.data_editor(df_atual_taxas, use_container_width=True, num_rows="dynamic", key="editor_taxas")
+        
         if st.button("💾 Gravar Taxas", type="primary", use_container_width=True):
             utils.save_taxas(df_t_edit)
-            st.success("Taxas salvas!")
+            if 'temp_df_taxas' in st.session_state: 
+                del st.session_state['temp_df_taxas']
+            st.success("✅ Taxas salvas com sucesso no banco de dados!")
+            st.rerun()
             
     # =========================================================================
     # ABA: KITS EM LOTE (MESTRE-DETALHE)
