@@ -66,7 +66,6 @@ def renderizar():
     
     # -------------------------------------------------------------------------
     # TRANSFERÊNCIA SEGURA DO ORÇAMENTO RÁPIDO PARA O PERSONALIZADO
-    # Feito no topo do renderizar para não dar o erro do widget state!
     # -------------------------------------------------------------------------
     if st.session_state.get('transferir_agora'):
         novo_df = []
@@ -76,12 +75,13 @@ def renderizar():
         if not df_r.empty:
             for _, r in df_r.iterrows():
                 p_nome = str(r.get("Produto da Base", "")).strip()
+                p_manual = str(r.get("Produto Manual", "")).strip()
                 q = float(r.get("Quantidade", 0))
                 c = float(r.get("Custo (R$)", 0.0))
                 v = float(r.get("Venda (R$)", 0.0))
                 
                 desc = ""
-                if p_nome and not cat_p.empty:
+                if p_nome and p_nome != "OUTRO" and not cat_p.empty:
                     match = cat_p[cat_p['Item'].astype(str).str.strip().str.upper() == p_nome.upper()]
                     if not match.empty:
                         desc = str(match.iloc[0].get('Descrição', ''))
@@ -89,7 +89,7 @@ def renderizar():
                         
                 novo_df.append({
                     "Produto da Base": p_nome,
-                    "Produto Manual": "",
+                    "Produto Manual": p_manual,
                     "Descrição": desc,
                     "Quantidade": q,
                     "Custo (R$)": c,
@@ -210,14 +210,20 @@ def renderizar():
                                 
                                 c_un = 0.0
                                 p_nome = it.get('Item', '')
-                                if p_nome:
+                                p_manual = ""
+                                
+                                if p_nome and p_nome not in lista_nomes_produtos and p_nome != "OUTRO":
+                                    # Lógica para puxar itens salvos que não estão mais na base (vira item manual)
+                                    p_manual = p_nome
+                                    p_nome = "OUTRO"
+                                elif p_nome:
                                     match_c = cat_produtos[cat_produtos['Item'].astype(str).str.strip() == p_nome]
                                     if not match_c.empty:
                                         c_un = float(match_c.get('Custo (R$)', pd.Series([0.0])).values[0])
 
                                 novo_df.append({
                                     "Produto da Base": p_nome,
-                                    "Produto Manual": "",
+                                    "Produto Manual": p_manual,
                                     "Descrição": it.get('Descrição', ''),
                                     "Quantidade": qtd,
                                     "Custo (R$)": c_un,
@@ -284,10 +290,10 @@ def renderizar():
                 "Produto Manual": st.column_config.TextColumn("Nome Manual", width="medium"),
                 "Descrição": st.column_config.TextColumn("Detalhes / Garantia"), 
                 "Quantidade": st.column_config.NumberColumn("Qtd", min_value=0, step=1, width="small"),
-                "Custo (R$)": st.column_config.NumberColumn("Custo Unt.", format="R$ %,.2f"),
-                "Venda (R$)": st.column_config.NumberColumn("Venda Unt.", format="R$ %,.2f"),
-                "Custo Total": st.column_config.NumberColumn("Custo Total", format="R$ %,.2f", disabled=True),
-                "Venda Total": st.column_config.NumberColumn("Total", format="R$ %,.2f", disabled=True)
+                "Custo (R$)": st.column_config.NumberColumn("Custo Unt.", format="R$ %,.2f", width="small"),
+                "Venda (R$)": st.column_config.NumberColumn("Venda Unt.", format="R$ %,.2f", width="small"),
+                "Custo Total": st.column_config.NumberColumn("Custo Total", format="R$ %,.2f", disabled=True, width="small"),
+                "Venda Total": st.column_config.NumberColumn("Total", format="R$ %,.2f", disabled=True, width="small")
             }
             
             sequencia_colunas = ["Produto da Base", "Produto Manual", "Quantidade", "Custo (R$)", "Venda (R$)", "Custo Total", "Venda Total"]
@@ -317,7 +323,7 @@ def renderizar():
 
                 df_editavel.at[i, 'Produto da Base'] = produto_atual
 
-                if produto_atual != produto_anterior and produto_atual != "":
+                if produto_atual != produto_anterior and produto_atual != "" and produto_atual != "OUTRO":
                     match_base = cat_produtos[cat_produtos['Item'].astype(str).str.strip() == produto_atual]
                     
                     if not match_base.empty:
@@ -366,7 +372,6 @@ def renderizar():
             subtotal_equipamentos = df_editavel['Venda Total'].sum()
             st.markdown(f"**Subtotal Equipamentos:** :blue[{utils.to_br_currency(subtotal_equipamentos)}]")
             
-            # --- PROTEÇÃO E PRIVACIDADE DE CUSTOS ---
             mostrar_lucro = st.toggle("Exibir Custos, Margem e Lucro Estimado", value=False)
             if mostrar_lucro:
                 custo_total_produtos = pd.to_numeric(df_editavel["Custo Total"], errors='coerce').fillna(0).sum()
@@ -492,8 +497,11 @@ def renderizar():
                     tel_formatado = formatar_telefone(whatsapp)
                     snapshot_itens = []
                     for _, r in df_editavel.iterrows():
-                        if r['Quantidade'] > 0 or r['Produto da Base'] != "":
-                            nome_item = r['Produto da Base'] or r['Produto Manual']
+                        if r['Quantidade'] > 0 or str(r.get('Produto da Base', '')) != "" or str(r.get('Produto Manual', '')) != "":
+                            p_base = str(r.get('Produto da Base', '')).strip()
+                            p_man = str(r.get('Produto Manual', '')).strip()
+                            nome_item = p_base if p_base not in ["", "OUTRO", "None"] else p_man
+                            
                             snapshot_itens.append({
                                 "Item": nome_item, 
                                 "Qtd": r['Quantidade'], 
@@ -541,14 +549,17 @@ def renderizar():
                         
                         for _, r in df_editavel.iterrows():
                             if r['Quantidade'] > 0:
-                                nome_item = r['Produto da Base'] or r['Produto Manual']
+                                p_base = str(r.get('Produto da Base', '')).strip()
+                                p_man = str(r.get('Produto Manual', '')).strip()
+                                nome_item = p_base if p_base not in ["", "OUTRO", "None"] else p_man
+                                
                                 snapshot_itens.append({
                                     "Item": nome_item, 
                                     "Qtd": r['Quantidade'], 
                                     "Venda Un.": r['Venda (R$)'], 
                                     "Descrição": r['Descrição']
                                 })
-                                lista_prods_texto.append(f"{int(r['Quantidade'])}x {r['Produto da Base']}")
+                                lista_prods_texto.append(f"{int(r['Quantidade'])}x {nome_item}")
                         
                         string_produtos = ", ".join(lista_prods_texto)
                         
@@ -848,8 +859,17 @@ def renderizar():
                         itens_r = data_r.get('detalhamento_itens', [])
                         df_rec = []
                         for it in itens_r:
+                            p_base = str(it.get("Item", "")).strip()
+                            p_man = ""
+                            
+                            # Se o item salvo não estiver na lista de produtos, é considerado manual
+                            if p_base and p_base not in lista_nomes_produtos and p_base != "OUTRO":
+                                p_man = p_base
+                                p_base = "OUTRO"
+                                
                             df_rec.append({
-                                "Produto da Base": it.get("Item", ""),
+                                "Produto da Base": p_base,
+                                "Produto Manual": p_man,
                                 "Quantidade": float(it.get("Qtd", 0)),
                                 "Custo (R$)": float(it.get("Custo Un.", 0)),
                                 "Venda (R$)": float(it.get("Venda Un.", 0)),
@@ -858,7 +878,7 @@ def renderizar():
                             })
                         
                         while len(df_rec) < 5:
-                            df_rec.append({"Produto da Base": "", "Quantidade": 0, "Custo (R$)": 0.0, "Venda (R$)": 0.0, "Custo Total": 0.0, "Venda Total": 0.0})
+                            df_rec.append({"Produto da Base": "", "Produto Manual": "", "Quantidade": 0, "Custo (R$)": 0.0, "Venda (R$)": 0.0, "Custo Total": 0.0, "Venda Total": 0.0})
                             
                         st.session_state.rapido_df_orc = pd.DataFrame(df_rec)
                         if "editor_rapido" in st.session_state:
@@ -876,26 +896,32 @@ def renderizar():
         # Equipamentos
         st.markdown("#### 📦 Equipamentos")
         if 'rapido_df_orc' not in st.session_state:
-            st.session_state.rapido_df_orc = pd.DataFrame([{"Produto da Base": "", "Quantidade": 0, "Custo (R$)": 0.0, "Venda (R$)": 0.0, "Custo Total": 0.0, "Venda Total": 0.0} for _ in range(5)])
+            st.session_state.rapido_df_orc = pd.DataFrame([{"Produto da Base": "", "Produto Manual": "", "Quantidade": 0, "Custo (R$)": 0.0, "Venda (R$)": 0.0, "Custo Total": 0.0, "Venda Total": 0.0} for _ in range(5)])
         
         cfg_grid = {
-            "Produto da Base": st.column_config.SelectboxColumn("Produto", options=[""] + lista_nomes_produtos, width="large"),
-            "Quantidade": st.column_config.NumberColumn("Qtd", min_value=0),
-            "Custo (R$)": st.column_config.NumberColumn("Custo Unt.", format="R$ %.2f"),
-            "Venda (R$)": st.column_config.NumberColumn("Venda Unt.", format="R$ %.2f"),
-            "Custo Total": st.column_config.NumberColumn("Custo Total", format="R$ %.2f", disabled=True),
-            "Venda Total": st.column_config.NumberColumn("Venda Total", format="R$ %.2f", disabled=True),
+            "Produto da Base": st.column_config.SelectboxColumn("Produto", options=[""] + lista_nomes_produtos + ["OUTRO"], width="large"),
+            "Produto Manual": st.column_config.TextColumn("Nome Manual", width="medium"),
+            "Quantidade": st.column_config.NumberColumn("Qtd", min_value=0, width="small"),
+            "Custo (R$)": st.column_config.NumberColumn("Custo Unt.", format="R$ %.2f", width="small"),
+            "Venda (R$)": st.column_config.NumberColumn("Venda Unt.", format="R$ %.2f", width="small"),
+            "Custo Total": st.column_config.NumberColumn("Custo Total", format="R$ %.2f", disabled=True, width="small"),
+            "Venda Total": st.column_config.NumberColumn("Venda Total", format="R$ %.2f", disabled=True, width="small"),
         }
+        
+        seq_r = ["Produto da Base", "Produto Manual", "Quantidade", "Custo (R$)", "Venda (R$)", "Custo Total", "Venda Total"]
 
-        df_r_ed = st.data_editor(st.session_state.rapido_df_orc, column_config=cfg_grid, num_rows="dynamic", use_container_width=True, key="editor_rapido", hide_index=True)
+        df_r_ed = st.data_editor(st.session_state.rapido_df_orc, column_config=cfg_grid, column_order=seq_r, num_rows="dynamic", use_container_width=True, key="editor_rapido", hide_index=True)
         
         # Lógica de Auto-Preenchimento e Soma na grade Rápida
         refresh_rapido = False
         for i in range(len(df_r_ed)):
             p_atual = str(df_r_ed.at[i, "Produto da Base"]).strip()
-            p_ant = str(st.session_state.rapido_df_orc.at[i, "Produto da Base"]).strip() if i < len(st.session_state.rapido_df_orc) else ""
             
-            if p_atual != p_ant and p_atual != "":
+            p_ant = ""
+            if i < len(st.session_state.rapido_df_orc):
+                p_ant = str(st.session_state.rapido_df_orc.at[i, "Produto da Base"]).strip()
+            
+            if p_atual != p_ant and p_atual != "" and p_atual != "OUTRO":
                 match = cat_produtos[cat_produtos['Item'].astype(str).str.strip() == p_atual]
                 if not match.empty:
                     try: custo_n = float(match.get('Custo (R$)', pd.Series([0.0])).values[0])
@@ -1026,9 +1052,13 @@ def renderizar():
                 else:
                     snapshot = []
                     for _, r in df_r_ed.iterrows():
-                        if r["Quantidade"] > 0 or r["Produto da Base"] != "":
+                        p_base = str(r.get("Produto da Base", "")).strip()
+                        p_man = str(r.get("Produto Manual", "")).strip()
+                        
+                        if r["Quantidade"] > 0 or p_base != "" or p_man != "":
+                            nome_item = p_base if p_base not in ["", "OUTRO", "None"] else p_man
                             snapshot.append({
-                                "Item": r["Produto da Base"], 
+                                "Item": nome_item, 
                                 "Qtd": r["Quantidade"], 
                                 "Venda Un.": r["Venda (R$)"], 
                                 "Custo Un.": r["Custo (R$)"]
