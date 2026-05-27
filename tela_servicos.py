@@ -28,7 +28,12 @@ def deve_ir_para_finalizados(status, data_conc_str):
 
 def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_produtos, prefix_key, lista_instaladores):
     st.markdown("---")
-    st.markdown(f"### ⚙️ Detalhes e Fechamento: **{projeto_selecionado.get('nome_cliente', 'Sem Nome')}**")
+    st.markdown(f"### ⚙️ Detalhes e Fechamento")
+    
+    # --- NOVO: Campos para alteração cadastral de Nome e Telefone ---
+    c_cad1, c_cad2 = st.columns(2)
+    novo_nome_cliente = c_cad1.text_input("Nome do Cliente", value=str(projeto_selecionado.get('nome_cliente', 'Sem Nome')), key=f"edit_nome_{prefix_key}")
+    novo_tel_cliente = c_cad2.text_input("Telefone / WhatsApp", value=str(projeto_selecionado.get('telefone_cliente', '')), key=f"edit_tel_{prefix_key}")
     
     # Dividido em 3 colunas para incluir o Instalador
     col_esq, col_meio, col_dir = st.columns(3)
@@ -277,7 +282,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             try: venc_boleto_inicial = pd.to_datetime(venc_boleto_banco).date()
             except: pass
 
-        # --- NOVO: Checa se já existe boleto do fornecedor importado ---
+        # --- Checa se já existe boleto do fornecedor importado ---
         try:
             res_bol_check = supabase.table('boletos_fornecedores').select('id, vencimento').eq('servico_id', int(projeto_selecionado['id'])).execute()
             boletos_importados = res_bol_check.data
@@ -290,7 +295,6 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                 venc_boleto_inicial = pd.to_datetime(boletos_importados[0]['vencimento']).date()
             except:
                 pass
-        # ---------------------------------------------------------------
         
         nova_nf_entrada = c_nf.text_input("NF de Entrada", value=str(nf_entrada_banco) if str(nf_entrada_banco) != 'nan' else '', placeholder="Opcional", key=f"nf_ent_{prefix_key}")
         novo_venc_boleto = c_venc.date_input("Vencimento Boleto (Cliente)", value=venc_boleto_inicial, format="DD/MM/YYYY", key=f"venc_bol_{prefix_key}")
@@ -298,10 +302,8 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         with st.container(border=True):
             st.markdown("##### 📥 Importar Boleto de Fornecedor (PDF)")
             
-            # --- NOVO: Aviso de importação bem sucedida ---
             if boletos_importados:
                 st.success("✅ O boleto do fornecedor já foi importado para este serviço.")
-            # ----------------------------------------------
             
             arquivo_boleto = st.file_uploader("Anexar PDF do Boleto para leitura de IA", type=["pdf"], key=f"up_bol_{prefix_key}")
             
@@ -329,7 +331,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                         mes_idx = data_confirmada.month
                         nome_mes_pasta = utils.meses_pt[mes_idx - 1]
                         
-                        nome_cliente_limpo = projeto_selecionado.get('nome_cliente', 'Cliente').split()[0]
+                        nome_cliente_limpo = novo_nome_cliente.split()[0]
                         nome_arquivo_drive = f"FORNECEDOR_{nome_cliente_limpo}_{data_confirmada.strftime('%d%m%Y')}.pdf"
                         
                         sucesso, link_id = utils.upload_to_drive(
@@ -341,7 +343,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                         
                         if sucesso:
                             novo_boleto = {
-                                "cliente": projeto_selecionado.get('nome_cliente', 'Sem Nome'),
+                                "cliente": novo_nome_cliente,
                                 "servico_id": int(projeto_selecionado['id']),
                                 "vencimento": data_confirmada.strftime("%Y-%m-%d"),
                                 "valor": valor_confirmado,
@@ -354,10 +356,9 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                                 # Sincroniza Calendar na adição de boleto por dentro do serviço
                                 utils.sincronizar_boletos_com_calendar()
                                 
-                                # --- NOVO: Atualiza o Vencimento Boleto do Cliente automaticamente ---
+                                # Atualiza o Vencimento Boleto do Cliente automaticamente
                                 if pd.isna(venc_boleto_banco) or str(venc_boleto_banco).lower() in ['none', 'nan', 'nat', '']:
                                     supabase.table('servicos_andamento').update({'vencimento_boleto': data_confirmada.strftime('%Y-%m-%d')}).eq('id', int(projeto_selecionado['id'])).execute()
-                                # ---------------------------------------------------------------------
                                 
                                 st.success(f"✅ Boleto salvo com sucesso na aba Documentos -> Boletos -> {nome_mes_pasta} e lembrete gerado no Calendar!")
                                 del st.session_state[f"dados_bol_{prefix_key}"]
@@ -397,14 +398,14 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             if obs_pdf == 'nan' or obs_pdf.strip() == '': obs_pdf = "Material Hidráulico não incluído na proposta"
 
             pdf_bytes = utils.gerar_pdf_orcamento(
-                nome=projeto_selecionado.get('nome_cliente', 'Cliente'), tel=projeto_selecionado.get('telefone_cliente', ''), 
+                nome=novo_nome_cliente, tel=novo_tel_cliente, 
                 capa=modelo_capa, df_items=df_pdf, d_s=str(projeto_selecionado.get('servicos_adquiridos', '')).replace('nan',''), 
                 v_s=0.0, d_o="", v_o=0.0, total=safe_float(projeto_selecionado.get('valor_venda_total')), obs=obs_pdf, mostrar_un=False
             )
             st.session_state[f'pdf_gerado_{prefix_key}'] = pdf_bytes
             
         if f'pdf_gerado_{prefix_key}' in st.session_state:
-            st.download_button("📥 BAIXAR PDF DO ORÇAMENTO", data=st.session_state[f'pdf_gerado_{prefix_key}'], file_name=f"ORCAMENTO_{projeto_selecionado.get('nome_cliente', 'Cliente')}.pdf", mime="application/pdf", use_container_width=True, key=f"dl_pdf_{prefix_key}")
+            st.download_button("📥 BAIXAR PDF DO ORÇAMENTO", data=st.session_state[f'pdf_gerado_{prefix_key}'], file_name=f"ORCAMENTO_{novo_nome_cliente}.pdf", mime="application/pdf", use_container_width=True, key=f"dl_pdf_{prefix_key}")
 
     # ------------------ 2. GERAR CONTRATO INTELIGENTE ------------------
     status_contrato_permitido = ["Em Andamento", "Aguardando Pagamento", "Concluído PIX", "Concluído CARTÃO"]
@@ -417,7 +418,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
 
             st.markdown("#### Dados do Cliente para o Contrato")
             c_tipo = st.radio("Tipo de Cliente", ["Pessoa Física", "Pessoa Jurídica"], horizontal=True, index=0 if d_ct.get('tipo', 'Pessoa Física') == 'Pessoa Física' else 1, key=f"ct_tipo_{prefix_key}")
-            c_nome = st.text_input("Nome Completo / Razão Social", value=d_ct.get('nome', projeto_selecionado.get('nome_cliente', '')), key=f"ct_nome_{prefix_key}")
+            c_nome = st.text_input("Nome Completo / Razão Social", value=d_ct.get('nome', novo_nome_cliente), key=f"ct_nome_{prefix_key}")
             c_cpf = st.text_input("CPF" if c_tipo == "Pessoa Física" else "CNPJ", value=d_ct.get('cpf', ''), key=f"ct_cpf_{prefix_key}")
 
             st.markdown("#### Endereço do Cliente")
@@ -567,6 +568,8 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
     else:
         if st.button("💾 SALVAR PROJETO", type="primary", use_container_width=True, key=f"save_{prefix_key}"):
             dados = {
+                "nome_cliente": novo_nome_cliente,
+                "telefone_cliente": novo_tel_cliente,
                 "status_projeto": novo_status, 
                 "data_conclusao": nova_data.strftime('%Y-%m-%d'),
                 "instalador": novo_instalador,
@@ -642,9 +645,35 @@ def renderizar():
     df['data_conclusao'] = pd.to_datetime(df['data_conclusao'], errors='coerce')
     df['ir_finalizados'] = df.apply(lambda x: deve_ir_para_finalizados(x['status_projeto'], x['data_conclusao']), axis=1)
 
-    # Aplica a máscara BR com o separador de milhar para exibição na tabela
-    df['valor_venda_total_str'] = df['valor_venda_total'].apply(lambda x: utils.to_br_currency(x))
-    df['lucro_estimado_str'] = df['lucro_estimado'].apply(lambda x: utils.to_br_currency(x))
+    # --- PROCESSAMENTO DAS NOVAS COLUNAS DIRECIONADAS ---
+    df['Cliente'] = df['nome_cliente']
+    df['Status'] = df['status_projeto']
+    df['Valor Total'] = df['valor_venda_total'].apply(lambda x: utils.to_br_currency(x))
+    df['Lucro Líquido'] = df['lucro_estimado'].apply(lambda x: utils.to_br_currency(x))
+    df['Instalador'] = df['instalador']
+
+    # Regra lógica para "Data de término"
+    def descobrir_data_termino(row):
+        status = str(row['status_projeto'])
+        alvos = ["Aguardando Pagamento", "Concluído PIX", "Concluído CARTÃO", "Aguardando Peças"]
+        if status in alvos and pd.notna(row['data_conclusao']) and str(row['data_conclusao']).lower() not in ['nat', 'none', 'nan']:
+            try:
+                return pd.to_datetime(row['data_conclusao']).strftime('%d/%m/%Y')
+            except:
+                pass
+        return ""
+    df['Data de término'] = df.apply(descobrir_data_termino, axis=1)
+
+    # Regra lógica para "($) Fornecedor"
+    def descobrir_venc_fornecedor(row):
+        venc = row.get('vencimento_boleto')
+        if pd.notna(venc) and str(venc).strip().lower() not in ['none', 'nan', 'nat', '']:
+            try: 
+                return pd.to_datetime(venc).strftime('%d/%m/%Y')
+            except: 
+                return str(venc)
+        return ""
+    df['($) Fornecedor'] = df.apply(descobrir_venc_fornecedor, axis=1)
 
     ativos_status = ["Em Andamento", "Aguardando Pagamento", "Aguardando Peças", "Concluído PIX", "Concluído CARTÃO"]
     
@@ -657,15 +686,17 @@ def renderizar():
 
     aba1, aba2, aba3 = st.tabs(["🚀 Em Andamento", "📝 Orçamentos", "✅ Finalizados"])
     
-    colunas_visiveis = ['nome_cliente', 'status_projeto', 'valor_venda_total_str', 'lucro_estimado_str', 'data_conclusao', 'instalador']
+    # Ordem exata de visualização na Grid pedido pelo usuário
+    colunas_visiveis = ['Cliente', 'Status', 'Valor Total', 'Lucro Líquido', 'Data de término', 'Instalador', '($) Fornecedor']
     
     config_colunas = {
-        "nome_cliente": "Cliente",
-        "status_projeto": "Status",
-        "valor_venda_total_str": st.column_config.TextColumn("Venda Total"),
-        "lucro_estimado_str": st.column_config.TextColumn("Lucro Líquido"),
-        "data_conclusao": st.column_config.DateColumn("Data de Inclusão", format="DD/MM/YYYY"),
-        "instalador": "Instalador"
+        "Cliente": "Cliente",
+        "Status": "Status",
+        "Valor Total": st.column_config.TextColumn("Valor Total"),
+        "Lucro Líquido": st.column_config.TextColumn("Lucro Líquido"),
+        "Data de término": st.column_config.TextColumn("Data de término"),
+        "Instalador": "Instalador",
+        "($) Fornecedor": st.column_config.TextColumn("($) Fornecedor")
     }
     
     with aba1:
