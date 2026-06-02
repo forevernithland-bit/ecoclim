@@ -331,7 +331,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                         mes_idx = data_confirmada.month
                         nome_mes_pasta = utils.meses_pt[mes_idx - 1]
                         
-                        nome_cliente_limpo = novo_nome_cliente.split()[0]
+                        nome_cliente_limpo = novo_nome_cliente.split()[0] if novo_nome_cliente else "Cliente"
                         nome_arquivo_drive = f"FORNECEDOR_{nome_cliente_limpo}_{data_confirmada.strftime('%d%m%Y')}.pdf"
                         
                         sucesso, link_id = utils.upload_to_drive(
@@ -367,7 +367,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                             except Exception as e:
                                 st.error(f"Erro no banco de dados. Tabela 'boletos_fornecedores' existe? Erro: {e}")
                         else:
-                            st.error("Erro ao fazer o upload para o Google Drive.")
+                            st.error(f"Erro ao fazer o upload para o Google Drive. Detalhes: {link_id}")
 
     # ==============================================================
     # AÇÕES FINAIS E GERAÇÃO DE ARQUIVOS
