@@ -15,16 +15,11 @@ def safe_float(val):
         return 0.0
 
 def deve_ir_para_finalizados(status, data_conc_str):
-    if status not in ["Concluído PIX", "Concluído CARTÃO"]:
-        return False
-    try:
-        data_conc = pd.to_datetime(data_conc_str).date()
-        hoje = datetime.date.today()
-        if hoje.year > data_conc.year or (hoje.year == data_conc.year and hoje.month > data_conc.month):
-            return True
-        return False
-    except:
-        return False
+    # NOVA LÓGICA: Se o status for concluído, vai para a aba finalizados imediatamente
+    # para ser filtrado pelo ano e mês da conclusão.
+    if status in ["Concluído PIX", "Concluído CARTÃO"]:
+        return True
+    return False
 
 def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_produtos, prefix_key, lista_instaladores):
     st.markdown("---")
@@ -714,9 +709,35 @@ def renderizar():
             exibir_painel_detalhado(df_orc.iloc[sel.selection.rows[0]], supabase, df_taxas, df_produtos, f"orc_{df_orc.iloc[sel.selection.rows[0]]['id']}", lista_instaladores)
 
     with aba3:
-        st.caption("Serviços concluídos em meses anteriores.")
-        sel = st.dataframe(df_fin[colunas_visiveis], use_container_width=True, on_select="rerun", selection_mode="single-row", hide_index=True, column_config=config_colunas, key="g_fin")
-        total_lucro_fin = pd.to_numeric(df_fin['lucro_estimado'], errors='coerce').fillna(0).sum()
-        st.markdown(f"<div style='text-align: right; color: #004488; font-size: 18px; font-weight: bold; margin-bottom: 20px;'>Total Lucro Líquido Realizado: {utils.to_br_currency(total_lucro_fin)}</div>", unsafe_allow_html=True)
-        if sel.selection.rows and len(df_fin) > sel.selection.rows[0]: 
-            exibir_painel_detalhado(df_fin.iloc[sel.selection.rows[0]], supabase, df_taxas, df_produtos, f"fin_{df_fin.iloc[sel.selection.rows[0]]['id']}", lista_instaladores)
+        st.caption("Histórico de serviços concluídos e faturados.")
+        
+        hoje = datetime.date.today()
+        ano_atual = hoje.year
+        mes_atual_idx = hoje.month
+
+        # Garante as colunas Ano e Mes para filtro de forma segura
+        df_fin['Ano'] = df_fin['data_conclusao'].dt.year.fillna(ano_atual).astype(int)
+        df_fin['Mes_idx'] = df_fin['data_conclusao'].dt.month.fillna(mes_atual_idx).astype(int)
+
+        anos_disponiveis = sorted(list(set(df_fin['Ano'].unique()) | {ano_atual}), reverse=True)
+
+        c_ano, c_mes, c_vazio = st.columns([1.5, 1.5, 7])
+        with c_ano:
+            ano_sel = st.selectbox("Ano", anos_disponiveis, index=anos_disponiveis.index(ano_atual), key="filtro_ano_fin")
+        with c_mes:
+            mes_sel = st.selectbox("Mês", utils.meses_pt, index=mes_atual_idx - 1, key="filtro_mes_fin")
+            mes_sel_idx = utils.meses_pt.index(mes_sel) + 1
+
+        # Aplica o filtro de ano e mês
+        df_fin_mes = df_fin[(df_fin['Ano'] == ano_sel) & (df_fin['Mes_idx'] == mes_sel_idx)].reset_index(drop=True)
+
+        if df_fin_mes.empty:
+            st.info(f"Nenhum serviço finalizado registrado em {mes_sel} de {ano_sel}.")
+        else:
+            sel_fin = st.dataframe(df_fin_mes[colunas_visiveis], use_container_width=True, on_select="rerun", selection_mode="single-row", hide_index=True, column_config=config_colunas, key=f"g_fin_{ano_sel}_{mes_sel_idx}")
+            
+            total_lucro_fin_mes = pd.to_numeric(df_fin_mes['lucro_estimado'], errors='coerce').fillna(0).sum()
+            st.markdown(f"<div style='text-align: right; color: #004488; font-size: 18px; font-weight: bold; margin-bottom: 20px;'>Total Lucro Líquido Realizado ({mes_sel}): {utils.to_br_currency(total_lucro_fin_mes)}</div>", unsafe_allow_html=True)
+            
+            if sel_fin.selection.rows and len(df_fin_mes) > sel_fin.selection.rows[0]: 
+                exibir_painel_detalhado(df_fin_mes.iloc[sel_fin.selection.rows[0]], supabase, df_taxas, df_produtos, f"fin_{df_fin_mes.iloc[sel_fin.selection.rows[0]]['id']}", lista_instaladores)
