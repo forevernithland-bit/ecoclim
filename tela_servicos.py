@@ -48,7 +48,27 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
     if pd.notna(data_banco) and str(data_banco).lower() not in ['none', 'nan', 'nat', '']:
         try: data_inicial = pd.to_datetime(data_banco).date()
         except: pass
-    nova_data = col_meio.date_input("Data de Inclusão / Previsão", value=data_inicial, format="DD/MM/YYYY", key=f"data_{prefix_key}")
+
+    # ---- NOVA LÓGICA DE DATA DE TÉRMINO AUTOMÁTICA E EDITÁVEL ----
+    if f"last_status_{prefix_key}" not in st.session_state:
+        st.session_state[f"last_status_{prefix_key}"] = status_atual
+
+    if f"data_edit_{prefix_key}" not in st.session_state:
+        st.session_state[f"data_edit_{prefix_key}"] = data_inicial
+
+    if novo_status != st.session_state[f"last_status_{prefix_key}"]:
+        # Se mudou PARA Concluído (e não era concluído antes), atualiza a data para HOJE
+        if novo_status in ["Concluído PIX", "Concluído CARTÃO"] and st.session_state[f"last_status_{prefix_key}"] not in ["Concluído PIX", "Concluído CARTÃO"]:
+            st.session_state[f"data_edit_{prefix_key}"] = datetime.date.today()
+        st.session_state[f"last_status_{prefix_key}"] = novo_status
+
+    label_data = "Data de Término" if novo_status in ["Concluído PIX", "Concluído CARTÃO"] else "Data de Inclusão / Previsão"
+    
+    nova_data = col_meio.date_input(label_data, value=st.session_state[f"data_edit_{prefix_key}"], format="DD/MM/YYYY", key=f"data_{prefix_key}")
+    
+    # Sincroniza caso o usuário altere na mão
+    st.session_state[f"data_edit_{prefix_key}"] = nova_data
+    # --------------------------------------------------------------
 
     # Caixa de seleção do Instalador
     instalador_atual = str(projeto_selecionado.get('instalador', ''))
@@ -582,9 +602,14 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             }
             try:
                 supabase.table('servicos_andamento').update(dados).eq('id', int(projeto_selecionado['id'])).execute()
-                # Limpa o estado temporário de itens para forçar recarga atualizada na próxima visualização
+                # Limpa estados para forçar recarga atualizada na próxima visualização
                 if f"itens_state_{prefix_key}" in st.session_state:
                     del st.session_state[f"itens_state_{prefix_key}"]
+                if f"last_status_{prefix_key}" in st.session_state: 
+                    del st.session_state[f"last_status_{prefix_key}"]
+                if f"data_edit_{prefix_key}" in st.session_state: 
+                    del st.session_state[f"data_edit_{prefix_key}"]
+                
                 st.success("✅ Atualizado com sucesso!")
                 st.rerun()
             except Exception as e: 
