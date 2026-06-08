@@ -56,6 +56,33 @@ def limpar_tela_orcamento():
             del st.session_state[k]
 
 def renderizar():
+    # =========================================================================
+    # CSS RESPONSIVO INJETADO AQUI (Aplica em todas as abas automaticamente)
+    # =========================================================================
+    st.markdown("""
+        <style>
+        @media screen and (max-width: 768px) {
+            /* Permite que as tabelas de itens deem scroll horizontal no celular */
+            div[data-testid="stDataFrame"], div[data-testid="stDataEditor"] {
+                overflow-x: auto !important;
+            }
+            
+            /* Força as colunas (ex: inputs do cliente, métricas e botões) a empilharem */
+            div[data-testid="column"] {
+                width: 100% !important;
+                min-width: 100% !important;
+                display: block !important;
+                margin-bottom: 0.8rem !important;
+            }
+            
+            /* Botões maiores para não errar o clique com o dedo */
+            div.stButton > button {
+                min-height: 48px !important;
+            }
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
     deve_rerun = False
     
     # -------------------------------------------------------------------------
