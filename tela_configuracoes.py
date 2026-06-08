@@ -12,7 +12,6 @@ def renderizar():
     # FUNÇÕES DE IMPORTAÇÃO/EXPORTAÇÃO DE CATÁLOGOS
     # =========================================================================
     def gerar_modelo_excel(df_dados=None):
-        # Se houver dados na base, preenche o modelo com eles. Se não, cria vazio.
         if df_dados is not None and not df_dados.empty:
             df_modelo = pd.DataFrame({
                 "ITEM": df_dados.get("Item", ""),
@@ -94,7 +93,6 @@ def renderizar():
         with col_file:
             arquivo_excel = st.file_uploader(f"Selecione o arquivo (.xlsx)", type=["xlsx"], key=f"upload_{nome_tabela}", label_visibility="collapsed")
         with col_btn:
-            # Agora enviamos o df_atual para que o excel já venha preenchido
             st.download_button(
                 label="📥 Baixar Modelo (.xlsx)",
                 data=gerar_modelo_excel(df_atual),
@@ -114,7 +112,6 @@ def renderizar():
         if f'temp_df_{nome_tabela}' in st.session_state:
             df_atual = st.session_state[f'temp_df_{nome_tabela}']
 
-        # GARANTIA ABSOLUTA CONTRA KEYERROR:
         colunas_padrao = ["Item", "Descrição", "Custo (R$)", "Margem (%)", "Lucro (R$)", "Venda (R$)"]
         for col in colunas_padrao:
             if col not in df_atual.columns:
@@ -128,14 +125,13 @@ def renderizar():
         if col_m2.button(f"Aplicar {margem_digitada}% a todos os itens acima", key=f"btn_massa_{nome_tabela}"):
             df_atual['Margem (%)'] = margem_digitada
             df_atual['Custo (R$)'] = pd.to_numeric(df_atual['Custo (R$)'], errors='coerce').fillna(0.0)
-            df_atual['Venda (R$)'] = df_atual['Custo (R$)'] * (1 + (df_atual['Margem (%)'] / 100))
-            df_atual['Lucro (R$)'] = df_atual['Venda (R$)'] - df_atual['Custo (R$)']
+            df_atual['Venda (R$)'] = (df_atual['Custo (R$)'] * (1 + (df_atual['Margem (%)'] / 100))).round(2)
+            df_atual['Lucro (R$)'] = (df_atual['Venda (R$)'] - df_atual['Custo (R$)']).round(2)
             st.session_state[f'temp_df_{nome_tabela}'] = df_atual
             st.rerun()
 
         st.markdown("#### 📋 Edição do Catálogo")
         
-        # --- NOVA BARRA DE BUSCA ---
         termo_busca = st.text_input("🔍 Buscar Item ou Descrição...", key=f"busca_{nome_tabela}").strip().lower()
 
         if termo_busca:
@@ -154,33 +150,97 @@ def renderizar():
             "Venda (R$)": st.column_config.NumberColumn("Preço Venda", format="R$ %,.2f")
         }
         
-        df_editor = st.data_editor(df_exibicao, column_config=config_editor, num_rows="dynamic", use_container_width=True, key=f"editor_{nome_tabela}")
+        editor_key = f"editor_{nome_tabela}"
+        df_editor = st.data_editor(df_exibicao, column_config=config_editor, num_rows="dynamic", use_container_width=True, key=editor_key)
         
         # Matemática Segura em tempo real
         df_editor['Custo (R$)'] = pd.to_numeric(df_editor['Custo (R$)'], errors='coerce').fillna(0.0)
         df_editor['Margem (%)'] = pd.to_numeric(df_editor['Margem (%)'], errors='coerce').fillna(0.0)
         df_editor['Venda (R$)'] = pd.to_numeric(df_editor['Venda (R$)'], errors='coerce').fillna(0.0)
-        
-        mascara_margem = df_editor['Margem (%)'] > 0
-        df_editor.loc[mascara_margem, 'Venda (R$)'] = df_editor.loc[mascara_margem, 'Custo (R$)'] * (1 + (df_editor.loc[mascara_margem, 'Margem (%)'] / 100))
-        df_editor['Lucro (R$)'] = df_editor['Venda (R$)'] - df_editor['Custo (R$)']
+        df_editor['Lucro (R$)'] = pd.to_numeric(df_editor['Lucro (R$)'], errors='coerce').fillna(0.0)
+
+        precisa_atualizar_matematica = False
+
+        if editor_key in st.session_state:
+            edits = st.session_state[editor_key].get("edited_rows", {})
+            for row_idx_str, changes in edits.items():
+                try:
+                    row_idx = int(row_idx_str)
+                    actual_idx = df_exibicao.index[row_idx]
+                    
+                    if "Venda (R$)" in changes and "Margem (%)" not in changes and "Custo (R$)" not in changes:
+                        # Usuário digitou o Preço de Venda manualmente
+                        c = df_editor.at[actual_idx, 'Custo (R$)']
+                        v = df_editor.at[actual_idx, 'Venda (R$)']
+                        m_calc = round(((v / c) - 1) * 100, 2) if c > 0 else 0.0
+                        l_calc = round(v - c, 2)
+                        df_editor.at[actual_idx, 'Margem (%)'] = m_calc
+                        df_editor.at[actual_idx, 'Lucro (R$)'] = l_calc
+                        precisa_atualizar_matematica = True
+                        
+                    elif "Margem (%)" in changes or "Custo (R$)" in changes:
+                        # Usuário alterou a Margem ou Custo manualmente
+                        c = df_editor.at[actual_idx, 'Custo (R$)']
+                        m = df_editor.at[actual_idx, 'Margem (%)']
+                        v_calc = round(c * (1 + (m / 100)), 2)
+                        l_calc = round(v_calc - c, 2)
+                        df_editor.at[actual_idx, 'Venda (R$)'] = v_calc
+                        df_editor.at[actual_idx, 'Lucro (R$)'] = l_calc
+                        precisa_atualizar_matematica = True
+                except Exception:
+                    pass
+
+            # Varredura de segurança para calcular linhas que ficaram fora do dicionário de edições (ex: novas linhas)
+            for idx in df_editor.index:
+                c = df_editor.at[idx, 'Custo (R$)']
+                m = df_editor.at[idx, 'Margem (%)']
+                v = df_editor.at[idx, 'Venda (R$)']
+                l = df_editor.at[idx, 'Lucro (R$)']
+                
+                v_calc = round(c * (1 + (m / 100)), 2)
+                l_calc = round(v_calc - c, 2)
+                
+                # Se for uma edição manual do preço de venda, não forçamos o cálculo padrão
+                is_manual_venda = False
+                for row_idx_str, changes in edits.items():
+                    try:
+                        if df_exibicao.index[int(row_idx_str)] == idx and "Venda (R$)" in changes and "Margem (%)" not in changes and "Custo (R$)" not in changes:
+                            is_manual_venda = True
+                    except: pass
+                
+                if not is_manual_venda:
+                    if abs(v - v_calc) > 0.01 or abs(l - l_calc) > 0.01:
+                        df_editor.at[idx, 'Venda (R$)'] = v_calc
+                        df_editor.at[idx, 'Lucro (R$)'] = l_calc
+                        precisa_atualizar_matematica = True
+
+        if precisa_atualizar_matematica:
+            if termo_busca:
+                df_temp = df_atual.copy()
+                df_temp.update(df_editor)
+                linhas_apagadas = df_exibicao.index.difference(df_editor.index)
+                if not linhas_apagadas.empty:
+                    df_temp = df_temp.drop(linhas_apagadas)
+                linhas_novas = df_editor[~df_editor.index.isin(df_atual.index)]
+                if not linhas_novas.empty:
+                    df_temp = pd.concat([df_temp, linhas_novas])
+                df_temp = df_temp.reset_index(drop=True)
+            else:
+                df_temp = df_editor.reset_index(drop=True)
+
+            st.session_state[f'temp_df_{nome_tabela}'] = df_temp
+            st.rerun()
 
         if st.button(f"💾 GRAVAR ALTERAÇÕES", type="primary", use_container_width=True, key=f"save_{nome_tabela}"):
             if termo_busca:
-                # Motor de Mesclagem: Atualiza a base principal sem apagar itens filtrados!
                 df_salvar = df_atual.copy()
                 df_salvar.update(df_editor)
-                
-                # Identifica se o usuário deletou alguma linha durante a busca
                 linhas_apagadas = df_exibicao.index.difference(df_editor.index)
                 if not linhas_apagadas.empty:
                     df_salvar = df_salvar.drop(linhas_apagadas)
-                    
-                # Identifica se o usuário adicionou uma linha nova durante a busca
                 linhas_novas = df_editor[~df_editor.index.isin(df_atual.index)]
                 if not linhas_novas.empty:
                     df_salvar = pd.concat([df_salvar, linhas_novas])
-                    
                 df_salvar = df_salvar.reset_index(drop=True)
             else:
                 df_salvar = df_editor.reset_index(drop=True)
