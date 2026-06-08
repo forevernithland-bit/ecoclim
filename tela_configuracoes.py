@@ -134,6 +134,17 @@ def renderizar():
             st.rerun()
 
         st.markdown("#### 📋 Edição do Catálogo")
+        
+        # --- NOVA BARRA DE BUSCA ---
+        termo_busca = st.text_input("🔍 Buscar Item ou Descrição...", key=f"busca_{nome_tabela}").strip().lower()
+
+        if termo_busca:
+            mascara = df_atual['Item'].astype(str).str.lower().str.contains(termo_busca) | \
+                      df_atual['Descrição'].astype(str).str.lower().str.contains(termo_busca)
+            df_exibicao = df_atual[mascara].copy()
+        else:
+            df_exibicao = df_atual.copy()
+
         config_editor = {
             "Item": st.column_config.TextColumn("Item", width="medium"),
             "Descrição": st.column_config.TextColumn("Descrição / Detalhes", width="large"),
@@ -143,7 +154,7 @@ def renderizar():
             "Venda (R$)": st.column_config.NumberColumn("Preço Venda", format="R$ %,.2f")
         }
         
-        df_editor = st.data_editor(df_atual, column_config=config_editor, num_rows="dynamic", use_container_width=True, key=f"editor_{nome_tabela}")
+        df_editor = st.data_editor(df_exibicao, column_config=config_editor, num_rows="dynamic", use_container_width=True, key=f"editor_{nome_tabela}")
         
         # Matemática Segura em tempo real
         df_editor['Custo (R$)'] = pd.to_numeric(df_editor['Custo (R$)'], errors='coerce').fillna(0.0)
@@ -155,9 +166,28 @@ def renderizar():
         df_editor['Lucro (R$)'] = df_editor['Venda (R$)'] - df_editor['Custo (R$)']
 
         if st.button(f"💾 GRAVAR ALTERAÇÕES", type="primary", use_container_width=True, key=f"save_{nome_tabela}"):
-            utils.save_catalog(nome_tabela, df_editor)
+            if termo_busca:
+                # Motor de Mesclagem: Atualiza a base principal sem apagar itens filtrados!
+                df_salvar = df_atual.copy()
+                df_salvar.update(df_editor)
+                
+                # Identifica se o usuário deletou alguma linha durante a busca
+                linhas_apagadas = df_exibicao.index.difference(df_editor.index)
+                if not linhas_apagadas.empty:
+                    df_salvar = df_salvar.drop(linhas_apagadas)
+                    
+                # Identifica se o usuário adicionou uma linha nova durante a busca
+                linhas_novas = df_editor[~df_editor.index.isin(df_atual.index)]
+                if not linhas_novas.empty:
+                    df_salvar = pd.concat([df_salvar, linhas_novas])
+                    
+                df_salvar = df_salvar.reset_index(drop=True)
+            else:
+                df_salvar = df_editor.reset_index(drop=True)
+                
+            utils.save_catalog(nome_tabela, df_salvar)
             if f'temp_df_{nome_tabela}' in st.session_state: del st.session_state[f'temp_df_{nome_tabela}']
-            st.success(f"Catálogo atualizado!")
+            st.success(f"Catálogo atualizado com sucesso!")
             st.rerun()
 
     with tabs[0]: exibir_aba_catalogo('catalogo_produtos', 'Produtos')
