@@ -263,7 +263,8 @@ def renderizar():
             st.session_state.pop('db_df_e', None)
             st.rerun()
 
-    contas_p = ['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS', 'IMÓVEIS', 'VEÍCULOS']
+    # Adicionado INVESTIMENTO ITAU logo abaixo do INVESTIMENTO INTER
+    contas_p = ['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'INVESTIMENTO INTER', 'INVESTIMENTO ITAU', 'INVESTIMENTO XP', 'FGTS', 'IMÓVEIS', 'VEÍCULOS']
     contas_e = ['ECOCLIM', 'AIRNB', 'CONS INVESTIMENTOS', 'MAGGI CONSORCIOS']
     
     if ('db_df_p' not in st.session_state or 
@@ -278,10 +279,11 @@ def renderizar():
         st.session_state.forcar_reload_fin = False
 
     df_p_prev = carregar_dados_fin('fin_patrimonio', contas_p, ano_selecionado - 1).set_index('MESES')
-    pat_liq_prev_dec = df_p_prev.loc[df_p_prev.index.isin(['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS']), 'DEZEMBRO'].sum()
+    pat_liq_prev_dec = df_p_prev.loc[df_p_prev.index.isin(['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'INVESTIMENTO INTER', 'INVESTIMENTO ITAU', 'INVESTIMENTO XP', 'FGTS']), 'DEZEMBRO'].sum()
     pat_tot_prev_dec = pat_liq_prev_dec + df_p_prev.loc[df_p_prev.index.isin(['IMÓVEIS', 'VEÍCULOS']), 'DEZEMBRO'].sum()
     xp_prev_dec = df_p_prev.loc['INVESTIMENTO XP', 'DEZEMBRO'] if 'INVESTIMENTO XP' in df_p_prev.index else 0
-    inter_prev_dec = df_p_prev.loc['CONTA INTER', 'DEZEMBRO'] if 'CONTA INTER' in df_p_prev.index else 0
+    inter_prev_dec = df_p_prev.loc['INVESTIMENTO INTER', 'DEZEMBRO'] if 'INVESTIMENTO INTER' in df_p_prev.index else 0
+    itau_prev_dec = df_p_prev.loc['INVESTIMENTO ITAU', 'DEZEMBRO'] if 'INVESTIMENTO ITAU' in df_p_prev.index else 0
 
     # Configuração visual: Todos em Texto para poder exibir R$ e pontos perfeitos!
     cfg_edit = {"MESES": st.column_config.TextColumn("CONTA", width=220, disabled=True)}
@@ -333,7 +335,7 @@ def renderizar():
         hide_index=True, 
         column_config=cfg_edit, 
         use_container_width=True, 
-        height=285, 
+        height=320, 
         key=f"ed_p_fin_estavel_v12_{ano_selecionado}"
     )
 
@@ -343,7 +345,7 @@ def renderizar():
         if c != "MESES": df_p_trabalho[c] = df_p_ed[c].apply(parse_br_currency)
 
     df_n = df_p_trabalho.set_index('MESES')
-    pat_liq = df_n.loc[df_n.index.isin(['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'CONTA INTER', 'INVESTIMENTO XP', 'FGTS'])].sum()
+    pat_liq = df_n.loc[df_n.index.isin(['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'INVESTIMENTO INTER', 'INVESTIMENTO ITAU', 'INVESTIMENTO XP', 'FGTS'])].sum()
     pat_tot = pat_liq + df_n.loc[df_n.index.isin(['IMÓVEIS', 'VEÍCULOS'])].sum()
     
     var_abs = pat_tot.copy()
@@ -419,20 +421,22 @@ def renderizar():
     # --------------------------
     st.markdown("#### 📈 Rendimento Mensal (Investimentos)")
     xp_v = df_n.loc['INVESTIMENTO XP'] if 'INVESTIMENTO XP' in df_n.index else pd.Series(0.0, index=utils.meses_pt)
-    it_v = df_n.loc['CONTA INTER'] if 'CONTA INTER' in df_n.index else pd.Series(0.0, index=utils.meses_pt)
+    it_v = df_n.loc['INVESTIMENTO INTER'] if 'INVESTIMENTO INTER' in df_n.index else pd.Series(0.0, index=utils.meses_pt)
+    itau_v = df_n.loc['INVESTIMENTO ITAU'] if 'INVESTIMENTO ITAU' in df_n.index else pd.Series(0.0, index=utils.meses_pt)
     
-    dict_rend = {'MESES': ['RESULTADO XP', 'RESULTADO INTER', 'RENDIMENTO TOTAL', '% RETORNO MÊS', 'SALÁRIO + RENDIMENTO MÊS']}
+    dict_rend = {'MESES': ['RESULTADO XP', 'RESULTADO INTER', 'RESULTADO ITAU', 'RENDIMENTO TOTAL', '% RETORNO MÊS', 'SALÁRIO + RENDIMENTO MÊS']}
     for i, m in enumerate(utils.meses_pt):
         is_futuro = (ano_selecionado > utils.ano_atual) or (ano_selecionado == utils.ano_atual and i > (utils.mes_hoje_idx - 1))
         if is_futuro:
-            dict_rend[m] = ["R$ 0,00", "R$ 0,00", "R$ 0,00", "0,00%", "R$ 0,00"]
+            dict_rend[m] = ["R$ 0,00", "R$ 0,00", "R$ 0,00", "R$ 0,00", "0,00%", "R$ 0,00"]
         else:
             v_xp = xp_v[m] - (xp_v[utils.meses_pt[i-1]] if i > 0 else xp_prev_dec)
             v_it = it_v[m] - (it_v[utils.meses_pt[i-1]] if i > 0 else inter_prev_dec)
-            r_tot = v_xp + v_it
-            p_bal = (xp_v[utils.meses_pt[i-1]] + it_v[utils.meses_pt[i-1]]) if i > 0 else (xp_prev_dec + inter_prev_dec)
+            v_itau = itau_v[m] - (itau_v[utils.meses_pt[i-1]] if i > 0 else itau_prev_dec)
+            r_tot = v_xp + v_it + v_itau
+            p_bal = (xp_v[utils.meses_pt[i-1]] + it_v[utils.meses_pt[i-1]] + itau_v[utils.meses_pt[i-1]]) if i > 0 else (xp_prev_dec + inter_prev_dec + itau_prev_dec)
             pct = (r_tot / p_bal * 100) if p_bal > 0 else 0.0
-            dict_rend[m] = [utils.to_br_currency(v_xp), utils.to_br_currency(v_it), utils.to_br_currency(r_tot), f"{pct:.2f}%".replace('.',','), utils.to_br_currency(tot_e[m] + r_tot)]
+            dict_rend[m] = [utils.to_br_currency(v_xp), utils.to_br_currency(v_it), utils.to_br_currency(v_itau), utils.to_br_currency(r_tot), f"{pct:.2f}%".replace('.',','), utils.to_br_currency(tot_e[m] + r_tot)]
             
     st.dataframe(pd.DataFrame(dict_rend)[colunas_visiveis].style.apply(lambda r: [f'background-color: {"#FF9900" if r["MESES"] == "RENDIMENTO TOTAL" else "#FFF2CC" if "%" in r["MESES"] else "#9BC2E6" if "SALÁRIO" in r["MESES"] else "white"}; color: black; font-weight: bold' for _ in colunas_visiveis], axis=1), hide_index=True, column_config=cfg_text, use_container_width=True)
     st.markdown('</div>', unsafe_allow_html=True)
@@ -448,10 +452,12 @@ def renderizar():
     
     xp_var_full = xp_v - xp_v.shift(1).fillna(xp_prev_dec)
     it_var_full = it_v - it_v.shift(1).fillna(inter_prev_dec)
-    rend_tot_full = xp_var_full + it_var_full
+    itau_var_full = itau_v - itau_v.shift(1).fillna(itau_prev_dec)
+    
+    rend_tot_full = xp_var_full + it_var_full + itau_var_full
     media_rend_r = rend_tot_full[meses_calc].mean()
     
-    prev_bal_full = (xp_v + it_v).shift(1).fillna(xp_prev_dec + inter_prev_dec)
+    prev_bal_full = (xp_v + it_v + itau_v).shift(1).fillna(xp_prev_dec + inter_prev_dec + itau_prev_dec)
     pb_safe = prev_bal_full[meses_calc].replace(0, np.nan)
     media_rend_p = (rend_tot_full[meses_calc] / pb_safe).mean() * 100
     
