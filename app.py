@@ -57,10 +57,13 @@ except Exception as e:
     st.error(f"Erro crítico na conexão com o banco de dados: {e}")
 
 # =============================================================================
-# 5. ESTILIZAÇÃO CSS GLOBAL (DESIGN CLEAN & MODERNO)
+# 5. ESTILIZAÇÃO CSS GLOBAL (DESIGN CLEAN & MODERNO) + RESPONSIVIDADE
 # =============================================================================
 st.markdown("""
     <style>
+    /* =====================================================================
+       💻 ESTILOS ORIGINAIS (PC) INTOCADOS
+       ===================================================================== */
     /* Fundo branco total na barra lateral */
     [data-testid="stSidebar"] {
         background-color: #ffffff !important;
@@ -155,6 +158,61 @@ st.markdown("""
         color: #004488 !important;
         transform: translateY(-2px) !important;
     }
+
+    /* =====================================================================
+       📱 RESPONSIVIDADE PARA CELULAR (CSS INJETADO EXCLUSIVAMENTE PARA MOBILE)
+       ===================================================================== */
+    @media screen and (max-width: 768px) {
+        /* Reduzir padding global para ganhar espaço na tela */
+        .block-container { 
+            padding-top: 2rem !important; 
+            padding-left: 0.5rem !important; 
+            padding-right: 0.5rem !important; 
+        }
+
+        /* Reorganizar Dashboard de Lembretes - Quebra a linha e empilha */
+        div[data-testid="stHorizontalBlock"]:has(.card-lembrete) {
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 8px !important;
+            margin-bottom: 25px !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+            padding: 10px !important;
+            background-color: #f8fafc !important;
+        }
+
+        /* Ocupar 100% da largura na coluna do card e nos botões */
+        div[data-testid="stHorizontalBlock"]:has(.card-lembrete) > div[data-testid="column"] {
+            width: 100% !important;
+            min-width: 100% !important;
+        }
+
+        /* Limpar as bordas do item interno (já que a caixa externa assumiu) */
+        .card-lembrete {
+            border: none !important;
+            padding: 0 !important;
+            height: auto !important;
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            background-color: transparent !important;
+            gap: 8px !important;
+        }
+
+        .card-lembrete > div {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            gap: 2px !important;
+        }
+
+        /* Aumentar a área de "touch" (clique com o dedo) nos botões no celular */
+        div.stButton > button[kind="primary"],
+        div.stButton > button[kind="secondary"] {
+            min-height: 48px !important;
+            font-size: 1rem !important;
+        }
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -169,7 +227,7 @@ if "menu_option" not in st.session_state:
 
 if not st.session_state.authenticated:
     
-    # CSS Injetado APENAS para a tela de login (Mega compacto para caber na tela)
+    # CSS Injetado APENAS para a tela de login
     st.markdown("""
         <style>
         /* Esconde a barra lateral E o espaço em branco do topo (header) */
@@ -205,6 +263,28 @@ if not st.session_state.authenticated:
             background-color: #003366 !important;
             transform: translateY(-2px) !important;
             box-shadow: 0 6px 12px rgba(0,0,0,0.15) !important;
+        }
+
+        /* =====================================================================
+           📱 TELA DE LOGIN RESPONSIVA PARA CELULAR
+           ===================================================================== */
+        @media screen and (max-width: 768px) {
+            .block-container {
+                padding-left: 1rem !important;
+                padding-right: 1rem !important;
+            }
+            /* Ocultar colunas vazias de espaçamento lateral e expandir a central para 100% */
+            div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(1),
+            div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(3) {
+                display: none !important;
+            }
+            div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(2) {
+                width: 100% !important;
+                min-width: 100% !important;
+            }
+            .login-btn-container div.stButton > button {
+                min-height: 48px !important;
+            }
         }
         </style>
     """, unsafe_allow_html=True)
