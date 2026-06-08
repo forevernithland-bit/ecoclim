@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import io
+import datetime
 import utils
 
 # =============================================================================
@@ -13,20 +14,17 @@ def parse_br_currency(val):
     val_str = str(val).strip()
     if val_str == '': return 0.0
     
-    # Remove R$ e espaços
     val_str = val_str.replace('R$', '').replace('\xa0', '').replace(' ', '')
     
     if ',' in val_str:
-        val_str = val_str.replace('.', '') # Tira os pontos de milhar
-        val_str = val_str.replace(',', '.') # Vírgula vira decimal
+        val_str = val_str.replace('.', '') 
+        val_str = val_str.replace(',', '.') 
     else:
         if '.' in val_str:
             partes = val_str.split('.')
             if len(partes) > 2:
-                # Se tiver mais de um ponto (ex: 1.000.000), os pontos são milhares
                 val_str = val_str.replace('.', '')
             else:
-                # Se tiver exatos 3 dígitos após o ponto (ex: 1.500), assumimos milhar
                 if len(partes[1]) == 3:
                     val_str = val_str.replace('.', '')
     try:
@@ -178,11 +176,9 @@ def importar_base_completa_excel(file_buffer):
         def processar_aba(df, nome_tabela_banco):
             df.columns = df.columns.str.strip().str.upper()
             
-            # Limpeza anti-linhas fantasmas
             if 'ANO' not in df.columns or 'MESES' not in df.columns: return
             df = df.dropna(subset=['ANO', 'MESES'])
             
-            # Limpeza anti-NAN do Excel
             for col in utils.meses_pt:
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
@@ -235,6 +231,27 @@ def importar_base_completa_excel(file_buffer):
 def renderizar():
     st.markdown('<div class="financeiro">', unsafe_allow_html=True)
     
+    # CSS RESPONSIVO INJETADO AQUI
+    st.markdown("""
+        <style>
+        @media screen and (max-width: 768px) {
+            .financeiro div[data-testid="stDataFrame"], .financeiro div[data-testid="stDataEditor"] {
+                overflow-x: auto !important;
+            }
+            .financeiro div[data-testid="column"] {
+                width: 100% !important;
+                min-width: 100% !important;
+                display: block !important;
+                margin-bottom: 1rem !important;
+            }
+            .financeiro h4 {
+                font-size: 1.1rem !important;
+                margin-bottom: 0.5rem !important;
+            }
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    
     if "salvar_fin_clicado" not in st.session_state:
         st.session_state.salvar_fin_clicado = False
         
@@ -247,6 +264,20 @@ def renderizar():
         st.write("---")
         
         st.markdown("### 👁️ Linha do Tempo")
+        
+        # --- NOVO MOTOR: BOTÕES RÁPIDOS DE FILTRO PARA CELULAR / PC ---
+        c_btn1, c_btn2 = st.columns(2)
+        if c_btn1.button("📱 3 Meses", help="Mês Passado, Atual e Próximo", use_container_width=True):
+            hoje_idx = datetime.date.today().month - 1
+            idx_ini = max(0, hoje_idx - 1)
+            idx_fim = min(11, hoje_idx + 1)
+            salvar_periodo_visivel(utils.meses_pt[idx_ini], utils.meses_pt[idx_fim])
+            st.rerun()
+            
+        if c_btn2.button("💻 12 Meses", help="Mostrar Todo o Ano", use_container_width=True):
+            salvar_periodo_visivel("JANEIRO", "DEZEMBRO")
+            st.rerun()
+        # -------------------------------------------------------------
         
         pref_ini, pref_fim = carregar_periodo_visivel()
         m_ini, m_fim = st.select_slider("Período Visível:", options=utils.meses_pt, value=(pref_ini, pref_fim))
@@ -263,7 +294,6 @@ def renderizar():
             st.session_state.pop('db_df_e', None)
             st.rerun()
 
-    # Adicionado INVESTIMENTO ITAU logo abaixo do INVESTIMENTO INTER
     contas_p = ['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'INVESTIMENTO INTER', 'INVESTIMENTO ITAU', 'INVESTIMENTO XP', 'FGTS', 'IMÓVEIS', 'VEÍCULOS']
     contas_e = ['ECOCLIM', 'AIRNB', 'CONS INVESTIMENTOS', 'MAGGI CONSORCIOS']
     
@@ -285,7 +315,6 @@ def renderizar():
     inter_prev_dec = df_p_prev.loc['INVESTIMENTO INTER', 'DEZEMBRO'] if 'INVESTIMENTO INTER' in df_p_prev.index else 0
     itau_prev_dec = df_p_prev.loc['INVESTIMENTO ITAU', 'DEZEMBRO'] if 'INVESTIMENTO ITAU' in df_p_prev.index else 0
 
-    # Configuração visual: Todos em Texto para poder exibir R$ e pontos perfeitos!
     cfg_edit = {"MESES": st.column_config.TextColumn("CONTA", width=220, disabled=True)}
     cfg_text = {"MESES": st.column_config.TextColumn("CONTA", width=220, disabled=True)}
     for m in utils.meses_pt: 
@@ -294,9 +323,6 @@ def renderizar():
 
     st.markdown('<div class="container-tabelas">', unsafe_allow_html=True)
     
-    # =============================================================================
-    # ALINHAMENTO SUPERIOR DOS BOTÕES DE IMPORTAÇÃO/EXPORTAÇÃO GLOBAL 
-    # =============================================================================
     c_titulo, c_exp, c_imp = st.columns([1.6, 1.1, 1.3])
     
     with c_titulo:
@@ -306,9 +332,9 @@ def renderizar():
         arquivo_completo_excel = exportar_base_completa_excel()
         if arquivo_completo_excel:
             st.download_button(
-                label="📤 EXPORTAR TODA BASE (EXCEL)",
+                label="📤 EXPORTAR TODA BASE",
                 data=arquivo_completo_excel,
-                file_name="ERP_ECOCLIM_FINANCEIRO_TOTAL.xlsx",
+                file_name="ERP_ECOCLIM_FINANCEIRO.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,
                 key="btn_exportar_total_global"
@@ -317,14 +343,13 @@ def renderizar():
     with c_imp:
         excel_subido_global = st.file_uploader("Importar base completa", type=["xlsx"], label_visibility="collapsed", key="file_uploader_global_fin")
         if excel_subido_global is not None:
-            if st.button("🚀 CONFIRMAR IMPORTAÇÃO TOTAL", use_container_width=True, type="secondary", key="btn_executar_importacao_global"):
-                with st.spinner("Substituindo dados históricos no Supabase..."):
+            if st.button("🚀 CONFIRMAR IMPORTAÇÃO", use_container_width=True, type="secondary", key="btn_executar_importacao_global"):
+                with st.spinner("Substituindo dados..."):
                     if importar_base_completa_excel(excel_subido_global):
-                        st.success("✅ Toda a base histórica do Excel foi gravada com sucesso!")
+                        st.success("✅ Importação com sucesso!")
                         st.session_state.forcar_reload_fin = True
                         st.rerun()
 
-    # Aplicação da máscara visual brasileira R$ 1.000.000,00 no editor
     df_p_view = st.session_state.db_df_p[colunas_visiveis].copy()
     for m in colunas_visiveis:
         if m != "MESES":
@@ -339,7 +364,6 @@ def renderizar():
         key=f"ed_p_fin_estavel_v12_{ano_selecionado}"
     )
 
-    # Conversão reversa usando o robô
     df_p_trabalho = st.session_state.db_df_p.copy()
     for c in colunas_visiveis: 
         if c != "MESES": df_p_trabalho[c] = df_p_ed[c].apply(parse_br_currency)
@@ -368,12 +392,8 @@ def renderizar():
 
     st.markdown("---")
     
-    # --------------------------
-    # 2. RECEBIMENTOS
-    # --------------------------
     st.markdown(f"#### 💰 Recebimentos e Pró-labore ({ano_selecionado})")
     
-    # Aplicação da máscara visual
     df_e_view = st.session_state.db_df_e[colunas_visiveis].copy()
     for m in colunas_visiveis:
         if m != "MESES":
@@ -402,23 +422,19 @@ def renderizar():
 
     st.markdown("---")
     
-    # --- BOTÃO DE SALVAMENTO MANUAL ---
     col_espaco, col_btn = st.columns([3, 1])
     if col_btn.button("💾 GRAVAR ALTERAÇÕES", type="primary", use_container_width=True, key="btn_gravar_rodape"):
         st.session_state.salvar_fin_clicado = True
 
     if st.session_state.salvar_fin_clicado:
-        with st.spinner("Gravando e consolidando dados no Supabase..."):
+        with st.spinner("Gravando no Supabase..."):
             st.session_state.db_df_p = df_p_trabalho
             st.session_state.db_df_e = df_e_trabalho
             salvar_dados_fin('fin_patrimonio', st.session_state.db_df_p, ano_selecionado)
             salvar_dados_fin('fin_entradas', st.session_state.db_df_e, ano_selecionado)
         st.session_state.salvar_fin_clicado = False
-        st.success("✅ Alterações fiscais gravadas com sucesso!")
+        st.success("✅ Alterações gravadas!")
 
-    # --------------------------
-    # 3. RENDIMENTOS
-    # --------------------------
     st.markdown("#### 📈 Rendimento Mensal (Investimentos)")
     xp_v = df_n.loc['INVESTIMENTO XP'] if 'INVESTIMENTO XP' in df_n.index else pd.Series(0.0, index=utils.meses_pt)
     it_v = df_n.loc['INVESTIMENTO INTER'] if 'INVESTIMENTO INTER' in df_n.index else pd.Series(0.0, index=utils.meses_pt)
@@ -441,9 +457,6 @@ def renderizar():
     st.dataframe(pd.DataFrame(dict_rend)[colunas_visiveis].style.apply(lambda r: [f'background-color: {"#FF9900" if r["MESES"] == "RENDIMENTO TOTAL" else "#FFF2CC" if "%" in r["MESES"] else "#9BC2E6" if "SALÁRIO" in r["MESES"] else "white"}; color: black; font-weight: bold' for _ in colunas_visiveis], axis=1), hide_index=True, column_config=cfg_text, use_container_width=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # --------------------------
-    # 4. MÉTRICAS FINAIS
-    # --------------------------
     st.markdown("<br>", unsafe_allow_html=True)
     c1, c2, c3, c4 = st.columns(4)
     meses_calc = utils.meses_pt[:utils.mes_hoje_idx] if ano_selecionado == utils.ano_atual else utils.meses_pt
@@ -468,9 +481,6 @@ def renderizar():
     c3.metric("📈 MÉDIA RETORNO (%)", f"{media_rend_p:.2f}%".replace(".", ","))
     c4.metric("🏛️ PATRIMÔNIO ATUAL", utils.to_br_currency(pat_atual))
 
-    # --------------------------
-    # 5. GRÁFICOS
-    # --------------------------
     st.write("---")
     g1, g2 = st.columns(2)
     with g1:
