@@ -58,7 +58,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
     path_atual = [nome_principal]
     
     # ==========================================
-    # 1. ESTILOS GERAIS E REMOÇÃO DE SETINHAS
+    # 1. ESTILOS GERAIS E RESPONSIVIDADE CELULAR
     # ==========================================
     st.markdown("""
         <style>
@@ -76,6 +76,22 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
         }
         input[type=number] { 
             -moz-appearance: textfield !important; 
+        }
+
+        /* Responsividade Celular */
+        @media screen and (max-width: 768px) {
+            div[data-testid="stDataFrame"], div[data-testid="stDataEditor"] {
+                overflow-x: auto !important;
+            }
+            div[data-testid="column"] {
+                width: 100% !important;
+                min-width: 100% !important;
+                display: block !important;
+                margin-bottom: 0.8rem !important;
+            }
+            div.stButton > button {
+                min-height: 48px !important;
+            }
         }
         </style>
     """, unsafe_allow_html=True)
@@ -131,6 +147,8 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                     st.rerun()
 
     st.markdown("---")
+    
+    lista_categorias = ["Casa Airnb", "Ecoclim", "Consorbens", "Pessoal", "Outros"]
 
     # ==========================================
     # 2. ADIÇÃO DE LEMBRETE MANUAL (ABA BOLETOS)
@@ -139,8 +157,9 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
         with st.expander("➕ Adicionar Lembrete / Conta Manual (Sem Arquivo)"):
             with st.form(f"form_manual_bol"):
                 st.caption("Cadastre despesas manuais para centralizar seus alertas.")
-                c_mn, c_mv, c_md, c_mrec = st.columns([3, 1.5, 1.5, 1])
+                c_mn, c_mcat, c_mv, c_md, c_mrec = st.columns([2.5, 1.5, 1.2, 1.2, 1])
                 nome_man = c_mn.text_input("Descrição (Ex: Conta de Luz, Contador)")
+                cat_man = c_mcat.selectbox("Categoria", lista_categorias, index=4)
                 valor_man = c_mv.number_input("Valor (R$)", min_value=0.0, format="%.2f")
                 venc_man = c_md.date_input("Vencimento", format="DD/MM/YYYY")
                 rec_man = c_mrec.checkbox("Recorrente?")
@@ -151,13 +170,13 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                     else:
                         st.session_state.supabase.table('boletos_fornecedores').insert({
                             "cliente": nome_man, 
+                            "categoria": cat_man,
                             "vencimento": venc_man.strftime("%Y-%m-%d"),
                             "valor": valor_man, 
                             "status": "Pendente", 
                             "is_recorrente": rec_man
                         }).execute()
                         
-                        # NOVO: Sincroniza Calendar na adição manual
                         utils.sincronizar_boletos_com_calendar()
                         st.success("Lembrete salvo com sucesso!")
                         st.rerun()
@@ -174,6 +193,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
     db_id_map = {}
     is_rec_map = {}
     status_map = {}
+    cat_map = {}
 
     if nome_principal == "Boletos":
         try:
@@ -187,6 +207,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                         valores_map[id_d] = float(r.get('valor', 0.0))
                         is_rec_map[id_d] = r.get('is_recorrente', False)
                         status_map[id_d] = r.get('status', 'Pendente')
+                        cat_map[id_d] = r.get('categoria', 'Outros')
                         try: 
                             vencimentos_map[id_d] = datetime.datetime.strptime(str(r['vencimento']), "%Y-%m-%d").date()
                         except: 
@@ -212,6 +233,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             linha_arquivo["Pagar"] = False
             v_date = vencimentos_map.get(a['id'])
             linha_arquivo["Vencimento"] = v_date if pd.notna(v_date) else pd.NaT
+            linha_arquivo["Categoria"] = str(cat_map.get(a['id'], "Outros"))
             linha_arquivo["Valor"] = float(valores_map.get(a['id'], 0.0)) 
             linha_arquivo["Recorrente"] = "🔄 Sim" if is_rec_map.get(a['id'], False) else "-"
             linha_arquivo["Status"] = str(status_map.get(a['id'], "Pendente"))
@@ -250,6 +272,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                         "Tamanho": "-", 
                         "Link": None,
                         "Vencimento": v_dt if v_dt else pd.NaT,
+                        "Categoria": str(r.get('categoria', 'Outros')),
                         "Valor": float(r.get('valor', 0.0)), 
                         "Recorrente": "🔄 Sim" if r.get('is_recorrente', False) else "-",
                         "Status": str(r.get('status', 'Pendente'))
@@ -363,6 +386,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
         if nome_principal == "Boletos":
             config_colunas["Data"] = None 
             config_colunas["Vencimento"] = st.column_config.DateColumn("Vencimento", format="DD/MM/YYYY", width="small") 
+            config_colunas["Categoria"] = st.column_config.SelectboxColumn("Categoria", options=lista_categorias, width="medium")
             config_colunas["Valor"] = st.column_config.NumberColumn("Valor (R$)", format="%.2f", width="small") 
             config_colunas["Recorrente"] = st.column_config.TextColumn("Recorrente", width="small")
             config_colunas["Pagar"] = st.column_config.CheckboxColumn("Pagar", default=False, width="small")
@@ -370,7 +394,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             
             lista_desabilitados.append("Vencimento")
             
-            col_order = ["Excluir", "Nome", "Link", "Vencimento", "Valor", "Recorrente", "Pagar", "Status"]
+            col_order = ["Excluir", "Nome", "Link", "Vencimento", "Categoria", "Valor", "Recorrente", "Pagar", "Status"]
         else:
             config_colunas["Data"] = st.column_config.DatetimeColumn("Data de Inclusão", format="DD/MM/YYYY - HH:mm")
             col_order = ["Excluir", "Nome", "Link", "Data"]
@@ -415,23 +439,27 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
         # ==========================================
         if df_editado is not None and not df_editado.empty:
             
-            # BLOCO A: SALVAR VALORES ALTERADOS
-            if "Valor" in df_editado.columns and nome_principal == "Boletos":
-                diff_mask = abs(pd.to_numeric(df_editado["Valor"], errors='coerce').fillna(0) - pd.to_numeric(df_pagina["Valor"], errors='coerce').fillna(0)) > 0.01
-                boletos_alterados = df_editado[diff_mask]
+            # BLOCO A: SALVAR VALORES E CATEGORIAS ALTERADAS
+            if "Valor" in df_editado.columns and "Categoria" in df_editado.columns and nome_principal == "Boletos":
+                diff_val = abs(pd.to_numeric(df_editado["Valor"], errors='coerce').fillna(0) - pd.to_numeric(df_pagina["Valor"], errors='coerce').fillna(0)) > 0.01
+                diff_cat = df_editado["Categoria"].fillna('Outros') != df_pagina["Categoria"].fillna('Outros')
+                
+                boletos_alterados = df_editado[diff_val | diff_cat]
                 
                 if not boletos_alterados.empty:
-                    st.warning(f"⚠️ Você alterou o valor de {len(boletos_alterados)} boleto(s). Confirme para salvar.")
-                    if st.button("💾 Salvar Novos Valores", type="primary", use_container_width=True):
-                        with st.spinner("Atualizando valores no banco de dados..."):
-                            for _, r_val in boletos_alterados.iterrows():
-                                id_db = r_val.get("ID_DB")
+                    st.warning(f"⚠️ Você alterou dados de {len(boletos_alterados)} boleto(s). Confirme para salvar.")
+                    if st.button("💾 Salvar Alterações", type="primary", use_container_width=True):
+                        with st.spinner("Atualizando banco de dados..."):
+                            for _, r_upd in boletos_alterados.iterrows():
+                                id_db = r_upd.get("ID_DB")
                                 if id_db and str(id_db).strip() not in ["none", "nan", ""]:
-                                    st.session_state.supabase.table('boletos_fornecedores').update({'valor': float(r_val['Valor'])}).eq('id', id_db).execute()
+                                    st.session_state.supabase.table('boletos_fornecedores').update({
+                                        'valor': float(r_upd['Valor']),
+                                        'categoria': str(r_upd['Categoria'])
+                                    }).eq('id', id_db).execute()
                         
-                        # NOVO: Sincroniza Calendar ao editar valor
                         utils.sincronizar_boletos_com_calendar()
-                        st.success("✅ Valores atualizados com sucesso!")
+                        st.success("✅ Atualizado com sucesso!")
                         st.rerun()
 
             # BLOCO B: MARCAR COMO PAGO
@@ -458,6 +486,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                                             novo_venc = add_months(venc_antigo, 1)
                                             st.session_state.supabase.table('boletos_fornecedores').insert({
                                                 'cliente': orig.get('cliente'), 
+                                                'categoria': orig.get('categoria', 'Outros'),
                                                 "vencimento": novo_venc.strftime('%Y-%m-%d'),
                                                 'valor': orig.get('valor'), 
                                                 'status': 'Pendente', 
@@ -466,7 +495,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                                     except: 
                                         pass
                         
-                        # NOVO: Sincroniza Calendar ao Pagar
                         utils.sincronizar_boletos_com_calendar()
                         st.success("✅ Tudo atualizado! Boletos pagos e próxima recorrência gerada (caso aplicável).")
                         st.rerun()
@@ -485,15 +513,13 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                             if id_bd and not pd.isna(id_bd) and str(id_bd).strip() != "":
                                 st.session_state.supabase.table('boletos_fornecedores').delete().eq('id', id_bd).execute()
                     
-                    # NOVO: Sincroniza Calendar ao Excluir (Remove do calendário)
                     utils.sincronizar_boletos_com_calendar()
                     st.success("Excluídos com sucesso!")
                     st.rerun()
 
         # ==========================================
-        # 7. NOVA SOLUÇÃO: SELETOR DE DOWNLOAD EM LOTE FORA DA TABELA
+        # 7. DOWNLOAD EM LOTE FORA DA TABELA
         # ==========================================
-        #Filtra apenas arquivos físicos reais (ignora os lembretes manuais "📝 ")
         arquivos_reais_disponiveis = df_pagina[df_pagina["ID_Drive"].notna() & (~df_pagina["Nome"].str.startswith("📝 "))]
         
         if not arquivos_reais_disponiveis.empty:
@@ -551,6 +577,20 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             st.markdown("---")
             st.markdown(f"#### 📊 Resumo do Mês ({sub_sel})")
             
+            # --- NOVO: SOMA POR CATEGORIAS ---
+            st.markdown("##### 🏷️ Despesas por Categoria")
+            resumo_cat = df.groupby('Categoria')['Valor'].sum().reset_index()
+            
+            if not resumo_cat.empty:
+                cols_cat = st.columns(len(resumo_cat))
+                for i, r in resumo_cat.iterrows():
+                    cols_cat[i % len(cols_cat)].metric(r['Categoria'], utils.to_br_currency(r['Valor']))
+            else:
+                st.info("Nenhuma despesa para categorizar neste período.")
+                
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            # --- TOTAIS GERAIS ---
             total_pago = df[df['Status'] == 'Pago']['Valor'].sum()
             total_pendente = df[df['Status'] == 'Pendente']['Valor'].sum()
             total_geral = total_pago + total_pendente
