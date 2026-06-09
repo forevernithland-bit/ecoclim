@@ -438,6 +438,7 @@ else:
                                             novo_venc = add_months_app(venc_antigo, 1)
                                             st.session_state.supabase.table('boletos_fornecedores').insert({
                                                 'cliente': b.get('cliente'), 
+                                                'categoria': b.get('categoria', 'Outros'),  # <--- CATEGORIA APLICADA AQUI TAMBÉM!
                                                 "vencimento": novo_venc.strftime('%Y-%m-%d'),
                                                 'valor': b.get('valor'), 
                                                 'status': 'Pendente', 
