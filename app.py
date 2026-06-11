@@ -228,14 +228,14 @@ if not st.session_state.authenticated:
             background-attachment: fixed;
         }
 
-        /* 📦 CAIXA BRANCA DE LOGIN 100% SÓLIDA - TÉCNICA DE ÂNCORA :HAS */
-        div[data-testid="column"]:has(#login-box-anchor) {
+        /* 📦 CAIXA BRANCA DE LOGIN 100% SÓLIDA PARA GARANTIR LEITURA PERFEITA */
+        div[data-testid="stVerticalBlockBorderWrapper"] {
             background-color: #ffffff !important;
             background: #ffffff !important;
             border-radius: 16px !important;
             box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4) !important;
-            padding: 2.5rem !important;
-            border: 1px solid #e6ecf5 !important;
+            border: 2px solid #ffffff !important;
+            padding: 2rem !important;
         }
 
         .block-container { 
@@ -290,50 +290,44 @@ if not st.session_state.authenticated:
     col1, col2, col3 = st.columns([1.2, 1, 1.2]) 
     
     with col2:
-        # A âncora que obriga o CSS a pintar esta coluna exata de branco!
-        st.markdown('<div id="login-box-anchor"></div>', unsafe_allow_html=True)
-        
-        c_img1, c_img2, c_img3 = st.columns([1, 1.2, 1])
-        with c_img2:
-            if os.path.exists("logo.png"):
-                st.image("logo.png", use_container_width=True)
-        
-        st.markdown("<h4 style='text-align: center; color: #004488; font-weight: 600; margin-top: 0px; margin-bottom: 15px;'>Login Ecoclim ERP</h4>", unsafe_allow_html=True)
-        
-        usuario = st.text_input("Usuário", value="breno.lima")
-        senha = st.text_input("Senha", type="password")
-        
-        st.markdown('<div class="login-btn-container">', unsafe_allow_html=True)
-        c_btn1, c_btn2, c_btn3 = st.columns([1, 1.5, 1])
-        with c_btn2:
-            if st.button("Acessar Sistema", use_container_width=True):
-                if not usuario or not senha:
-                    st.warning("Preencha usuário e senha.")
-                else:
-                    with st.spinner("Autenticando..."):
-                        try:
-                            # Regra 1: Usuário não é Case Sensitive (Força para minúsculo)
-                            usuario_tratado = usuario.strip().lower()
-                            
-                            # Busca no Banco de Dados
-                            res = st.session_state.supabase.table('usuarios_erp').select('*').eq('usuario', usuario_tratado).execute()
-                            
-                            if res.data and len(res.data) > 0:
-                                dados_bd = res.data[0]
+        # CONSTRUI A CAIXA NOVAMENTE (O CULPADO DE TUDO ESTAVA AQUI! KKK)
+        with st.container(border=True):
+            c_img1, c_img2, c_img3 = st.columns([1, 1.2, 1])
+            with c_img2:
+                if os.path.exists("logo.png"):
+                    st.image("logo.png", use_container_width=True)
+            
+            st.markdown("<h4 style='text-align: center; color: #004488; font-weight: 600; margin-top: 0px; margin-bottom: 15px;'>Login Ecoclim ERP</h4>", unsafe_allow_html=True)
+            
+            usuario = st.text_input("Usuário", value="breno.lima")
+            senha = st.text_input("Senha", type="password")
+            
+            st.markdown('<div class="login-btn-container">', unsafe_allow_html=True)
+            c_btn1, c_btn2, c_btn3 = st.columns([1, 1.5, 1])
+            with c_btn2:
+                if st.button("Acessar Sistema", use_container_width=True):
+                    if not usuario or not senha:
+                        st.warning("Preencha usuário e senha.")
+                    else:
+                        with st.spinner("Autenticando..."):
+                            try:
+                                usuario_tratado = usuario.strip().lower()
+                                res = st.session_state.supabase.table('usuarios_erp').select('*').eq('usuario', usuario_tratado).execute()
                                 
-                                # Regra 2: Senha é Case Sensitive (Comparação Exata)
-                                if dados_bd['senha'] == senha and dados_bd.get('ativo', True):
-                                    st.session_state.authenticated = True
-                                    st.session_state.usuario_logado = dados_bd.get('nome_completo', 'Usuário')
-                                    st.session_state.perfil_logado = dados_bd.get('perfil', 'Admin')
-                                    st.rerun()
+                                if res.data and len(res.data) > 0:
+                                    dados_bd = res.data[0]
+                                    if dados_bd['senha'] == senha and dados_bd.get('ativo', True):
+                                        st.session_state.authenticated = True
+                                        st.session_state.usuario_logado = dados_bd.get('nome_completo', 'Usuário')
+                                        st.session_state.perfil_logado = dados_bd.get('perfil', 'Admin')
+                                        st.rerun()
+                                    else:
+                                        st.error("Usuário ou senha incorretos.")
                                 else:
                                     st.error("Usuário ou senha incorretos.")
-                            else:
-                                st.error("Usuário ou senha incorretos.")
-                        except Exception as e:
-                            st.error(f"Erro ao conectar com o banco de dados: {e}")
-        st.markdown('</div>', unsafe_allow_html=True)
+                            except Exception as e:
+                                st.error(f"Erro ao conectar com o banco de dados: {e}")
+            st.markdown('</div>', unsafe_allow_html=True)
 
 else:
     # =============================================================================
