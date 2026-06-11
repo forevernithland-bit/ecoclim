@@ -178,6 +178,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                         
                         utils.sincronizar_boletos_com_calendar()
                         st.success("Lembrete salvo com sucesso!")
+                        st.cache_data.clear()
                         st.rerun()
         st.markdown("<br>", unsafe_allow_html=True)
 
@@ -297,8 +298,12 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
 
     df = pd.DataFrame(dados_tabela)
 
+    # Nova regra de proteção do Cache: Botão forçado caso ele devolva vazio!
     if df.empty:
         st.info("Nenhum arquivo ou lembrete encontrado nesta pasta.")
+        if st.button("🔄 Forçar Sincronização com o Google Drive", key=f"force_sync_{nome_principal}"):
+            st.cache_data.clear()
+            st.rerun()
         return
 
     if termo_busca: 
@@ -502,6 +507,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                         
                         utils.sincronizar_boletos_com_calendar()
                         st.success("✅ Tudo atualizado! Boletos pagos e próxima recorrência gerada (se aplicável).")
+                        st.cache_data.clear()
                         st.rerun()
             
             arquivos_para_apagar = df_editado[df_editado["Excluir"] == True]
