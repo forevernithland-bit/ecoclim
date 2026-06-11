@@ -18,24 +18,19 @@ def formatar_tamanho(tamanho_bytes):
         return "Desconhecido"
 
 def parse_drive_date(iso_str):
-    """Converte a data do Google Drive para o fuso horário do Brasil (retorna Datetime)"""
     try:
         dt = datetime.datetime.fromisoformat(iso_str.replace('Z', '+00:00'))
-        dt = dt - datetime.timedelta(hours=3) # Ajuste GMT-3 (Brasil)
+        dt = dt - datetime.timedelta(hours=3)
         return dt.replace(tzinfo=None)
     except:
         return pd.NaT
 
 def mover_arquivo_drive(file_id, folder_path_list):
-    """Move um arquivo no Google Drive para uma nova pasta"""
     try:
         service = utils.get_drive_service()
-        # Pega as pastas atuais do arquivo para remover
         file = service.files().get(fileId=file_id, fields='parents').execute()
         previous_parents = ",".join(file.get('parents', []))
-        # Identifica o ID da pasta de destino
         new_folder_id = utils.get_or_create_nested_folder(service, utils.MAIN_DRIVE_FOLDER_ID, folder_path_list)
-        # Move o arquivo
         service.files().update(
             fileId=file_id,
             addParents=new_folder_id,
@@ -47,7 +42,6 @@ def mover_arquivo_drive(file_id, folder_path_list):
         return False
 
 def add_months(dt, months):
-    """Soma meses na data considerando a virada de anos e anos bissextos de forma perfeita"""
     month = dt.month - 1 + months
     year = dt.year + month // 12
     month = month % 12 + 1
@@ -57,15 +51,10 @@ def add_months(dt, months):
 def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
     path_atual = [nome_principal]
     
-    # ==========================================
-    # 1. ESTILOS GERAIS E RESPONSIVIDADE CELULAR
-    # ==========================================
     st.markdown("""
         <style>
-        /* Ajuste do Expander */
         div[data-testid="stExpander"] details summary { padding-top: 0.5rem; padding-bottom: 0.5rem; }
         
-        /* Remove setinhas dos inputs numéricos Nativos do Streamlit */
         div[data-testid="stNumberInputStepUp"], div[data-testid="stNumberInputStepDown"] { 
             display: none !important; 
         }
@@ -78,7 +67,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             -moz-appearance: textfield !important; 
         }
 
-        /* Responsividade Celular */
         @media screen and (max-width: 768px) {
             div[data-testid="stDataFrame"], div[data-testid="stDataEditor"] {
                 overflow-x: auto !important;
@@ -150,9 +138,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
     
     lista_categorias = ["Casa Airnb", "Ecoclim", "Consorbens", "Pessoal", "Outros"]
 
-    # ==========================================
-    # 2. ADIÇÃO DE LEMBRETE MANUAL (ABA BOLETOS)
-    # ==========================================
     if nome_principal == "Boletos":
         with st.expander("➕ Adicionar Lembrete / Conta Manual (Sem Arquivo)"):
             with st.form(f"form_manual_bol"):
@@ -182,9 +167,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                         st.rerun()
         st.markdown("<br>", unsafe_allow_html=True)
 
-    # ==========================================
-    # 3. BUSCA DE DADOS NO DRIVE E BANCO (MERGE)
-    # ==========================================
     arquivos_brutos = utils.list_drive_files(path_atual)
     df_db = pd.DataFrame()
 
@@ -217,42 +199,43 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
 
     dados_tabela = []
     
-    # 1. Arquivos Físicos do Drive
+    # 1. Arquivos Físicos do Drive (Mostra TODOS os arquivos da pasta atual do Drive)
     for a in arquivos_brutos:
+        d_id = str(a.get('id', ''))
         linha_arquivo = {
             "Excluir": False,
-            "ID_Drive": str(a.get('id', '')),
-            "ID_DB": str(db_id_map.get(a['id'], "")),
-            "ID": str(a.get('id', '')),
+            "ID_Drive": d_id,
+            "ID_DB": str(db_id_map.get(d_id, "")),
+            "ID": d_id,
             "Nome": str(a.get('name', '')),
             "Data": parse_drive_date(a.get('createdTime', '')),
             "Tamanho": str(formatar_tamanho(a.get('size', 0))),
-            "Link": a.get('webViewLink', None)
+            "Link": a.get('webViewLink', f"https://drive.google.com/file/d/{d_id}/view")
         }
         if nome_principal == "Boletos":
             linha_arquivo["Pagar"] = False
-            v_date = vencimentos_map.get(a['id'])
+            v_date = vencimentos_map.get(d_id)
             linha_arquivo["Vencimento"] = v_date if pd.notna(v_date) else pd.NaT
-            linha_arquivo["Categoria"] = str(cat_map.get(a['id'], "Outros"))
-            linha_arquivo["Valor"] = float(valores_map.get(a['id'], 0.0)) 
-            linha_arquivo["Recorrente"] = "🔄 Sim" if is_rec_map.get(a['id'], False) else "-"
-            linha_arquivo["Status"] = str(status_map.get(a['id'], "Pendente"))
+            linha_arquivo["Categoria"] = str(cat_map.get(d_id, "Outros"))
+            linha_arquivo["Valor"] = float(valores_map.get(d_id, 0.0)) 
+            linha_arquivo["Recorrente"] = "🔄 Sim" if is_rec_map.get(d_id, False) else "-"
+            linha_arquivo["Status"] = str(status_map.get(d_id, "Pendente"))
         
         dados_tabela.append(linha_arquivo)
         
-    # 2. Lembretes Manuais do Banco (Sem Arquivo no Drive)
+    # 2. Lembretes Manuais do Banco (Sem Arquivo no Drive, Filtrados pelo Mês)
     if nome_principal == "Boletos" and not df_db.empty:
         mes_sel_idx = utils.meses_pt.index(sub_sel) + 1 if sub_sel in utils.meses_pt else datetime.date.today().month
         for _, r in df_db.iterrows():
             val_link = r.get('link_drive_id')
             
+            # Puxa apenas quem NÃO tem link do Drive (pois os que têm já foram puxados acima)
             if pd.isna(val_link) or str(val_link).strip().lower() in ['nan', 'none', '']:
                 try: 
                     v_dt = datetime.datetime.strptime(str(r['vencimento']), "%Y-%m-%d").date()
                 except: 
                     v_dt = None
                 
-                # Filtra para exibir apenas na pasta do mês correto
                 if sub_sel == "PAGOS": 
                     pertence = (r.get('status') == 'Pago')
                 else: 
@@ -284,9 +267,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
         st.info("Nenhum arquivo ou lembrete encontrado nesta pasta.")
         return
 
-    # ==========================================
-    # 4. APLICAÇÃO DOS FILTROS E PAGINAÇÃO
-    # ==========================================
     if termo_busca: 
         df = df[df['Nome'].str.lower().str.contains(termo_busca)]
         
@@ -312,7 +292,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
         st.warning("Nenhum item corresponde aos filtros selecionados.")
         return
 
-    # ORDENAÇÃO: ATRASADOS -> PENDENTES -> PAGOS
     if nome_principal == "Boletos":
         hoje_ordem = datetime.date.today()
         
@@ -353,9 +332,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
     inicio = (pagina_atual - 1) * itens_por_pagina
     df_pagina = df.iloc[inicio : inicio + itens_por_pagina].copy()
 
-    # ==========================================
-    # 5. RENDERIZAÇÃO DA TABELA ORDENADA
-    # ==========================================
     if is_imagens and modo_visao == "Miniaturas":
         cols = st.columns(4)
         for i, row in df_pagina.reset_index(drop=True).iterrows():
@@ -402,7 +378,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
         todas_cols = col_order + [c for c in df_pagina.columns if c not in col_order]
         df_pagina = df_pagina[todas_cols].reset_index(drop=True)
 
-        # Regra de Cores Personalizada
         if nome_principal == "Boletos":
             def colorir_boletos(row):
                 s = row.get('Status', '')
@@ -434,12 +409,8 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             key=f"editor_docs_v11_{nome_principal}" 
         )
 
-        # ==========================================
-        # 6. AÇÕES DE SALVAMENTO, PAGAMENTO E EXCLUSÃO
-        # ==========================================
         if df_editado is not None and not df_editado.empty:
             
-            # BLOCO A: SALVAR VALORES E CATEGORIAS ALTERADAS
             if "Valor" in df_editado.columns and "Categoria" in df_editado.columns and nome_principal == "Boletos":
                 diff_val = abs(pd.to_numeric(df_editado["Valor"], errors='coerce').fillna(0) - pd.to_numeric(df_pagina["Valor"], errors='coerce').fillna(0)) > 0.01
                 diff_cat = df_editado["Categoria"].fillna('Outros') != df_pagina["Categoria"].fillna('Outros')
@@ -462,7 +433,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                         st.success("✅ Atualizado com sucesso!")
                         st.rerun()
 
-            # BLOCO B: MARCAR COMO PAGO
             if "Pagar" in df_editado.columns:
                 boletos_pagar = df_editado[(df_editado["Pagar"] == True) & (df_editado["Status"] != "Pago")]
                 
@@ -499,7 +469,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                         st.success("✅ Tudo atualizado! Boletos pagos e próxima recorrência gerada (caso aplicável).")
                         st.rerun()
             
-            # BLOCO C: EXCLUSÃO 
             arquivos_para_apagar = df_editado[df_editado["Excluir"] == True]
             if not arquivos_para_apagar.empty:
                 st.error(f"⚠️ Selecionou {len(arquivos_para_apagar)} item(ns) para exclusão permanente.")
@@ -517,9 +486,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                     st.success("Excluídos com sucesso!")
                     st.rerun()
 
-        # ==========================================
-        # 7. DOWNLOAD EM LOTE FORA DA TABELA
-        # ==========================================
         arquivos_reais_disponiveis = df_pagina[df_pagina["ID_Drive"].notna() & (~df_pagina["Nome"].str.startswith("📝 "))]
         
         if not arquivos_reais_disponiveis.empty:
@@ -570,14 +536,10 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                     if f"zip_bytes_{nome_principal}" in st.session_state:
                         del st.session_state[f"zip_bytes_{nome_principal}"]
 
-        # ==========================================
-        # 8. RESUMO FINANCEIRO DO MÊS (SÓ EM BOLETOS)
-        # ==========================================
         if nome_principal == "Boletos" and not df.empty:
             st.markdown("---")
             st.markdown(f"#### 📊 Resumo do Mês ({sub_sel})")
             
-            # --- NOVO: SOMA POR CATEGORIAS ---
             st.markdown("##### 🏷️ Despesas por Categoria")
             resumo_cat = df.groupby('Categoria')['Valor'].sum().reset_index()
             
@@ -590,7 +552,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                 
             st.markdown("<br>", unsafe_allow_html=True)
             
-            # --- TOTAIS GERAIS ---
             total_pago = df[df['Status'] == 'Pago']['Valor'].sum()
             total_pendente = df[df['Status'] == 'Pendente']['Valor'].sum()
             total_geral = total_pago + total_pendente
