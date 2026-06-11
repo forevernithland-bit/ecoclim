@@ -219,8 +219,27 @@ if not st.session_state.authenticated:
         [data-testid="stSidebar"] { display: none !important; }
         [data-testid="stHeader"] { display: none !important; }
         
+        /* 🖼️ IMAGEM DE FUNDO BEM BONITA NA TELA INTEIRA */
+        [data-testid="stAppViewContainer"] {
+            background-image: url('https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?ixlib=rb-4.0.3&auto=format&fit=crop&w=1920&q=80');
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+        }
+
+        /* 📦 CAIXA BRANCA DE LOGIN COM EFEITO DE VIDRO FOSCO (GLASSMORPHISM) */
+        [data-testid="stVerticalBlockBorderWrapper"] {
+            background-color: rgba(255, 255, 255, 0.95) !important;
+            border-radius: 16px !important;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3) !important;
+            border: none !important;
+            padding: 20px !important;
+            backdrop-filter: blur(5px);
+        }
+
         .block-container { 
-            padding-top: 2rem !important; 
+            padding-top: 5rem !important; 
             padding-bottom: 0rem !important;
         }
         
@@ -251,6 +270,7 @@ if not st.session_state.authenticated:
             .block-container {
                 padding-left: 1rem !important;
                 padding-right: 1rem !important;
+                padding-top: 3rem !important;
             }
             div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(1),
             div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(3) {
@@ -267,7 +287,7 @@ if not st.session_state.authenticated:
         </style>
     """, unsafe_allow_html=True)
 
-    col1, col2, col3 = st.columns([1, 1, 1]) 
+    col1, col2, col3 = st.columns([1.2, 1, 1.2]) 
     
     with col2:
         with st.container(border=True):
@@ -276,9 +296,10 @@ if not st.session_state.authenticated:
                 if os.path.exists("logo.png"):
                     st.image("logo.png", use_container_width=True)
             
-            st.markdown("<h4 style='text-align: center; color: #004488; font-weight: 600; margin-top: 0px; margin-bottom: 10px;'>Login Ecoclim ERP</h4>", unsafe_allow_html=True)
+            st.markdown("<h4 style='text-align: center; color: #004488; font-weight: 600; margin-top: 0px; margin-bottom: 15px;'>Login Ecoclim ERP</h4>", unsafe_allow_html=True)
             
-            usuario = st.text_input("Usuário")
+            # PREENCHIDO POR PADRÃO, MAS PERMITE APAGAR SE PRECISAR TROCAR
+            usuario = st.text_input("Usuário", value="breno.lima")
             senha = st.text_input("Senha", type="password")
             
             st.markdown('<div class="login-btn-container">', unsafe_allow_html=True)
