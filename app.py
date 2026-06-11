@@ -228,14 +228,29 @@ if not st.session_state.authenticated:
             background-attachment: fixed;
         }
 
-        /* 📦 CAIXA BRANCA DE LOGIN 100% SÓLIDA PARA GARANTIR LEITURA PERFEITA */
+        /* 📦 FORÇA BRUTA PARA A CAIXA BRANCA DE LOGIN FICAR 100% SÓLIDA */
         div[data-testid="stVerticalBlockBorderWrapper"] {
             background-color: #ffffff !important;
             background: #ffffff !important;
+            opacity: 1 !important;
             border-radius: 16px !important;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4) !important;
-            border: 2px solid #ffffff !important;
-            padding: 2rem !important;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6) !important;
+            border: 1px solid #f0f2f6 !important;
+            padding: 2.5rem !important;
+            z-index: 999 !important;
+        }
+        
+        /* Garante que os rótulos fiquem bem escuros e legíveis */
+        div[data-testid="stVerticalBlockBorderWrapper"] label {
+            color: #1e293b !important;
+            font-weight: 600 !important;
+        }
+        
+        /* Deixa o fundo do input (onde você digita) com um cinza muito suave para destacar do branco */
+        .stTextInput input {
+            background-color: #f8fafc !important;
+            border: 1px solid #cbd5e1 !important;
+            color: #1e293b !important;
         }
 
         .block-container { 
@@ -290,7 +305,6 @@ if not st.session_state.authenticated:
     col1, col2, col3 = st.columns([1.2, 1, 1.2]) 
     
     with col2:
-        # CONSTRUI A CAIXA NOVAMENTE (O CULPADO DE TUDO ESTAVA AQUI! KKK)
         with st.container(border=True):
             c_img1, c_img2, c_img3 = st.columns([1, 1.2, 1])
             with c_img2:
