@@ -219,23 +219,22 @@ if not st.session_state.authenticated:
         [data-testid="stSidebar"] { display: none !important; }
         [data-testid="stHeader"] { display: none !important; }
         
-        /* 🖼️ IMAGEM DE FUNDO BEM BONITA NA TELA INTEIRA */
+        /* 🖼️ IMAGEM DE FUNDO BEM BONITA NA TELA INTEIRA COM CAMADA DE TRANSPARÊNCIA (OVERLAY BRANCO) */
         [data-testid="stAppViewContainer"] {
-            background-image: url('https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?ixlib=rb-4.0.3&auto=format&fit=crop&w=1920&q=80');
+            background-image: linear-gradient(rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0.45)), url('https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?ixlib=rb-4.0.3&auto=format&fit=crop&w=1920&q=80');
             background-size: cover;
             background-position: center;
             background-repeat: no-repeat;
             background-attachment: fixed;
         }
 
-        /* 📦 CAIXA BRANCA DE LOGIN COM EFEITO DE VIDRO FOSCO (GLASSMORPHISM) */
-        [data-testid="stVerticalBlockBorderWrapper"] {
-            background-color: rgba(255, 255, 255, 0.95) !important;
+        /* 📦 CAIXA BRANCA DE LOGIN SÓLIDA PARA GARANTIR LEITURA PERFEITA */
+        div[data-testid="stVerticalBlockBorderWrapper"] {
+            background-color: #ffffff !important;
             border-radius: 16px !important;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3) !important;
-            border: none !important;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15) !important;
+            border: 1px solid #e6ecf5 !important;
             padding: 20px !important;
-            backdrop-filter: blur(5px);
         }
 
         .block-container { 
