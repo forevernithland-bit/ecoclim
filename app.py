@@ -27,7 +27,6 @@ import tela_documentos
 # 3. FUNÇÕES AUXILIARES PARA LEMBRETES NA PÁGINA INICIAL
 # =============================================================================
 def mover_arquivo_drive_app(file_id, folder_path_list):
-    """Move um arquivo no Google Drive para uma nova pasta"""
     try:
         service = utils.get_drive_service()
         file = service.files().get(fileId=file_id, fields='parents').execute()
@@ -40,7 +39,6 @@ def mover_arquivo_drive_app(file_id, folder_path_list):
     except: return False
 
 def add_months_app(dt, months):
-    """Soma meses na data considerando a virada de anos"""
     month = dt.month - 1 + months
     year = dt.year + month // 12
     month = month % 12 + 1
@@ -64,13 +62,11 @@ st.markdown("""
     /* =====================================================================
        💻 ESTILOS ORIGINAIS (PC) INTOCADOS
        ===================================================================== */
-    /* Fundo branco total na barra lateral */
     [data-testid="stSidebar"] {
         background-color: #ffffff !important;
         border-right: 1px solid #e6ecf5;
     }
     
-    /* Ajuste de padding total */
     .block-container { 
         padding-top: 3.5rem !important; 
         padding-left: 2rem !important; 
@@ -102,12 +98,10 @@ st.markdown("""
         font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     }
 
-    /* Alinhamento horizontal absoluto para as colunas */
     div[data-testid="stHorizontalBlock"] {
         align-items: center !important;
     }
 
-    /* ALINHAMENTO MILIMÉTRICO DOS LEMBRETES */
     div[data-testid="stHorizontalBlock"]:has(.card-lembrete) {
         align-items: center !important;
     }
@@ -119,7 +113,6 @@ st.markdown("""
         margin: 0px !important;
     }
 
-    /* BOTÕES PEQUENOS: Usados nos Lembretes (Type Primary) */
     div.stButton > button[kind="primary"] {
         background-color: #ffffff !important;
         color: #1e293b !important;
@@ -139,7 +132,6 @@ st.markdown("""
         background-color: #f8fafc !important;
     }
 
-    /* BOTÕES GRANDES: Usados nos Cards de Navegação (Type Secondary) */
     div.stButton > button[kind="secondary"] {
         background-color: #ffffff !important;
         color: #1e293b !important;
@@ -163,14 +155,12 @@ st.markdown("""
        📱 RESPONSIVIDADE PARA CELULAR (CSS INJETADO EXCLUSIVAMENTE PARA MOBILE)
        ===================================================================== */
     @media screen and (max-width: 768px) {
-        /* Reduzir padding global para ganhar espaço na tela */
         .block-container { 
             padding-top: 2rem !important; 
             padding-left: 0.5rem !important; 
             padding-right: 0.5rem !important; 
         }
 
-        /* Reorganizar Dashboard de Lembretes - Quebra a linha e empilha */
         div[data-testid="stHorizontalBlock"]:has(.card-lembrete) {
             display: flex !important;
             flex-direction: column !important;
@@ -183,13 +173,11 @@ st.markdown("""
             background-color: #f8fafc !important;
         }
 
-        /* Ocupar 100% da largura na coluna do card e nos botões */
         div[data-testid="stHorizontalBlock"]:has(.card-lembrete) > div[data-testid="column"] {
             width: 100% !important;
             min-width: 100% !important;
         }
 
-        /* Limpar as bordas do item interno (já que a caixa externa assumiu) */
         .card-lembrete {
             border: none !important;
             padding: 0 !important;
@@ -206,7 +194,6 @@ st.markdown("""
             gap: 2px !important;
         }
 
-        /* Aumentar a área de "touch" (clique com o dedo) nos botões no celular */
         div.stButton > button[kind="primary"],
         div.stButton > button[kind="secondary"] {
             min-height: 48px !important;
@@ -217,7 +204,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =============================================================================
-# 6. LÓGICA DE ACESSO (LOGIN)
+# 6. LÓGICA DE ACESSO (LOGIN NO SUPABASE)
 # =============================================================================
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
@@ -227,25 +214,20 @@ if "menu_option" not in st.session_state:
 
 if not st.session_state.authenticated:
     
-    # CSS Injetado APENAS para a tela de login
     st.markdown("""
         <style>
-        /* Esconde a barra lateral E o espaço em branco do topo (header) */
         [data-testid="stSidebar"] { display: none !important; }
         [data-testid="stHeader"] { display: none !important; }
         
-        /* Esmaga as margens e paddings nativos do Streamlit */
         .block-container { 
             padding-top: 2rem !important; 
             padding-bottom: 0rem !important;
         }
         
-        /* Reduz o espaço entre os itens dentro do form */
         div[data-testid="stVerticalBlock"] {
             gap: 0.5rem !important;
         }
         
-        /* Botão de Login Estilizado */
         .login-btn-container div.stButton > button {
             background-color: #004488 !important;
             color: #ffffff !important;
@@ -265,15 +247,11 @@ if not st.session_state.authenticated:
             box-shadow: 0 6px 12px rgba(0,0,0,0.15) !important;
         }
 
-        /* =====================================================================
-           📱 TELA DE LOGIN RESPONSIVA PARA CELULAR
-           ===================================================================== */
         @media screen and (max-width: 768px) {
             .block-container {
                 padding-left: 1rem !important;
                 padding-right: 1rem !important;
             }
-            /* Ocultar colunas vazias de espaçamento lateral e expandir a central para 100% */
             div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(1),
             div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(3) {
                 display: none !important;
@@ -289,33 +267,50 @@ if not st.session_state.authenticated:
         </style>
     """, unsafe_allow_html=True)
 
-    # Deixei as colunas mais estreitas [1, 1, 1] para o card ficar mais compacto e elegante
     col1, col2, col3 = st.columns([1, 1, 1]) 
     
     with col2:
         with st.container(border=True):
-            # Centraliza a Logo
             c_img1, c_img2, c_img3 = st.columns([1, 1.2, 1])
             with c_img2:
                 if os.path.exists("logo.png"):
                     st.image("logo.png", use_container_width=True)
             
-            # Centraliza o Título e tira as margens dele
             st.markdown("<h4 style='text-align: center; color: #004488; font-weight: 600; margin-top: 0px; margin-bottom: 10px;'>Login Ecoclim ERP</h4>", unsafe_allow_html=True)
             
             usuario = st.text_input("Usuário")
             senha = st.text_input("Senha", type="password")
             
-            # Centraliza o Botão (já colado nos inputs)
             st.markdown('<div class="login-btn-container">', unsafe_allow_html=True)
             c_btn1, c_btn2, c_btn3 = st.columns([1, 1.5, 1])
             with c_btn2:
                 if st.button("Acessar Sistema", use_container_width=True):
-                    if usuario == "breno.lima" and senha == "Ecoclim2026@":
-                        st.session_state.authenticated = True
-                        st.rerun()
+                    if not usuario or not senha:
+                        st.warning("Preencha usuário e senha.")
                     else:
-                        st.error("Usuário ou senha incorretos.")
+                        with st.spinner("Autenticando..."):
+                            try:
+                                # Regra 1: Usuário não é Case Sensitive (Força para minúsculo)
+                                usuario_tratado = usuario.strip().lower()
+                                
+                                # Busca no Banco de Dados
+                                res = st.session_state.supabase.table('usuarios_erp').select('*').eq('usuario', usuario_tratado).execute()
+                                
+                                if res.data and len(res.data) > 0:
+                                    dados_bd = res.data[0]
+                                    
+                                    # Regra 2: Senha é Case Sensitive (Comparação Exata)
+                                    if dados_bd['senha'] == senha and dados_bd.get('ativo', True):
+                                        st.session_state.authenticated = True
+                                        st.session_state.usuario_logado = dados_bd.get('nome_completo', 'Usuário')
+                                        st.session_state.perfil_logado = dados_bd.get('perfil', 'Admin')
+                                        st.rerun()
+                                    else:
+                                        st.error("Usuário ou senha incorretos.")
+                                else:
+                                    st.error("Usuário ou senha incorretos.")
+                            except Exception as e:
+                                st.error(f"Erro ao conectar com o banco de dados: {e}")
             st.markdown('</div>', unsafe_allow_html=True)
 
 else:
@@ -326,6 +321,10 @@ else:
         st.markdown("<br>", unsafe_allow_html=True)
         if os.path.exists("logo.png"):
             st.image("logo.png", use_container_width=True)
+        
+        # MOSTRAR QUEM ESTÁ LOGADO
+        nome_logado = st.session_state.get('usuario_logado', 'Usuário')
+        st.markdown(f"<div style='text-align: center; color: #004488; font-weight: 600; padding: 10px 0;'>👤 Olá, {nome_logado}</div>", unsafe_allow_html=True)
         
         st.markdown("<br>", unsafe_allow_html=True)
         
@@ -347,10 +346,12 @@ else:
             st.rerun()
         
         st.write("---")
-        # Definido como primary para pegar o CSS de botão pequeno de 38px
         if st.button("🚪 Sair do Sistema", type="primary", use_container_width=True):
             st.session_state.authenticated = False
             st.session_state.menu_option = "Página Inicial"
+            # Limpa os dados do usuário ao sair
+            if 'usuario_logado' in st.session_state: del st.session_state['usuario_logado']
+            if 'perfil_logado' in st.session_state: del st.session_state['perfil_logado']
             st.rerun()
 
     # =============================================================================
@@ -360,14 +361,10 @@ else:
         
         st.caption(f"📅 Calendário Operacional: {utils.hoje.strftime('%d/%m/%Y')}")
 
-        # NOVO: Executa sincronização do Calendar ao entrar na Home para rodar as regras de datas
         if 'calendar_sync_inicial' not in st.session_state:
             utils.sincronizar_boletos_com_calendar()
             st.session_state.calendar_sync_inicial = True
 
-        # =========================================================================
-        # NOVO: DASHBOARD DE ALERTAS (EFEITO TABELA COLADA)
-        # =========================================================================
         st.markdown("<h4 style='font-weight: 600; margin-bottom: 10px;'>🔔 Lembretes de Pagamento</h4>", unsafe_allow_html=True)
         
         try:
@@ -393,14 +390,12 @@ else:
                     else:
                         cor_card = "#e6ffe6"; icone = "📅"; status_txt = f"EM {diff} DIAS"
                     
-                    # MAGIA CSS: Puxa a linha pra cima anulando o gap do Streamlit, grudando feito tabela
                     if idx > 0:
                         st.markdown("<div style='margin-top: -16px;'></div>", unsafe_allow_html=True)
                         
                     col_info, col_btn_doc, col_btn_pagar = st.columns([7.5, 1.2, 1.2])
                     
                     with col_info:
-                        # Altura travada em 38px, alinhamento flex perfeito e classe injetada para quebrar a margem do Streamlit
                         st.markdown(f"""
                             <div class="card-lembrete" style="background-color: {cor_card}; border: 1px solid #d1d5db; border-radius: 4px; padding: 0 15px; display: flex; align-items: center; justify-content: space-between; height: 38px; margin: 0px;">
                                 <div style="display: flex; align-items: center; gap: 10px; overflow: hidden;">
@@ -425,11 +420,9 @@ else:
                                 id_db = b['id']
                                 id_drive = b.get('link_drive_id')
                                 
-                                # Move arquivo físico no Drive se houver
                                 if id_drive and not pd.isna(id_drive) and str(id_drive).strip().lower() not in ["none", "nan", ""]:
                                     mover_arquivo_drive_app(id_drive, ["Boletos", "PAGOS"])
                                     
-                                # Atualiza status no banco e mantém a janela de 1 mês projetada!
                                 if id_db and not pd.isna(id_db) and str(id_db).strip() != "":
                                     st.session_state.supabase.table('boletos_fornecedores').update({'status': 'Pago'}).eq('id', id_db).execute()
                                     try:
@@ -438,7 +431,7 @@ else:
                                             novo_venc = add_months_app(venc_antigo, 1)
                                             st.session_state.supabase.table('boletos_fornecedores').insert({
                                                 'cliente': b.get('cliente'), 
-                                                'categoria': b.get('categoria', 'Outros'),  # <--- CATEGORIA APLICADA AQUI TAMBÉM!
+                                                'categoria': b.get('categoria', 'Outros'), 
                                                 "vencimento": novo_venc.strftime('%Y-%m-%d'),
                                                 'valor': b.get('valor'), 
                                                 'status': 'Pendente', 
@@ -446,7 +439,6 @@ else:
                                             }).execute()
                                     except: pass
                             
-                            # Atualiza no Google Calendar em tempo real após alteração para Pago
                             utils.sincronizar_boletos_com_calendar()
                             st.success("✅ Pago! Lembrete atualizado.")
                             st.rerun()
@@ -457,9 +449,6 @@ else:
 
         st.markdown("<hr style='margin-top: 20px; margin-bottom: 20px;'>", unsafe_allow_html=True)
         
-        # =========================================================================
-        # BOTÕES DE ACESSO RÁPIDO (CARDS GRANDES - TIPO SECONDARY)
-        # =========================================================================
         c1, c2 = st.columns(2)
         c3, c4 = st.columns(2)
         
@@ -480,7 +469,6 @@ else:
                 st.session_state.menu_option = "Documentos"
                 st.rerun()
 
-    # Roteamento dos módulos importados
     elif st.session_state.menu_option == "Controle Financeiro":
         tela_financeira.renderizar()
 
