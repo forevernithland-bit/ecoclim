@@ -219,22 +219,23 @@ if not st.session_state.authenticated:
         [data-testid="stSidebar"] { display: none !important; }
         [data-testid="stHeader"] { display: none !important; }
         
-        /* 🖼️ IMAGEM DE FUNDO BEM BONITA NA TELA INTEIRA COM CAMADA DE TRANSPARÊNCIA (OVERLAY BRANCO) */
+        /* 🖼️ IMAGEM DE FUNDO BEM BONITA NA TELA INTEIRA (Agora com overlay branco de 20%) */
         [data-testid="stAppViewContainer"] {
-            background-image: linear-gradient(rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0.45)), url('https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?ixlib=rb-4.0.3&auto=format&fit=crop&w=1920&q=80');
+            background-image: linear-gradient(rgba(255, 255, 255, 0.20), rgba(255, 255, 255, 0.20)), url('https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?ixlib=rb-4.0.3&auto=format&fit=crop&w=1920&q=80');
             background-size: cover;
             background-position: center;
             background-repeat: no-repeat;
             background-attachment: fixed;
         }
 
-        /* 📦 CAIXA BRANCA DE LOGIN SÓLIDA PARA GARANTIR LEITURA PERFEITA */
+        /* 📦 CAIXA BRANCA DE LOGIN 100% SÓLIDA PARA GARANTIR LEITURA PERFEITA */
         div[data-testid="stVerticalBlockBorderWrapper"] {
             background-color: #ffffff !important;
+            background: #ffffff !important;
             border-radius: 16px !important;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15) !important;
-            border: 1px solid #e6ecf5 !important;
-            padding: 20px !important;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4) !important; /* Sombra mais destacada */
+            border: none !important;
+            padding: 2rem !important;
         }
 
         .block-container { 
