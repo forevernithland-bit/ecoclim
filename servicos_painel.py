@@ -45,10 +45,19 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
     if f"data_edit_{prefix_key}" not in st.session_state:
         st.session_state[f"data_edit_{prefix_key}"] = data_inicial
 
+    # =========================================================================
+    # CORREÇÃO DA DATA: FORÇANDO A ATUALIZAÇÃO PARA HOJE NO MOMENTO DO CLIQUE
+    # =========================================================================
     if novo_status != st.session_state[f"last_status_{prefix_key}"]:
         if novo_status in ["Concluído PIX", "Concluído CARTÃO"] and st.session_state[f"last_status_{prefix_key}"] not in ["Concluído PIX", "Concluído CARTÃO"]:
-            st.session_state[f"data_edit_{prefix_key}"] = datetime.date.today()
+            hoje = datetime.date.today()
+            st.session_state[f"data_edit_{prefix_key}"] = hoje
+            # Força a chave interna do calendário a atualizar também
+            st.session_state[f"data_{prefix_key}"] = hoje
+            
         st.session_state[f"last_status_{prefix_key}"] = novo_status
+        # Força o Streamlit a recarregar a tela instantaneamente para aplicar a data
+        st.rerun()
 
     label_data = "Data de Término" if novo_status in ["Concluído PIX", "Concluído CARTÃO"] else "Data de Inclusão / Previsão"
     
