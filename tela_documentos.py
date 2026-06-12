@@ -49,29 +49,50 @@ def add_months(dt, months):
     return dt.replace(year=year, month=month, day=day)
 
 # =============================================================================
-# NOVA FUNÇÃO DE BUSCA DIRETA POR DIRETÓRIO (ECOCLIM ERP -> ABA EXATA)
+# MOTOR DE BUSCA ARQUITETADO POR IDS FIXOS DO GOOGLE DRIVE
 # =============================================================================
-def listar_arquivos_pasta_gdrive(path_list):
-    """Busca os arquivos diretamente na API do Drive garantindo suporte a drives compartilhados"""
+def listar_arquivos_pasta_gdrive(nome_principal, path_list):
+    """Busca arquivos usando os IDs exatos fornecidos pelo usuário para evitar erros de caminhos"""
     try:
         service = utils.get_drive_service()
-        current_parent = utils.MAIN_DRIVE_FOLDER_ID
         
-        # Navega pelas pastas da lista (Ex: ["Orçamentos"] ou ["Boletos", "JUNHO"])
-        for folder_name in path_list:
-            q = f"'{current_parent}' in parents and name = '{folder_name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
-            res = service.files().list(q=q, fields="files(id)", supportsAllDrives=True, includeItemsFromAllDrives=True).execute()
-            files = res.get('files', [])
-            if not files:
-                return []
-            current_parent = files[0]['id']
+        # Mapeamento cirúrgico dos IDs que você enviou
+        mapeamento_ids = {
+            "Orçamentos": "1DySx6I2sMQ6OQNR74mwbTrAf2KuK2YI4",
+            "Contratos": "1s2sf05GjPebJy93V1BdlTBOBM4LDHjic",
+            "Imagens": "1F8C5IH6AbscBc3DLoasP9Zjx2qrqgU8p",
+            "Notas Fiscais": "1H8S-8mKS5TB8co7df2vMdqyKfTgDG0V2"
+        }
         
-        # Coleta os arquivos de dentro da última pasta encontrada
-        q_files = f"'{current_parent}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false"
+        if nome_principal in mapeamento_ids:
+            # Inicia a busca partindo diretamente do ID fixo da pasta correta
+            target_folder_id = mapeamento_ids[nome_principal]
+            
+            # Se a aba possuir subpastas (como o seletor de meses em Imagens/NF), navega nelas
+            for folder_name in path_list[1:]:
+                q = f"'{target_folder_id}' in parents and name = '{folder_name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+                res = service.files().list(q=q, fields="files(id)", supportsAllDrives=True, includeItemsFromAllDrives=True).execute()
+                files = res.get('files', [])
+                if not files:
+                    return []
+                target_folder_id = files[0]['id']
+        else:
+            # MÓDULO DE BOLETOS: Mantém a regra original por árvore de nomes (Intocado!)
+            target_folder_id = utils.MAIN_DRIVE_FOLDER_ID
+            for folder_name in path_list:
+                q = f"'{target_folder_id}' in parents and name = '{folder_name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+                res = service.files().list(q=q, fields="files(id)", supportsAllDrives=True, includeItemsFromAllDrives=True).execute()
+                files = res.get('files', [])
+                if not files:
+                    return []
+                target_folder_id = files[0]['id']
+        
+        # Coleta os arquivos de dentro da pasta final identificada
+        q_files = f"'{target_folder_id}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false"
         res_files = service.files().list(q=q_files, fields="files(id, name, createdTime, size, webViewLink)", supportsAllDrives=True, includeItemsFromAllDrives=True, pageSize=1000).execute()
         return res_files.get('files', [])
     except:
-        # Fallback de segurança usando a função nativa do ERP
+        # Fallback de segurança caso a API falhe por timeout
         try:
             return utils.list_drive_files(path_list)
         except:
@@ -177,8 +198,8 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                         st.rerun()
         st.markdown("<br>", unsafe_allow_html=True)
 
-    # Chamada da nossa nova busca limpa e direta por pasta
-    arquivos_brutos = listar_arquivos_pasta_gdrive(path_atual)
+    # Chamada otimizada com a inteligência dos IDs fixos
+    arquivos_brutos = listar_arquivos_pasta_gdrive(nome_principal, path_atual)
     df_db = pd.DataFrame()
 
     vencimentos_map = {}
@@ -220,7 +241,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             except: 
                 v_dt = None
             
-            # Filtra para exibir apenas na aba do mês correspondente ao Vencimento
             if sub_sel == "PAGOS": 
                 pertence = (r.get('status') == 'Pago')
             else: 
