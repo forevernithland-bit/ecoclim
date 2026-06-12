@@ -5,6 +5,8 @@ import utils
 import zipfile
 import io
 from googleapiclient.http import MediaIoBaseUpload
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
 
 def formatar_tamanho(tamanho_bytes):
     try:
@@ -26,9 +28,28 @@ def parse_drive_date(iso_str):
     except:
         return pd.NaT
 
+# =============================================================================
+# AUTENTICAÇÃO DIRETA DO ROBÔ (Ignora o login antigo que expirou)
+# =============================================================================
+def obter_servico_drive_robot():
+    """Força o uso estrito da Conta de Serviço (Robô) salva no Secrets"""
+    try:
+        info_chave = dict(st.secrets["gcp_service_account"])
+        if "private_key" in info_chave:
+            # Corrige formatação de quebra de linha que o TOML do Streamlit às vezes escapa
+            info_chave["private_key"] = info_chave["private_key"].replace("\\n", "\n")
+        
+        escopos = ['https://www.googleapis.com/auth/drive']
+        credenciais = service_account.Credentials.from_service_account_info(info_chave, scopes=escopos)
+        return build('drive', 'v3', credentials=credenciais)
+    except Exception as e:
+        st.error(f"Erro de conexão com o Robô do Google: {e}")
+        return None
+
 def mover_arquivo_drive(file_id, folder_path_list):
     try:
-        service = utils.get_drive_service()
+        service = obter_servico_drive_robot()
+        if not service: return False
         file = service.files().get(fileId=file_id, fields='parents').execute()
         previous_parents = ",".join(file.get('parents', []))
         new_folder_id = utils.get_or_create_nested_folder(service, utils.MAIN_DRIVE_FOLDER_ID, folder_path_list)
@@ -50,11 +71,13 @@ def add_months(dt, months):
     return dt.replace(year=year, month=month, day=day)
 
 # =============================================================================
-# MOTOR CIRÚRGICO DE UPLOAD E BUSCA (COM TRATAMENTO RIGOROSO DE ERROS)
+# MOTOR CIRÚRGICO DE UPLOAD E BUSCA (USANDO OS SEUS IDs FIXOS)
 # =============================================================================
 def upload_direto_gdrive(file_buffer, filename, mimetype, path_list):
     try:
-        service = utils.get_drive_service()
+        service = obter_servico_drive_robot()
+        if not service: return False, "Falha na autenticação do robô."
+        
         mapeamento_ids = {
             "Orçamentos": "1DySx6I2sMQ6OQNR74mwbTrAf2KuK2YI4",
             "Contratos": "1s2sf05GjPebJy93V1BdlTBOBM4LDHjic",
@@ -65,7 +88,6 @@ def upload_direto_gdrive(file_buffer, filename, mimetype, path_list):
         nome_principal = path_list[0]
         if nome_principal in mapeamento_ids:
             current_parent = mapeamento_ids[nome_principal]
-            # Se houver subpastas (ex: mês), cria ou localiza lá dentro
             if len(path_list) > 1:
                 for folder_name in path_list[1:]:
                     q = f"'{current_parent}' in parents and name = '{folder_name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
@@ -79,7 +101,6 @@ def upload_direto_gdrive(file_buffer, filename, mimetype, path_list):
                         current_parent = folder.get('id')
                         
             file_metadata = {'name': filename, 'parents': [current_parent]}
-            # Empacota em BytesIO para a API do Google aceitar sem falhar no Streamlit
             file_stream = io.BytesIO(file_buffer.getvalue())
             media = MediaIoBaseUpload(file_stream, mimetype=mimetype, resumable=True)
             file = service.files().create(body=file_metadata, media_body=media, fields='id', supportsAllDrives=True).execute()
@@ -92,7 +113,9 @@ def upload_direto_gdrive(file_buffer, filename, mimetype, path_list):
 @st.cache_data(ttl=60)
 def listar_arquivos_pasta_gdrive(nome_principal, path_list):
     try:
-        service = utils.get_drive_service()
+        service = obter_servico_drive_robot()
+        if not service: return [], "Falha na autenticação do robô."
+        
         mapeamento_ids = {
             "Orçamentos": "1DySx6I2sMQ6OQNR74mwbTrAf2KuK2YI4",
             "Contratos": "1s2sf05GjPebJy93V1BdlTBOBM4LDHjic",
@@ -219,10 +242,10 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
     if nome_principal == "Boletos":
         with st.expander("➕ Adicionar Lembrete / Conta Manual (Sem Arquivo)"):
             with st.form(f"form_manual_bol"):
-                st.caption("Cadastre despesas manuais para centralizar seus alertas.")
+                st.caption("Cadastre despesas manuais para centralizar os seus alertas.")
                 c_mn, c_mcat, c_mv, c_md, c_mrec = st.columns([2.5, 1.5, 1.2, 1.2, 1])
                 nome_man = c_mn.text_input("Descrição (Ex: Conta de Luz, Contador)")
-                cat_man = c_mcat.selectbox("Categoria", lista_categorias, index=4)
+                cat_man = r_mcat = c_mcat.selectbox("Categoria", lista_categorias, index=4)
                 valor_man = c_mv.number_input("Valor (R$)", min_value=0.0, format="%.2f")
                 venc_man = c_md.date_input("Vencimento", format="DD/MM/YYYY")
                 rec_man = c_mrec.checkbox("Recorrente?")
@@ -246,12 +269,10 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                         st.rerun()
         st.markdown("<br>", unsafe_allow_html=True)
 
-    # Chamada otimizada com a inteligência dos IDs fixos e relatório de erros
     arquivos_brutos, erro_api = listar_arquivos_pasta_gdrive(nome_principal, path_atual)
     
     if erro_api:
         st.error(f"⚠️ Erro de Permissão no Google Drive: {erro_api}")
-        st.caption("O e-mail de serviço do ERP não tem permissão para ver esta pasta específica. Vá ao Google Drive, clique em 'Compartilhar' nesta pasta e adicione o e-mail do sistema como Editor.")
         return
 
     df_db = pd.DataFrame()
@@ -604,7 +625,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                     if st.button("📦 Preparar Pacote .ZIP para Baixar", key=f"btn_zip_gen_{nome_principal}", use_container_width=True):
                         with st.spinner("Buscando arquivos no Google Drive e compactando..."):
                             try:
-                                service = utils.get_drive_service()
+                                service = obter_servico_drive_robot()
                                 zip_buffer = io.BytesIO()
                                 with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
                                     df_filtrado_down = arquivos_reais_disponiveis[arquivos_reais_disponiveis["Nome"].isin(arquivos_selecionados)]
