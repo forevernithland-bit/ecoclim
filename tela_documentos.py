@@ -245,7 +245,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                 st.caption("Cadastre despesas manuais para centralizar os seus alertas.")
                 c_mn, c_mcat, c_mv, c_md, c_mrec = st.columns([2.5, 1.5, 1.2, 1.2, 1])
                 nome_man = c_mn.text_input("Descrição (Ex: Conta de Luz, Contador)")
-                cat_man = r_mcat = c_mcat.selectbox("Categoria", lista_categorias, index=4)
+                cat_man = c_mcat.selectbox("Categoria", lista_categorias, index=4)
                 valor_man = c_mv.number_input("Valor (R$)", min_value=0.0, format="%.2f")
                 venc_man = c_md.date_input("Vencimento", format="DD/MM/YYYY")
                 rec_man = c_mrec.checkbox("Recorrente?")
@@ -438,177 +438,191 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
     itens_por_pagina = 100
     total_paginas = (len(df) - 1) // itens_por_pagina + 1
     
-    col_view, col_pag = st.columns([7, 3])
-    with col_view:
-        modo_visao = "Lista"
-        if is_imagens: 
-            modo_visao = st.radio("Visualização:", ["Lista", "Miniaturas"], horizontal=True, key=f"view_{nome_principal}", label_visibility="collapsed")
-    with col_pag:
-        if total_paginas > 1:
-            pagina_atual = st.number_input("Página", min_value=1, max_value=total_paginas, value=1, key=f"pag_{nome_principal}")
-        else:
-            pagina_atual = 1
+    # -------------------------------------------------------------------------
+    # TRUQUE DE LAYOUT: CONTAINERS PARA MOSTRAR A TABELA EM CIMA E PÁGINAS EMBAIXO
+    # -------------------------------------------------------------------------
+    container_tabela = st.container()
+    st.markdown("<br>", unsafe_allow_html=True)
+    container_paginacao = st.container()
+    container_acoes = st.container()
+
+    # Preenchemos o container da paginação primeiro (para o código saber a página atual)
+    with container_paginacao:
+        col_view, col_pag = st.columns([7, 3])
+        with col_view:
+            modo_visao = "Lista"
+            if is_imagens: 
+                modo_visao = st.radio("Visualização:", ["Lista", "Miniaturas"], horizontal=True, key=f"view_{nome_principal}", label_visibility="collapsed")
+        with col_pag:
+            if total_paginas > 1:
+                pagina_atual = st.number_input("Página", min_value=1, max_value=total_paginas, value=1, key=f"pag_{nome_principal}")
+            else:
+                pagina_atual = 1
 
     inicio = (pagina_atual - 1) * itens_por_pagina
     df_pagina = df.iloc[inicio : inicio + itens_por_pagina].copy()
 
-    if is_imagens and modo_visao == "Miniaturas":
-        cols = st.columns(4)
-        for i, row in df_pagina.reset_index(drop=True).iterrows():
-            with cols[i % 4]:
-                img_url = f"https://drive.google.com/uc?export=view&id={row['ID']}"
-                st.markdown(f'''
-                    <a href="{row['Link']}" target="_blank">
-                        <div style="height: 180px; background-image: url('{img_url}'); background-size: cover; background-position: center; border-radius: 8px; border: 1px solid #ddd; margin-bottom: 5px; background-color: #f8f9fa;"></div>
-                    </a>
-                    <p style='font-size:0.8rem; text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;' title='{row['Nome']}'><b>{row['Nome']}</b></p>
-                ''', unsafe_allow_html=True)
-                if st.button("🗑️ Excluir", key=f"del_img_{row['ID']}", use_container_width=True):
-                    utils.delete_drive_file(row['ID'])
-                    st.cache_data.clear()
-                    st.rerun()
-    else:
-        config_colunas = {
-            "Excluir": st.column_config.CheckboxColumn("🗑️", default=False, width="small"),
-            "ID": None, 
-            "ID_Drive": None, 
-            "ID_DB": None,
-            "Tamanho": None,    
-            "Nome": st.column_config.TextColumn("Descrição", width="medium"), 
-            "Link": st.column_config.LinkColumn("PDF", display_text="👁️ Abrir", width="small")
-        }
-        
-        lista_desabilitados = ["Nome", "Data", "Tamanho", "Link"]
-
-        if nome_principal == "Boletos":
-            config_colunas["Data"] = None 
-            config_colunas["Vencimento"] = st.column_config.DateColumn("Vencimento", format="DD/MM/YYYY", width="small") 
-            config_colunas["Categoria"] = st.column_config.SelectboxColumn("Categoria", options=lista_categorias, width="medium")
-            config_colunas["Valor"] = st.column_config.NumberColumn("Valor (R$)", format="%.2f", width="small") 
-            config_colunas["Recorrente"] = st.column_config.TextColumn("Recorrente", width="small")
-            config_colunas["Pagar"] = st.column_config.CheckboxColumn("Pagar", default=False, width="small")
-            config_colunas["Status"] = st.column_config.TextColumn("Status", width="small")
-            
-            lista_desabilitados.extend(["Vencimento", "Recorrente", "Status"])
-            
-            col_order = ["Excluir", "Nome", "Link", "Vencimento", "Categoria", "Valor", "Recorrente", "Pagar", "Status"]
-        else:
-            config_colunas["Data"] = st.column_config.DatetimeColumn("Data de Inclusão", format="DD/MM/YYYY - HH:mm")
-            col_order = ["Excluir", "Nome", "Link", "Data"]
-
-        todas_cols = col_order + [c for c in df_pagina.columns if c not in col_order]
-        df_pagina = df_pagina[todas_cols].reset_index(drop=True)
-
-        if nome_principal == "Boletos":
-            def colorir_boletos(row):
-                s = row.get('Status', '')
-                v = row.get('Vencimento', pd.NaT)
-                hoje = datetime.date.today()
-                
-                if s == 'Pago':
-                    cor = 'color: #008000; font-weight: 500;' 
-                elif s == 'Pendente':
-                    if pd.notna(v) and v < hoje:
-                        cor = 'color: #cc0000; font-weight: bold;' 
-                    else:
-                        cor = 'color: #004488; font-weight: 500;' 
-                else:
-                    cor = ''
-                return [cor] * len(row)
-
-            df_exibicao = df_pagina.style.apply(colorir_boletos, axis=1)
-        else:
-            df_exibicao = df_pagina
-
-        df_editado = st.data_editor(
-            df_exibicao, 
-            column_config=config_colunas, 
-            column_order=col_order, 
-            disabled=lista_desabilitados,
-            hide_index=True, 
-            use_container_width=True, 
-            key=f"editor_docs_v11_{nome_principal}" 
-        )
-
-        if df_editado is not None and not df_editado.empty:
-            
-            if "Valor" in df_editado.columns and "Categoria" in df_editado.columns and nome_principal == "Boletos":
-                diff_val = abs(pd.to_numeric(df_editado["Valor"], errors='coerce').fillna(0) - pd.to_numeric(df_pagina["Valor"], errors='coerce').fillna(0)) > 0.01
-                diff_cat = df_editado["Categoria"].fillna('Outros') != df_pagina["Categoria"].fillna('Outros')
-                
-                boletos_alterados = df_editado[diff_val | diff_cat]
-                
-                if not boletos_alterados.empty:
-                    st.warning(f"⚠️ Você alterou dados de {len(boletos_alterados)} boleto(s). Confirme para salvar.")
-                    if st.button("💾 Salvar Alterações", type="primary", use_container_width=True):
-                        with st.spinner("Atualizando banco de dados..."):
-                            for _, r_upd in boletos_alterados.iterrows():
-                                id_db = r_upd.get("ID_DB")
-                                if id_db and str(id_db).strip() not in ["none", "nan", ""]:
-                                    st.session_state.supabase.table('boletos_fornecedores').update({
-                                        'valor': float(r_upd['Valor']),
-                                        'categoria': str(r_upd['Categoria'])
-                                    }).eq('id', id_db).execute()
-                        
-                        utils.sincronizar_boletos_com_calendar()
-                        st.success("✅ Atualizado com sucesso!")
-                        st.rerun()
-
-            if "Pagar" in df_editado.columns:
-                boletos_pagar = df_editado[(df_editado["Pagar"] == True) & (df_editado["Status"] != "Pago")]
-                
-                if not boletos_pagar.empty:
-                    st.info(f"💡 Você marcou {len(boletos_pagar)} nova(s) despesa(s) para pagamento.")
-                    if st.button("🚀 Confirmar Pagamentos", type="primary", use_container_width=True):
-                        with st.spinner("Atualizando registros..."):
-                            for _, r_pag in boletos_pagar.iterrows():
-                                id_db = r_pag.get("ID_DB")
-                                id_drive = r_pag.get("ID_Drive")
-                                
-                                if id_drive and not pd.isna(id_drive) and str(id_drive).strip().lower() not in ["none", "nan", ""]:
-                                    mover_arquivo_drive(id_drive, ["Boletos", "PAGOS"])
-                                    
-                                if id_db and not pd.isna(id_db) and str(id_db).strip() != "":
-                                    st.session_state.supabase.table('boletos_fornecedores').update({'status': 'Pago'}).eq('id', id_db).execute()
-                                    try:
-                                        orig = st.session_state.supabase.table('boletos_fornecedores').select('*').eq('id', id_db).execute().data[0]
-                                        if orig.get('is_recorrente'):
-                                            venc_antigo = datetime.datetime.strptime(orig['vencimento'], "%Y-%m-%d").date()
-                                            novo_venc = add_months(venc_antigo, 1)
-                                            st.session_state.supabase.table('boletos_fornecedores').insert({
-                                                'cliente': orig.get('cliente'), 
-                                                'categoria': orig.get('categoria', 'Outros'),
-                                                "vencimento": novo_venc.strftime('%Y-%m-%d'),
-                                                'valor': orig.get('valor'), 
-                                                'status': 'Pendente', 
-                                                'is_recorrente': True
-                                            }).execute()
-                                    except: 
-                                        pass
-                        
-                        utils.sincronizar_boletos_com_calendar()
-                        st.success("✅ Tudo atualizado! Boletos pagos e próxima recorrência gerada (caso aplicável).")
+    # Preenchemos a tabela no container de cima
+    with container_tabela:
+        if is_imagens and modo_visao == "Miniaturas":
+            cols = st.columns(4)
+            for i, row in df_pagina.reset_index(drop=True).iterrows():
+                with cols[i % 4]:
+                    img_url = f"https://drive.google.com/uc?export=view&id={row['ID']}"
+                    st.markdown(f'''
+                        <a href="{row['Link']}" target="_blank">
+                            <div style="height: 180px; background-image: url('{img_url}'); background-size: cover; background-position: center; border-radius: 8px; border: 1px solid #ddd; margin-bottom: 5px; background-color: #f8f9fa;"></div>
+                        </a>
+                        <p style='font-size:0.8rem; text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;' title='{row['Nome']}'><b>{row['Nome']}</b></p>
+                    ''', unsafe_allow_html=True)
+                    if st.button("🗑️ Excluir", key=f"del_img_{row['ID']}", use_container_width=True):
+                        utils.delete_drive_file(row['ID'])
                         st.cache_data.clear()
                         st.rerun()
+        else:
+            config_colunas = {
+                "Excluir": st.column_config.CheckboxColumn("🗑️", default=False, width="small"),
+                "ID": None, 
+                "ID_Drive": None, 
+                "ID_DB": None,
+                "Tamanho": None,    
+                "Nome": st.column_config.TextColumn("Descrição", width="medium"), 
+                "Link": st.column_config.LinkColumn("PDF", display_text="👁️ Abrir", width="small")
+            }
             
-            arquivos_para_apagar = df_editado[df_editado["Excluir"] == True]
-            if not arquivos_para_apagar.empty:
-                st.error(f"⚠️ Selecionou {len(arquivos_para_apagar)} item(ns) para exclusão permanente.")
-                if st.button("🚨 Confirmar Exclusão", type="primary", key=f"conf_del_{nome_principal}"):
-                    with st.spinner("Apagando..."):
-                        for _, row_del in arquivos_para_apagar.iterrows():
-                            id_dr = row_del.get("ID_Drive")
-                            if id_dr and not pd.isna(id_dr) and str(id_dr).strip().lower() not in ["none", "nan", ""]:
-                                utils.delete_drive_file(id_dr)
-                            id_bd = row_del.get("ID_DB")
-                            if id_bd and not pd.isna(id_bd) and str(id_bd).strip() != "":
-                                st.session_state.supabase.table('boletos_fornecedores').delete().eq('id', id_bd).execute()
+            lista_desabilitados = ["Nome", "Data", "Tamanho", "Link"]
+    
+            if nome_principal == "Boletos":
+                config_colunas["Data"] = None 
+                config_colunas["Vencimento"] = st.column_config.DateColumn("Vencimento", format="DD/MM/YYYY", width="small") 
+                config_colunas["Categoria"] = st.column_config.SelectboxColumn("Categoria", options=lista_categorias, width="medium")
+                config_colunas["Valor"] = st.column_config.NumberColumn("Valor (R$)", format="%.2f", width="small") 
+                config_colunas["Recorrente"] = st.column_config.TextColumn("Recorrente", width="small")
+                config_colunas["Pagar"] = st.column_config.CheckboxColumn("Pagar", default=False, width="small")
+                config_colunas["Status"] = st.column_config.TextColumn("Status", width="small")
+                
+                lista_desabilitados.extend(["Vencimento", "Recorrente", "Status"])
+                
+                col_order = ["Excluir", "Nome", "Link", "Vencimento", "Categoria", "Valor", "Recorrente", "Pagar", "Status"]
+            else:
+                config_colunas["Data"] = st.column_config.DatetimeColumn("Data de Inclusão", format="DD/MM/YYYY - HH:mm")
+                col_order = ["Excluir", "Nome", "Link", "Data"]
+    
+            todas_cols = col_order + [c for c in df_pagina.columns if c not in col_order]
+            df_pagina = df_pagina[todas_cols].reset_index(drop=True)
+    
+            if nome_principal == "Boletos":
+                def colorir_boletos(row):
+                    s = row.get('Status', '')
+                    v = row.get('Vencimento', pd.NaT)
+                    hoje = datetime.date.today()
                     
-                    utils.sincronizar_boletos_com_calendar()
-                    st.success("Excluídos com sucesso!")
-                    st.cache_data.clear()
-                    st.rerun()
+                    if s == 'Pago':
+                        cor = 'color: #008000; font-weight: 500;' 
+                    elif s == 'Pendente':
+                        if pd.notna(v) and v < hoje:
+                            cor = 'color: #cc0000; font-weight: bold;' 
+                        else:
+                            cor = 'color: #004488; font-weight: 500;' 
+                    else:
+                        cor = ''
+                    return [cor] * len(row)
+    
+                df_exibicao = df_pagina.style.apply(colorir_boletos, axis=1)
+            else:
+                df_exibicao = df_pagina
+    
+            df_editado = st.data_editor(
+                df_exibicao, 
+                column_config=config_colunas, 
+                column_order=col_order, 
+                disabled=lista_desabilitados,
+                hide_index=True, 
+                use_container_width=True, 
+                key=f"editor_docs_v11_{nome_principal}" 
+            )
+    
+            if df_editado is not None and not df_editado.empty:
+                
+                if "Valor" in df_editado.columns and "Categoria" in df_editado.columns and nome_principal == "Boletos":
+                    diff_val = abs(pd.to_numeric(df_editado["Valor"], errors='coerce').fillna(0) - pd.to_numeric(df_pagina["Valor"], errors='coerce').fillna(0)) > 0.01
+                    diff_cat = df_editado["Categoria"].fillna('Outros') != df_pagina["Categoria"].fillna('Outros')
+                    
+                    boletos_alterados = df_editado[diff_val | diff_cat]
+                    
+                    if not boletos_alterados.empty:
+                        st.warning(f"⚠️ Você alterou dados de {len(boletos_alterados)} boleto(s). Confirme para salvar.")
+                        if st.button("💾 Salvar Alterações", type="primary", use_container_width=True):
+                            with st.spinner("Atualizando banco de dados..."):
+                                for _, r_upd in boletos_alterados.iterrows():
+                                    id_db = r_upd.get("ID_DB")
+                                    if id_db and str(id_db).strip() not in ["none", "nan", ""]:
+                                        st.session_state.supabase.table('boletos_fornecedores').update({
+                                            'valor': float(r_upd['Valor']),
+                                            'categoria': str(r_upd['Categoria'])
+                                        }).eq('id', id_db).execute()
+                            
+                            utils.sincronizar_boletos_com_calendar()
+                            st.success("✅ Atualizado com sucesso!")
+                            st.rerun()
+    
+                if "Pagar" in df_editado.columns:
+                    boletos_pagar = df_editado[(df_editado["Pagar"] == True) & (df_editado["Status"] != "Pago")]
+                    
+                    if not boletos_pagar.empty:
+                        st.info(f"💡 Você marcou {len(boletos_pagar)} nova(s) despesa(s) para pagamento.")
+                        if st.button("🚀 Confirmar Pagamentos", type="primary", use_container_width=True):
+                            with st.spinner("Atualizando registros..."):
+                                for _, r_pag in boletos_pagar.iterrows():
+                                    id_db = r_pag.get("ID_DB")
+                                    id_drive = r_pag.get("ID_Drive")
+                                    
+                                    if id_drive and not pd.isna(id_drive) and str(id_drive).strip().lower() not in ["none", "nan", ""]:
+                                        mover_arquivo_drive(id_drive, ["Boletos", "PAGOS"])
+                                        
+                                    if id_db and not pd.isna(id_db) and str(id_db).strip() != "":
+                                        st.session_state.supabase.table('boletos_fornecedores').update({'status': 'Pago'}).eq('id', id_db).execute()
+                                        try:
+                                            orig = st.session_state.supabase.table('boletos_fornecedores').select('*').eq('id', id_db).execute().data[0]
+                                            if orig.get('is_recorrente'):
+                                                venc_antigo = datetime.datetime.strptime(orig['vencimento'], "%Y-%m-%d").date()
+                                                novo_venc = add_months(venc_antigo, 1)
+                                                st.session_state.supabase.table('boletos_fornecedores').insert({
+                                                    'cliente': orig.get('cliente'), 
+                                                    'categoria': orig.get('categoria', 'Outros'),
+                                                    "vencimento": novo_venc.strftime('%Y-%m-%d'),
+                                                    'valor': orig.get('valor'), 
+                                                    'status': 'Pendente', 
+                                                    'is_recorrente': True
+                                                }).execute()
+                                        except: 
+                                            pass
+                            
+                            utils.sincronizar_boletos_com_calendar()
+                            st.success("✅ Tudo atualizado! Boletos pagos e próxima recorrência gerada (caso aplicável).")
+                            st.cache_data.clear()
+                            st.rerun()
+                
+                arquivos_para_apagar = df_editado[df_editado["Excluir"] == True]
+                if not arquivos_para_apagar.empty:
+                    st.error(f"⚠️ Selecionou {len(arquivos_para_apagar)} item(ns) para exclusão permanente.")
+                    if st.button("🚨 Confirmar Exclusão", type="primary", key=f"conf_del_{nome_principal}"):
+                        with st.spinner("Apagando..."):
+                            for _, row_del in arquivos_para_apagar.iterrows():
+                                id_dr = row_del.get("ID_Drive")
+                                if id_dr and not pd.isna(id_dr) and str(id_dr).strip().lower() not in ["none", "nan", ""]:
+                                    utils.delete_drive_file(id_dr)
+                                id_bd = row_del.get("ID_DB")
+                                if id_bd and not pd.isna(id_bd) and str(id_bd).strip() != "":
+                                    st.session_state.supabase.table('boletos_fornecedores').delete().eq('id', id_bd).execute()
+                        
+                        utils.sincronizar_boletos_com_calendar()
+                        st.success("Excluídos com sucesso!")
+                        st.cache_data.clear()
+                        st.rerun()
 
+    # Preenchemos a área de download e resumos bem no fundo da página
+    with container_acoes:
         arquivos_reais_disponiveis = df_pagina[df_pagina["ID_Drive"].notna() & (~df_pagina["Nome"].str.startswith("📝 "))]
         
         if not arquivos_reais_disponiveis.empty:
