@@ -209,20 +209,75 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             pass
 
     dados_tabela = []
+    processed_drive_ids = set()
     
-    # 1. Arquivos Físicos do Drive (Dinamizado para ler a aba atual)
+    # 1. Dados Primários: O Banco de Dados (Para Boletos)
+    if nome_principal == "Boletos" and not df_db.empty:
+        mes_sel_idx = utils.meses_pt.index(sub_sel) + 1 if sub_sel in utils.meses_pt else datetime.date.today().month
+        for _, r in df_db.iterrows():
+            try: 
+                v_dt = datetime.datetime.strptime(str(r['vencimento']), "%Y-%m-%d").date()
+            except: 
+                v_dt = None
+            
+            # Filtra para exibir apenas na aba do mês correspondente ao Vencimento
+            if sub_sel == "PAGOS": 
+                pertence = (r.get('status') == 'Pago')
+            else: 
+                pertence = (v_dt and v_dt.month == mes_sel_idx and r.get('status') != 'Pago')
+            
+            if pertence:
+                val_link = r.get('link_drive_id')
+                tem_drive = pd.notna(val_link) and str(val_link).strip().lower() not in ['nan', 'none', '']
+                
+                if tem_drive:
+                    processed_drive_ids.add(val_link)
+                    icone = "📄"
+                    link_url = f"https://drive.google.com/file/d/{val_link}/view"
+                else:
+                    icone = "📝"
+                    link_url = None
+                
+                v_dt_datetime = datetime.datetime.combine(v_dt, datetime.time()) if v_dt else pd.NaT
+                
+                dados_tabela.append({
+                    "Excluir": False, 
+                    "Pagar": False, 
+                    "ID_Drive": val_link if tem_drive else None, 
+                    "ID_DB": str(r['id']),
+                    "ID": f"db_{r['id']}", 
+                    "Nome": f"{icone} {r.get('cliente', 'Despesa')}",
+                    "Data": v_dt_datetime, 
+                    "Tamanho": "-", 
+                    "Link": link_url,
+                    "Vencimento": v_dt if v_dt else pd.NaT,
+                    "Categoria": str(r.get('categoria', 'Outros')),
+                    "Valor": float(r.get('valor', 0.0)), 
+                    "Recorrente": "🔄 Sim" if r.get('is_recorrente', False) else "-",
+                    "Status": str(r.get('status', 'Pendente'))
+                })
+
+    # 2. Arquivos Físicos do Drive (Dinamizado para ler a aba atual)
     for a in arquivos_brutos:
         d_id = str(a.get('id', ''))
+        
+        if nome_principal == "Boletos" and d_id in processed_drive_ids:
+            continue
+            
+        if nome_principal == "Boletos" and d_id in db_id_map:
+            continue
+
         linha_arquivo = {
             "Excluir": False,
             "ID_Drive": d_id,
             "ID_DB": str(db_id_map.get(d_id, "")),
             "ID": d_id,
-            "Nome": str(a.get('name', '')),
+            "Nome": f"📄 {str(a.get('name', ''))}",
             "Data": parse_drive_date(a.get('createdTime', '')),
             "Tamanho": str(formatar_tamanho(a.get('size', 0))),
             "Link": a.get('webViewLink', f"https://drive.google.com/file/d/{d_id}/view")
         }
+        
         if nome_principal == "Boletos":
             linha_arquivo["Pagar"] = False
             v_date = vencimentos_map.get(d_id)
@@ -233,43 +288,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             linha_arquivo["Status"] = str(status_map.get(d_id, "Pendente"))
         
         dados_tabela.append(linha_arquivo)
-        
-    # 2. Lembretes Manuais do Banco (Lógica intacta e exclusiva de Boletos)
-    if nome_principal == "Boletos" and not df_db.empty:
-        mes_sel_idx = utils.meses_pt.index(sub_sel) + 1 if sub_sel in utils.meses_pt else datetime.date.today().month
-        for _, r in df_db.iterrows():
-            val_link = r.get('link_drive_id')
-            
-            if pd.isna(val_link) or str(val_link).strip().lower() in ['nan', 'none', '']:
-                try: 
-                    v_dt = datetime.datetime.strptime(str(r['vencimento']), "%Y-%m-%d").date()
-                except: 
-                    v_dt = None
-                
-                if sub_sel == "PAGOS": 
-                    pertence = (r.get('status') == 'Pago')
-                else: 
-                    pertence = (v_dt and v_dt.month == mes_sel_idx and r.get('status') != 'Pago')
-                
-                if pertence:
-                    v_dt_datetime = datetime.datetime.combine(v_dt, datetime.time()) if v_dt else pd.NaT
-                    
-                    dados_tabela.append({
-                        "Excluir": False, 
-                        "Pagar": False, 
-                        "ID_Drive": None, 
-                        "ID_DB": str(r['id']),
-                        "ID": f"db_{r['id']}", 
-                        "Nome": f"📝 {r.get('cliente', 'Lembrete')}",
-                        "Data": v_dt_datetime, 
-                        "Tamanho": "-", 
-                        "Link": None,
-                        "Vencimento": v_dt if v_dt else pd.NaT,
-                        "Categoria": str(r.get('categoria', 'Outros')),
-                        "Valor": float(r.get('valor', 0.0)), 
-                        "Recorrente": "🔄 Sim" if r.get('is_recorrente', False) else "-",
-                        "Status": str(r.get('status', 'Pendente'))
-                    })
 
     df = pd.DataFrame(dados_tabela)
 
@@ -498,10 +516,10 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
 
         arquivos_reais_disponiveis = df_pagina[df_pagina["ID_Drive"].notna() & (~df_pagina["Nome"].str.startswith("📝 "))]
         
-        if not archivos_reais_disponiveis.empty:
+        if not arquivos_reais_disponiveis.empty:
             st.markdown("<br>", unsafe_allow_html=True)
             with st.container(border=True):
-                st.markdown("📦 **Download Múltiplo de Documentos**")
+                st.markdown("📦 **Download Multiplo de Documentos**")
                 arquivos_selecionados = st.multiselect(
                     "Selecione na lista os documentos que deseja baixar juntos:",
                     options=arquivos_reais_disponiveis["Nome"].tolist(),
