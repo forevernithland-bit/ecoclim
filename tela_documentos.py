@@ -50,7 +50,7 @@ def add_months(dt, months):
     return dt.replace(year=year, month=month, day=day)
 
 # =============================================================================
-# MOTOR CIRÚRGICO DE UPLOAD E BUSCA (USANDO OS SEUS IDs FIXOS)
+# MOTOR CIRÚRGICO DE UPLOAD E BUSCA (COM TRATAMENTO RIGOROSO DE ERROS)
 # =============================================================================
 def upload_direto_gdrive(file_buffer, filename, mimetype, path_list):
     try:
@@ -65,6 +65,7 @@ def upload_direto_gdrive(file_buffer, filename, mimetype, path_list):
         nome_principal = path_list[0]
         if nome_principal in mapeamento_ids:
             current_parent = mapeamento_ids[nome_principal]
+            # Se houver subpastas (ex: mês), cria ou localiza lá dentro
             if len(path_list) > 1:
                 for folder_name in path_list[1:]:
                     q = f"'{current_parent}' in parents and name = '{folder_name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
@@ -78,7 +79,9 @@ def upload_direto_gdrive(file_buffer, filename, mimetype, path_list):
                         current_parent = folder.get('id')
                         
             file_metadata = {'name': filename, 'parents': [current_parent]}
-            media = MediaIoBaseUpload(file_buffer, mimetype=mimetype, resumable=True)
+            # Empacota em BytesIO para a API do Google aceitar sem falhar no Streamlit
+            file_stream = io.BytesIO(file_buffer.getvalue())
+            media = MediaIoBaseUpload(file_stream, mimetype=mimetype, resumable=True)
             file = service.files().create(body=file_metadata, media_body=media, fields='id', supportsAllDrives=True).execute()
             return True, file.get('id')
         else:
@@ -105,19 +108,16 @@ def listar_arquivos_pasta_gdrive(nome_principal, path_list):
                     res = service.files().list(q=q, fields="files(id)", supportsAllDrives=True, includeItemsFromAllDrives=True).execute()
                     files = res.get('files', [])
                     if not files:
-                        return []
+                        return [], None
                     target_folder_id = files[0]['id']
             
             q_files = f"'{target_folder_id}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false"
             res_files = service.files().list(q=q_files, fields="files(id, name, createdTime, size, webViewLink)", supportsAllDrives=True, includeItemsFromAllDrives=True, pageSize=1000).execute()
-            return res_files.get('files', [])
+            return res_files.get('files', []), None
         else:
-            return utils.list_drive_files(path_list)
-    except:
-        try:
-            return utils.list_drive_files(path_list)
-        except:
-            return []
+            return utils.list_drive_files(path_list), None
+    except Exception as e:
+        return [], str(e)
 
 def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
     path_atual = [nome_principal]
@@ -149,7 +149,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             termo_busca = st.text_input("🔍 Buscar por Nome...", key=f"busca_{nome_principal}").lower()
             
         with c_data:
-            # Filtro começando sempre no índice 0 ("Todo o Período")
             filtro_tipo = st.selectbox("📅 Filtrar por Data", ["Todo o Período", "Hoje", "Últimos 30 dias", "Últimos 60 dias", "Últimos 90 dias", "Personalizado (Faixa)"], index=0, key=f"tipo_data_{nome_principal}")
             data_filtro = None
             if filtro_tipo == "Personalizado (Faixa)":
@@ -166,12 +165,18 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             with st.expander("📤 Upload Arquivos"):
                 arquivos_enviados = st.file_uploader("Selecione", accept_multiple_files=True, key=f"up_{nome_principal}", label_visibility="collapsed")
                 if arquivos_enviados and st.button("🚀 Enviar", key=f"btn_env_{nome_principal}", type="primary", use_container_width=True):
-                    with st.spinner("A enviar para o Drive..."):
+                    with st.spinner("Enviando para o Drive..."):
+                        todos_ok = True
                         for arq in arquivos_enviados: 
-                            upload_direto_gdrive(arq, arq.name, arq.type, path_atual)
-                    st.success("✅ Sucesso!")
-                    st.cache_data.clear()
-                    st.rerun()
+                            sucesso, msg = upload_direto_gdrive(arq, arq.name, arq.type, path_atual)
+                            if not sucesso:
+                                st.error(f"Erro do Google Drive ao enviar '{arq.name}': {msg}")
+                                todos_ok = False
+                                break
+                        if todos_ok:
+                            st.success("✅ Sucesso!")
+                            st.cache_data.clear()
+                            st.rerun()
     else:
         c_busca, c_data, c_sync, c_up = st.columns([1.8, 1.5, 0.8, 1])
         with c_busca:
@@ -194,12 +199,18 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             with st.expander("📤 Upload Arquivos"):
                 arquivos_enviados = st.file_uploader("Selecione", accept_multiple_files=True, key=f"up_s_{nome_principal}", label_visibility="collapsed")
                 if arquivos_enviados and st.button("🚀 Enviar", key=f"btn_env_s_{nome_principal}", type="primary", use_container_width=True):
-                    with st.spinner("A enviar para o Drive..."):
+                    with st.spinner("Enviando para o Drive..."):
+                        todos_ok = True
                         for arq in arquivos_enviados: 
-                            upload_direto_gdrive(arq, arq.name, arq.type, path_atual)
-                    st.success("✅ Sucesso!")
-                    st.cache_data.clear()
-                    st.rerun()
+                            sucesso, msg = upload_direto_gdrive(arq, arq.name, arq.type, path_atual)
+                            if not sucesso:
+                                st.error(f"Erro do Google Drive ao enviar '{arq.name}': {msg}")
+                                todos_ok = False
+                                break
+                        if todos_ok:
+                            st.success("✅ Sucesso!")
+                            st.cache_data.clear()
+                            st.rerun()
 
     st.markdown("---")
     
@@ -208,7 +219,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
     if nome_principal == "Boletos":
         with st.expander("➕ Adicionar Lembrete / Conta Manual (Sem Arquivo)"):
             with st.form(f"form_manual_bol"):
-                st.caption("Cadastre despesas manuais para centralizar os seus alertas.")
+                st.caption("Cadastre despesas manuais para centralizar seus alertas.")
                 c_mn, c_mcat, c_mv, c_md, c_mrec = st.columns([2.5, 1.5, 1.2, 1.2, 1])
                 nome_man = c_mn.text_input("Descrição (Ex: Conta de Luz, Contador)")
                 cat_man = c_mcat.selectbox("Categoria", lista_categorias, index=4)
@@ -235,9 +246,15 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                         st.rerun()
         st.markdown("<br>", unsafe_allow_html=True)
 
-    arquivos_brutos = listar_arquivos_pasta_gdrive(nome_principal, path_atual)
-    df_db = pd.DataFrame()
+    # Chamada otimizada com a inteligência dos IDs fixos e relatório de erros
+    arquivos_brutos, erro_api = listar_arquivos_pasta_gdrive(nome_principal, path_atual)
+    
+    if erro_api:
+        st.error(f"⚠️ Erro de Permissão no Google Drive: {erro_api}")
+        st.caption("O e-mail de serviço do ERP não tem permissão para ver esta pasta específica. Vá ao Google Drive, clique em 'Compartilhar' nesta pasta e adicione o e-mail do sistema como Editor.")
+        return
 
+    df_db = pd.DataFrame()
     vencimentos_map = {}
     valores_map = {}
     db_id_map = {}
@@ -346,8 +363,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
     df = pd.DataFrame(dados_tabela)
 
     if df.empty:
-        st.info("Nenhum ficheiro ou lembrete encontrado nesta pasta.")
-        st.caption("💡 Dica: Se tem a certeza de que os arquivos existem, clique no botão 'Atualizar' acima. Verifique também se a pasta está compartilhada como Leitor/Editor com o e-mail de serviço do sistema.")
+        st.info("Nenhum arquivo ou lembrete encontrado nesta pasta.")
         return
 
     if termo_busca: 
@@ -502,9 +518,9 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                 boletos_alterados = df_editado[diff_val | diff_cat]
                 
                 if not boletos_alterados.empty:
-                    st.warning(f"⚠️ Alterou dados de {len(boletos_alterados)} boleto(s). Confirme para guardar.")
-                    if st.button("💾 Guardar Alterações", type="primary", use_container_width=True):
-                        with st.spinner("A atualizar base de dados..."):
+                    st.warning(f"⚠️ Você alterou dados de {len(boletos_alterados)} boleto(s). Confirme para salvar.")
+                    if st.button("💾 Salvar Alterações", type="primary", use_container_width=True):
+                        with st.spinner("Atualizando banco de dados..."):
                             for _, r_upd in boletos_alterados.iterrows():
                                 id_db = r_upd.get("ID_DB")
                                 if id_db and str(id_db).strip() not in ["none", "nan", ""]:
@@ -521,9 +537,9 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                 boletos_pagar = df_editado[(df_editado["Pagar"] == True) & (df_editado["Status"] != "Pago")]
                 
                 if not boletos_pagar.empty:
-                    st.info(f"💡 Marcou {len(boletos_pagar)} nova(s) despesa(s) para pagamento.")
+                    st.info(f"💡 Você marcou {len(boletos_pagar)} nova(s) despesa(s) para pagamento.")
                     if st.button("🚀 Confirmar Pagamentos", type="primary", use_container_width=True):
-                        with st.spinner("A atualizar registos..."):
+                        with st.spinner("Atualizando registros..."):
                             for _, r_pag in boletos_pagar.iterrows():
                                 id_db = r_pag.get("ID_DB")
                                 id_drive = r_pag.get("ID_Drive")
@@ -550,7 +566,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                                         pass
                         
                         utils.sincronizar_boletos_com_calendar()
-                        st.success("✅ Tudo atualizado! Boletos pagos e próxima recorrência gerada (se aplicável).")
+                        st.success("✅ Tudo atualizado! Boletos pagos e próxima recorrência gerada (caso aplicável).")
                         st.cache_data.clear()
                         st.rerun()
             
@@ -558,7 +574,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             if not arquivos_para_apagar.empty:
                 st.error(f"⚠️ Selecionou {len(arquivos_para_apagar)} item(ns) para exclusão permanente.")
                 if st.button("🚨 Confirmar Exclusão", type="primary", key=f"conf_del_{nome_principal}"):
-                    with st.spinner("A apagar..."):
+                    with st.spinner("Apagando..."):
                         for _, row_del in arquivos_para_apagar.iterrows():
                             id_dr = row_del.get("ID_Drive")
                             if id_dr and not pd.isna(id_dr) and str(id_dr).strip().lower() not in ["none", "nan", ""]:
@@ -577,16 +593,16 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
         if not arquivos_reais_disponiveis.empty:
             st.markdown("<br>", unsafe_allow_html=True)
             with st.container(border=True):
-                st.markdown("📦 **Download Múltiplo de Documentos**")
+                st.markdown("📦 **Download Multiplo de Documentos**")
                 arquivos_selecionados = st.multiselect(
-                    "Selecione na lista os documentos que deseja descarregar juntos:",
+                    "Selecione na lista os documentos que deseja baixar juntos:",
                     options=arquivos_reais_disponiveis["Nome"].tolist(),
                     key=f"multiselect_down_{nome_principal}"
                 )
                 
                 if arquivos_selecionados:
-                    if st.button("📦 Preparar Pacote .ZIP para Descarregar", key=f"btn_zip_gen_{nome_principal}", use_container_width=True):
-                        with st.spinner("A procurar ficheiros no Google Drive e a compactar..."):
+                    if st.button("📦 Preparar Pacote .ZIP para Baixar", key=f"btn_zip_gen_{nome_principal}", use_container_width=True):
+                        with st.spinner("Buscando arquivos no Google Drive e compactando..."):
                             try:
                                 service = utils.get_drive_service()
                                 zip_buffer = io.BytesIO()
@@ -606,11 +622,11 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                                 zip_buffer.seek(0)
                                 st.session_state[f"zip_bytes_{nome_principal}"] = zip_buffer.getvalue()
                             except Exception as e:
-                                st.error(f"Erro ao ligar com o Drive: {e}")
+                                st.error(f"Erro ao conectar com o Drive: {e}")
                     
                     if f"zip_bytes_{nome_principal}" in st.session_state:
                         st.download_button(
-                            label="📥 CLIQUE AQUI PARA DESCARREGAR O PACOTE (.ZIP)",
+                            label="📥 CLIQUE AQUI PARA BAIXAR O PACOTE (.ZIP)",
                             data=st.session_state[f"zip_bytes_{nome_principal}"],
                             file_name=f"Lote_{nome_principal}_{datetime.date.today().strftime('%d%m%Y')}.zip",
                             mime="application/zip",
