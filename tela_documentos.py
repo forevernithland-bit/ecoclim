@@ -20,7 +20,7 @@ def formatar_tamanho(tamanho_bytes):
 def parse_drive_date(iso_str):
     try:
         dt = datetime.datetime.fromisoformat(iso_str.replace('Z', '+00:00'))
-        dt = dt - datetime.timedelta(hours=3)
+        dt = dt - datetime.timedelta(hours=3) # Ajuste Brasil (GMT-3)
         return dt.replace(tzinfo=None)
     except:
         return pd.NaT
@@ -38,7 +38,7 @@ def mover_arquivo_drive(file_id, folder_path_list):
             fields='id, parents'
         ).execute()
         return True
-    except Exception as e:
+    except:
         return False
 
 def add_months(dt, months):
@@ -48,44 +48,54 @@ def add_months(dt, months):
     day = min(dt.day, [31, 29 if year % 4 == 0 and not year % 100 == 0 or year % 400 == 0 else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1])
     return dt.replace(year=year, month=month, day=day)
 
+# =============================================================================
+# NOVA FUNÇÃO DE BUSCA DIRETA POR DIRETÓRIO (ECOCLIM ERP -> ABA EXATA)
+# =============================================================================
+def listar_arquivos_pasta_gdrive(path_list):
+    """Busca os arquivos diretamente na API do Drive garantindo suporte a drives compartilhados"""
+    try:
+        service = utils.get_drive_service()
+        current_parent = utils.MAIN_DRIVE_FOLDER_ID
+        
+        # Navega pelas pastas da lista (Ex: ["Orçamentos"] ou ["Boletos", "JUNHO"])
+        for folder_name in path_list:
+            q = f"'{current_parent}' in parents and name = '{folder_name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+            res = service.files().list(q=q, fields="files(id)", supportsAllDrives=True, includeItemsFromAllDrives=True).execute()
+            files = res.get('files', [])
+            if not files:
+                return []
+            current_parent = files[0]['id']
+        
+        # Coleta os arquivos de dentro da última pasta encontrada
+        q_files = f"'{current_parent}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false"
+        res_files = service.files().list(q=q_files, fields="files(id, name, createdTime, size, webViewLink)", supportsAllDrives=True, includeItemsFromAllDrives=True, pageSize=1000).execute()
+        return res_files.get('files', [])
+    except:
+        # Fallback de segurança usando a função nativa do ERP
+        try:
+            return utils.list_drive_files(path_list)
+        except:
+            return []
+
 def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
     path_atual = [nome_principal]
     
     st.markdown("""
         <style>
         div[data-testid="stExpander"] details summary { padding-top: 0.5rem; padding-bottom: 0.5rem; }
-        
-        div[data-testid="stNumberInputStepUp"], div[data-testid="stNumberInputStepDown"] { 
-            display: none !important; 
-        }
-        input[type=number]::-webkit-inner-spin-button, 
-        input[type=number]::-webkit-outer-spin-button { 
-            -webkit-appearance: none !important; 
-            margin: 0 !important; 
-        }
-        input[type=number] { 
-            -moz-appearance: textfield !important; 
-        }
-
+        div[data-testid="stNumberInputStepUp"], div[data-testid="stNumberInputStepDown"] { display: none !important; }
+        input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none !important; margin: 0 !important; }
+        input[type=number] { -moz-appearance: textfield !important; }
         @media screen and (max-width: 768px) {
-            div[data-testid="stDataFrame"], div[data-testid="stDataEditor"] {
-                overflow-x: auto !important;
-            }
-            div[data-testid="column"] {
-                width: 100% !important;
-                min-width: 100% !important;
-                display: block !important;
-                margin-bottom: 0.8rem !important;
-            }
-            div.stButton > button {
-                min-height: 48px !important;
-            }
+            div[data-testid="stDataFrame"], div[data-testid="stDataEditor"] { overflow-x: auto !important; }
+            div[data-testid="column"] { width: 100% !important; min-width: 100% !important; display: block !important; margin-bottom: 0.8rem !important; }
+            div.stButton > button { min-height: 48px !important; }
         }
         </style>
     """, unsafe_allow_html=True)
 
     if subpastas:
-        c_sub, c_busca, c_data, c_sync, c_up = st.columns([1.2, 1.3, 1.2, 0.8, 1])
+        c_sub, c_busca, c_data, c_up = st.columns([1.2, 1.5, 1.2, 1])
         with c_sub:
             mes_agora = datetime.date.today().month
             nome_mes_agora = utils.meses_pt[mes_agora - 1]
@@ -101,12 +111,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             data_filtro = None
             if filtro_tipo == "Personalizado (Faixa)":
                 data_filtro = st.date_input("Início e Fim:", value=[], key=f"data_pers_{nome_principal}")
-        
-        with c_sync:
-            st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
-            if st.button("🔄 Atualizar", key=f"sync_{nome_principal}", use_container_width=True):
-                st.cache_data.clear()
-                st.rerun()
                 
         with c_up:
             st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
@@ -117,10 +121,9 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                         for arq in arquivos_enviados: 
                             utils.upload_to_drive(arq, arq.name, arq.type, path_atual)
                     st.success("✅ Sucesso!")
-                    st.cache_data.clear()
                     st.rerun()
     else:
-        c_busca, c_data, c_sync, c_up = st.columns([1.8, 1.5, 0.8, 1])
+        c_busca, c_data, c_up = st.columns([2, 1.5, 1])
         with c_busca:
             termo_busca = st.text_input("🔍 Buscar por Nome...", key=f"busca_{nome_principal}").lower()
             
@@ -129,12 +132,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             data_filtro = None
             if filtro_tipo == "Personalizado (Faixa)":
                 data_filtro = st.date_input("Início e Fim:", value=[], key=f"data_pers_s_{nome_principal}")
-        
-        with c_sync:
-            st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
-            if st.button("🔄 Atualizar", key=f"sync_s_{nome_principal}", use_container_width=True):
-                st.cache_data.clear()
-                st.rerun()
                 
         with c_up:
             st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
@@ -145,7 +142,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                         for arq in arquivos_enviados: 
                             utils.upload_to_drive(arq, arq.name, arq.type, path_atual)
                     st.success("✅ Sucesso!")
-                    st.cache_data.clear()
                     st.rerun()
 
     st.markdown("---")
@@ -155,7 +151,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
     if nome_principal == "Boletos":
         with st.expander("➕ Adicionar Lembrete / Conta Manual (Sem Arquivo)"):
             with st.form(f"form_manual_bol"):
-                st.caption("Cadastre despesas manuais para centralizar os seus alertas.")
+                st.caption("Cadastre despesas manuais para centralizar seus alertas.")
                 c_mn, c_mcat, c_mv, c_md, c_mrec = st.columns([2.5, 1.5, 1.2, 1.2, 1])
                 nome_man = c_mn.text_input("Descrição (Ex: Conta de Luz, Contador)")
                 cat_man = c_mcat.selectbox("Categoria", lista_categorias, index=4)
@@ -178,11 +174,11 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                         
                         utils.sincronizar_boletos_com_calendar()
                         st.success("Lembrete salvo com sucesso!")
-                        st.cache_data.clear()
                         st.rerun()
         st.markdown("<br>", unsafe_allow_html=True)
 
-    arquivos_brutos = utils.list_drive_files(path_atual)
+    # Chamada da nossa nova busca limpa e direta por pasta
+    arquivos_brutos = listar_arquivos_pasta_gdrive(path_atual)
     df_db = pd.DataFrame()
 
     vencimentos_map = {}
@@ -213,78 +209,20 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             pass
 
     dados_tabela = []
-    processed_drive_ids = set()
-
-    # =========================================================================
-    # 1. FONTE DA VERDADE: BASE DE DADOS (Exclusivo para Boletos)
-    # =========================================================================
-    if nome_principal == "Boletos" and not df_db.empty:
-        mes_sel_idx = utils.meses_pt.index(sub_sel) + 1 if sub_sel in utils.meses_pt else datetime.date.today().month
-        for _, r in df_db.iterrows():
-            try: 
-                v_dt = datetime.datetime.strptime(str(r['vencimento']), "%Y-%m-%d").date()
-            except: 
-                v_dt = None
-            
-            if sub_sel == "PAGOS": 
-                pertence = (r.get('status') == 'Pago')
-            else: 
-                pertence = (v_dt and v_dt.month == mes_sel_idx and r.get('status') != 'Pago')
-            
-            if pertence:
-                val_link = r.get('link_drive_id')
-                tem_drive = pd.notna(val_link) and str(val_link).strip().lower() not in ['nan', 'none', '']
-                
-                if tem_drive:
-                    processed_drive_ids.add(val_link)
-                    icone = "📄"
-                    link_url = f"https://drive.google.com/file/d/{val_link}/view"
-                else:
-                    icone = "📝"
-                    link_url = None
-                
-                v_dt_datetime = datetime.datetime.combine(v_dt, datetime.time()) if v_dt else pd.NaT
-                
-                dados_tabela.append({
-                    "Excluir": False, 
-                    "Pagar": False, 
-                    "ID_Drive": val_link if tem_drive else None, 
-                    "ID_DB": str(r['id']),
-                    "ID": f"db_{r['id']}", 
-                    "Nome": f"{icone} {r.get('cliente', 'Despesa')}",
-                    "Data": v_dt_datetime, 
-                    "Tamanho": "-", 
-                    "Link": link_url,
-                    "Vencimento": v_dt if v_dt else pd.NaT,
-                    "Categoria": str(r.get('categoria', 'Outros')),
-                    "Valor": float(r.get('valor', 0.0)), 
-                    "Recorrente": "🔄 Sim" if r.get('is_recorrente', False) else "-",
-                    "Status": str(r.get('status', 'Pendente'))
-                })
-
-    # =========================================================================
-    # 2. FICHEIROS FÍSICOS SOLTOS NO DRIVE (Orçamentos, Contratos, etc.)
-    # =========================================================================
+    
+    # 1. Arquivos Físicos do Drive (Dinamizado para ler a aba atual)
     for a in arquivos_brutos:
         d_id = str(a.get('id', ''))
-        
-        if nome_principal == "Boletos" and d_id in processed_drive_ids:
-            continue
-            
-        if nome_principal == "Boletos" and d_id in db_id_map:
-            continue
-
         linha_arquivo = {
             "Excluir": False,
             "ID_Drive": d_id,
             "ID_DB": str(db_id_map.get(d_id, "")),
             "ID": d_id,
-            "Nome": f"📄 {str(a.get('name', ''))}",
+            "Nome": str(a.get('name', '')),
             "Data": parse_drive_date(a.get('createdTime', '')),
             "Tamanho": str(formatar_tamanho(a.get('size', 0))),
             "Link": a.get('webViewLink', f"https://drive.google.com/file/d/{d_id}/view")
         }
-        
         if nome_principal == "Boletos":
             linha_arquivo["Pagar"] = False
             v_date = vencimentos_map.get(d_id)
@@ -295,15 +233,48 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             linha_arquivo["Status"] = str(status_map.get(d_id, "Pendente"))
         
         dados_tabela.append(linha_arquivo)
+        
+    # 2. Lembretes Manuais do Banco (Lógica intacta e exclusiva de Boletos)
+    if nome_principal == "Boletos" and not df_db.empty:
+        mes_sel_idx = utils.meses_pt.index(sub_sel) + 1 if sub_sel in utils.meses_pt else datetime.date.today().month
+        for _, r in df_db.iterrows():
+            val_link = r.get('link_drive_id')
+            
+            if pd.isna(val_link) or str(val_link).strip().lower() in ['nan', 'none', '']:
+                try: 
+                    v_dt = datetime.datetime.strptime(str(r['vencimento']), "%Y-%m-%d").date()
+                except: 
+                    v_dt = None
+                
+                if sub_sel == "PAGOS": 
+                    pertence = (r.get('status') == 'Pago')
+                else: 
+                    pertence = (v_dt and v_dt.month == mes_sel_idx and r.get('status') != 'Pago')
+                
+                if pertence:
+                    v_dt_datetime = datetime.datetime.combine(v_dt, datetime.time()) if v_dt else pd.NaT
+                    
+                    dados_tabela.append({
+                        "Excluir": False, 
+                        "Pagar": False, 
+                        "ID_Drive": None, 
+                        "ID_DB": str(r['id']),
+                        "ID": f"db_{r['id']}", 
+                        "Nome": f"📝 {r.get('cliente', 'Lembrete')}",
+                        "Data": v_dt_datetime, 
+                        "Tamanho": "-", 
+                        "Link": None,
+                        "Vencimento": v_dt if v_dt else pd.NaT,
+                        "Categoria": str(r.get('categoria', 'Outros')),
+                        "Valor": float(r.get('valor', 0.0)), 
+                        "Recorrente": "🔄 Sim" if r.get('is_recorrente', False) else "-",
+                        "Status": str(r.get('status', 'Pendente'))
+                    })
 
     df = pd.DataFrame(dados_tabela)
 
-    # Nova regra de proteção do Cache: Botão forçado caso ele devolva vazio!
     if df.empty:
         st.info("Nenhum arquivo ou lembrete encontrado nesta pasta.")
-        if st.button("🔄 Forçar Sincronização com o Google Drive", key=f"force_sync_{nome_principal}"):
-            st.cache_data.clear()
-            st.rerun()
         return
 
     if termo_busca: 
@@ -384,7 +355,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                 ''', unsafe_allow_html=True)
                 if st.button("🗑️ Excluir", key=f"del_img_{row['ID']}", use_container_width=True):
                     utils.delete_drive_file(row['ID'])
-                    st.cache_data.clear()
                     st.rerun()
     else:
         config_colunas = {
@@ -458,9 +428,9 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                 boletos_alterados = df_editado[diff_val | diff_cat]
                 
                 if not boletos_alterados.empty:
-                    st.warning(f"⚠️ Alterou dados de {len(boletos_alterados)} boleto(s). Confirme para guardar.")
-                    if st.button("💾 Guardar Alterações", type="primary", use_container_width=True):
-                        with st.spinner("A atualizar base de dados..."):
+                    st.warning(f"⚠️ Você alterou dados de {len(boletos_alterados)} boleto(s). Confirme para salvar.")
+                    if st.button("💾 Salvar Alterações", type="primary", use_container_width=True):
+                        with st.spinner("Atualizando banco de dados..."):
                             for _, r_upd in boletos_alterados.iterrows():
                                 id_db = r_upd.get("ID_DB")
                                 if id_db and str(id_db).strip() not in ["none", "nan", ""]:
@@ -477,9 +447,9 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                 boletos_pagar = df_editado[(df_editado["Pagar"] == True) & (df_editado["Status"] != "Pago")]
                 
                 if not boletos_pagar.empty:
-                    st.info(f"💡 Marcou {len(boletos_pagar)} nova(s) despesa(s) para pagamento.")
+                    st.info(f"💡 Você marcou {len(boletos_pagar)} nova(s) despesa(s) para pagamento.")
                     if st.button("🚀 Confirmar Pagamentos", type="primary", use_container_width=True):
-                        with st.spinner("A atualizar registos..."):
+                        with st.spinner("Atualizando registros..."):
                             for _, r_pag in boletos_pagar.iterrows():
                                 id_db = r_pag.get("ID_DB")
                                 id_drive = r_pag.get("ID_Drive")
@@ -506,15 +476,14 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                                         pass
                         
                         utils.sincronizar_boletos_com_calendar()
-                        st.success("✅ Tudo atualizado! Boletos pagos e próxima recorrência gerada (se aplicável).")
-                        st.cache_data.clear()
+                        st.success("✅ Tudo atualizado! Boletos pagos e próxima recorrência gerada (caso aplicável).")
                         st.rerun()
             
             arquivos_para_apagar = df_editado[df_editado["Excluir"] == True]
             if not arquivos_para_apagar.empty:
                 st.error(f"⚠️ Selecionou {len(arquivos_para_apagar)} item(ns) para exclusão permanente.")
                 if st.button("🚨 Confirmar Exclusão", type="primary", key=f"conf_del_{nome_principal}"):
-                    with st.spinner("A apagar..."):
+                    with st.spinner("Apagando..."):
                         for _, row_del in arquivos_para_apagar.iterrows():
                             id_dr = row_del.get("ID_Drive")
                             if id_dr and not pd.isna(id_dr) and str(id_dr).strip().lower() not in ["none", "nan", ""]:
@@ -525,24 +494,23 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                     
                     utils.sincronizar_boletos_com_calendar()
                     st.success("Excluídos com sucesso!")
-                    st.cache_data.clear()
                     st.rerun()
 
         arquivos_reais_disponiveis = df_pagina[df_pagina["ID_Drive"].notna() & (~df_pagina["Nome"].str.startswith("📝 "))]
         
-        if not arquivos_reais_disponiveis.empty:
+        if not archivos_reais_disponiveis.empty:
             st.markdown("<br>", unsafe_allow_html=True)
             with st.container(border=True):
                 st.markdown("📦 **Download Múltiplo de Documentos**")
                 arquivos_selecionados = st.multiselect(
-                    "Selecione na lista os documentos que deseja descarregar juntos:",
+                    "Selecione na lista os documentos que deseja baixar juntos:",
                     options=arquivos_reais_disponiveis["Nome"].tolist(),
                     key=f"multiselect_down_{nome_principal}"
                 )
                 
                 if arquivos_selecionados:
-                    if st.button("📦 Preparar Pacote .ZIP para Descarregar", key=f"btn_zip_gen_{nome_principal}", use_container_width=True):
-                        with st.spinner("A procurar ficheiros no Google Drive e a compactar..."):
+                    if st.button("📦 Preparar Pacote .ZIP para Baixar", key=f"btn_zip_gen_{nome_principal}", use_container_width=True):
+                        with st.spinner("Buscando arquivos no Google Drive e compactando..."):
                             try:
                                 service = utils.get_drive_service()
                                 zip_buffer = io.BytesIO()
@@ -562,11 +530,11 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                                 zip_buffer.seek(0)
                                 st.session_state[f"zip_bytes_{nome_principal}"] = zip_buffer.getvalue()
                             except Exception as e:
-                                st.error(f"Erro ao ligar com o Drive: {e}")
+                                st.error(f"Erro ao conectar com o Drive: {e}")
                     
                     if f"zip_bytes_{nome_principal}" in st.session_state:
                         st.download_button(
-                            label="📥 CLIQUE AQUI PARA DESCARREGAR O PACOTE (.ZIP)",
+                            label="📥 CLIQUE AQUI PARA BAIXAR O PACOTE (.ZIP)",
                             data=st.session_state[f"zip_bytes_{nome_principal}"],
                             file_name=f"Lote_{nome_principal}_{datetime.date.today().strftime('%d%m%Y')}.zip",
                             mime="application/zip",
