@@ -18,8 +18,8 @@ try:
 except ImportError:
     pass
 
-# IMPORTAÇÕES DO GOOGLE DRIVE E CALENDAR OAUTH (NOVO MOTOR)
-from google.oauth2.credentials import Credentials
+# IMPORTAÇÕES DO GOOGLE DRIVE E CALENDAR VIA ROBÔ DEFINITIVO (SERVICE ACCOUNT)
+from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 
@@ -47,39 +47,61 @@ def init_connection():
     return create_client(url, key)
 
 # ==========================================
-# INTEGRAÇÃO GOOGLE DRIVE (CONTA PESSOAL 5TB)
+# INTEGRAÇÃO GOOGLE DRIVE E CALENDAR (ROBÔ GLOBAL)
 # ==========================================
 MAIN_DRIVE_FOLDER_ID = '1rdCO-d0CTF4UPQ1Vddxr0loCgqYaXE2l'
 
 def get_drive_service():
-    """Autentica no Drive usando a sua conta principal via Refresh Token"""
-    oauth_info = st.secrets["google_oauth"]
-    creds = Credentials(
-        token=None,
-        refresh_token=oauth_info["refresh_token"],
-        client_id=oauth_info["client_id"],
-        client_secret=oauth_info["client_secret"],
-        token_uri="https://oauth2.googleapis.com/token"
-    )
-    return build('drive', 'v3', credentials=creds)
+    """Autentica no Drive de forma blindada usando as credenciais estáveis do Robô Service Account"""
+    try:
+        info_chave = dict(st.secrets["gcp_service_account"])
+        if "private_key" in info_chave:
+            info_chave["private_key"] = info_chave["private_key"].replace("\\n", "\n")
+        
+        escopos = [
+            'https://www.googleapis.com/auth/drive',
+            'https://www.googleapis.com/auth/calendar'
+        ]
+        credenciais = service_account.Credentials.from_service_account_info(info_chave, scopes=escopos)
+        return build('drive', 'v3', credentials=credenciais)
+    except Exception as e:
+        st.error(f"Erro crítico ao gerar serviço do Google Drive: {e}")
+        return None
+
+def get_calendar_service():
+    """Autentica no Calendar de forma blindada usando as credenciais estáveis do Robô Service Account"""
+    try:
+        info_chave = dict(st.secrets["gcp_service_account"])
+        if "private_key" in info_chave:
+            info_chave["private_key"] = info_chave["private_key"].replace("\\n", "\n")
+        
+        escopos = [
+            'https://www.googleapis.com/auth/drive',
+            'https://www.googleapis.com/auth/calendar'
+        ]
+        credenciais = service_account.Credentials.from_service_account_info(info_chave, scopes=escopos)
+        return build('calendar', 'v3', credentials=credenciais)
+    except Exception as e:
+        return None
 
 def get_or_create_nested_folder(service, parent_id, path_list):
     current_id = parent_id
     for folder_name in path_list:
         query = f"'{current_id}' in parents and name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
-        response = service.files().list(q=query, spaces='drive', fields='files(id, name)').execute()
+        response = service.files().list(q=query, spaces='drive', fields='files(id, name)', supportsAllDrives=True, includeItemsFromAllDrives=True).execute()
         files = response.get('files', [])
         if files:
             current_id = files[0].get('id')
         else:
             folder_metadata = {'name': folder_name, 'parents': [current_id], 'mimeType': 'application/vnd.google-apps.folder'}
-            folder = service.files().create(body=folder_metadata, fields='id').execute()
+            folder = service.files().create(body=folder_metadata, fields='id', supportsAllDrives=True).execute()
             current_id = folder.get('id')
     return current_id
 
 def upload_to_drive(file_buffer, filename, mimetype, folder_path):
     try:
         service = get_drive_service()
+        if not service: return False, "Serviço do Google Drive indisponível."
         if isinstance(folder_path, str): folder_path = [folder_path]
         subfolder_id = get_or_create_nested_folder(service, MAIN_DRIVE_FOLDER_ID, folder_path)
         
@@ -87,7 +109,7 @@ def upload_to_drive(file_buffer, filename, mimetype, folder_path):
         buffer_puro = BytesIO(file_buffer.getvalue())
         media = MediaIoBaseUpload(buffer_puro, mimetype=mimetype, resumable=True)
         
-        uploaded_file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+        uploaded_file = service.files().create(body=file_metadata, media_body=media, fields='id', supportsAllDrives=True).execute()
         return True, uploaded_file.get('id')
     except Exception as e:
         return False, str(e)
@@ -95,11 +117,12 @@ def upload_to_drive(file_buffer, filename, mimetype, folder_path):
 def list_drive_files(folder_path):
     try:
         service = get_drive_service()
+        if not service: return []
         if isinstance(folder_path, str): folder_path = [folder_path]
         subfolder_id = get_or_create_nested_folder(service, MAIN_DRIVE_FOLDER_ID, folder_path)
         
         query = f"'{subfolder_id}' in parents and trashed=false and mimeType != 'application/vnd.google-apps.folder'"
-        response = service.files().list(q=query, spaces='drive', fields='files(id, name, size, createdTime, webViewLink)').execute()
+        response = service.files().list(q=query, spaces='drive', fields='files(id, name, size, createdTime, webViewLink)', supportsAllDrives=True, includeItemsFromAllDrives=True).execute()
         return response.get('files', [])
     except:
         return []
@@ -107,7 +130,8 @@ def list_drive_files(folder_path):
 def delete_drive_file(file_id):
     try:
         service = get_drive_service()
-        service.files().delete(fileId=file_id).execute()
+        if not service: return False
+        service.files().delete(fileId=file_id, supportsAllDrives=True).execute()
         return True
     except:
         return False
@@ -294,10 +318,8 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
                 p.setFillColor(colors.black)
             y -= 0.2*cm
             
-    # --- CORREÇÃO DEFINITIVA DE ALINHAMENTO DO SUBTOTAL ---
     y -= 0.2*cm
     p.setFont("Helvetica-Bold", 10)
-    # Ancoramos o texto alinhado à direita para garantir espaçamento seguro!
     p.drawRightString(largura - 6.0*cm, y, "Subtotal de Equipamentos:")
     p.drawRightString(largura - 2.3*cm, y, to_br_currency(total_equipamentos))
     
@@ -416,7 +438,7 @@ def gerar_pdf_contrato(nome, doc, tipo_cliente, endereco, objeto, df_items, mat_
     story.append(Paragraph("<b>CLÁUSULA 5 – DAS OBRIGAÇÕES E RESPONSABILIDADES DO CONTRATANTE</b>", style_h3))
     story.append(Paragraph("Para a viabilização da instalação e o bom funcionamento do sistema, o CONTRATANTE compromete-se a:", style_normal))
     obs_list = [
-        "<b>Acompanhamento Técnico:</b> Manter no local da obra, durante o período de execução, um representante capaz, com autorização para fornecer instruções e dar aceite ao final do serviço.",
+        "<b>Acompanhamento Técnico:</b> Manter no local da obra, durante o período de execução, um representative capaz, com autorização para fornecer instruções e dar aceite ao final do serviço.",
         "<b>Infraestrutura Elétrica e Hidráulica:</b> Disponibilizar, sob sua exclusiva responsabilidade e custo, os pontos de energia para o sistema de pressurização e resistência de apoio.",
         "<b>Autorizações e Condomínios:</b> Providenciar todas as autorizações junto à administração do condomínio.",
         "<b>Logística de Materiais:</b> Informar e disponibilizar espaço adequado para o içamento de materiais e equipamentos.",
@@ -475,36 +497,28 @@ def gerar_pdf_contrato(nome, doc, tipo_cliente, endereco, objeto, df_items, mat_
 def extrair_dados_boleto(file_buffer):
     """Lê o PDF e tenta encontrar a data de vencimento e valor do documento."""
     try:
-        # Lê a partir do início do arquivo virtual
         file_buffer.seek(0)
         reader = PyPDF2.PdfReader(file_buffer)
         texto = ""
         for page in reader.pages:
             texto += page.extract_text() + "\n"
 
-        # 1. Tentar extrair a Data de Vencimento
         data_venc = None
-        # Busca o padrão: Vencimento [espaço] DD/MM/AAAA
         match_data = re.search(r'Vencimento\s*(\d{2}/\d{2}/\d{4})', texto, re.IGNORECASE)
         if not match_data:
-            # Fallback: pega a primeira data válida no formato DD/MM/AAAA
             match_data = re.search(r'\b(\d{2}/\d{2}/\d{4})\b', texto)
         if match_data:
             data_venc = match_data.group(1)
 
-        # 2. Tentar extrair o Valor
         valor_float = 0.0
-        # Busca o padrão: Valor do Documento [espaços/quebras] R$ ou números
         match_valor = re.search(r'Valor do Documento.*?(\d{1,3}(?:\.\d{3})*,\d{2})', texto, re.IGNORECASE | re.DOTALL)
         if not match_valor:
-            # Fallback: busca qualquer valor monetário
             match_valor = re.search(r'R\$\s*(\d{1,3}(?:\.\d{3})*,\d{2})', texto)
         
         if match_valor:
             valor_str = match_valor.group(1).replace('.', '').replace(',', '.')
             valor_float = float(valor_str)
 
-        # Retorna o ponteiro pro início para o upload do Google Drive funcionar
         file_buffer.seek(0) 
         return data_venc, valor_float
     except Exception as e:
@@ -515,21 +529,8 @@ def extrair_dados_boleto(file_buffer):
 # SINCRONIZAÇÃO INTELIGENTE COM GOOGLE CALENDAR
 # ==========================================
 def sincronizar_boletos_com_calendar():
-    """Sincroniza todos os lembretes do banco com o Google Calendar com regras dinâmicas e auto-limpeza"""
-    service = None
-    try:
-        oauth_info = st.secrets["google_oauth"]
-        creds = Credentials(
-            token=None,
-            refresh_token=oauth_info["refresh_token"],
-            client_id=oauth_info["client_id"],
-            client_secret=oauth_info["client_secret"],
-            token_uri="https://oauth2.googleapis.com/token"
-        )
-        service = build('calendar', 'v3', credentials=creds)
-    except:
-        return
-
+    """Sincroniza todos os lembretes do banco com o Google Calendar usando o novo Robô definitivo"""
+    service = get_calendar_service()
     if not service:
         return
 
@@ -567,41 +568,35 @@ def sincronizar_boletos_com_calendar():
             try:
                 venc_dt = datetime.datetime.strptime(b['vencimento'], "%Y-%m-%d").date()
             except:
-                continue # Se a data for inválida, pula o registro
+                continue
             
             description = f"Identificador interno do ERP Ecoclim: [Ecoclim ID: {id_db}]"
             valor_formatado = f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
             if status == 'Pago':
-                # Regra: Se pago, fixa no dia de vencimento original como histórico de controle (Verde)
                 start_date = venc_dt
                 end_date = venc_dt + datetime.timedelta(days=1)
                 summary = f"✅ [PAGO] Boleto: {cliente} - {valor_formatado}"
                 color_id = '10' # Verde (Basil)
             else:
-                # Regra: Boletos Pendentes (Futuro, Amanhã, Hoje, Vencidos)
                 diff_days = (venc_dt - hoje_dt).days
                 
                 if diff_days > 1:
-                    # Futuro: Aparece na data original de vencimento para monitoramento futuro (Azul Claro)
                     start_date = venc_dt
                     end_date = venc_dt + datetime.timedelta(days=1)
                     summary = f"📅 [PENDENTE] Boleto: {cliente} - {valor_formatado}"
                     color_id = '1' # Azul (Lavender)
                 elif diff_days == 1:
-                    # 1 Dia antes do vencimento: Aparece amanhã (Amarelo)
                     start_date = venc_dt
                     end_date = venc_dt + datetime.timedelta(days=1)
                     summary = f"⏳ [VENCE AMANHÃ] Boleto: {cliente} - {valor_formatado}"
                     color_id = '5' # Amarelo (Banana)
                 elif diff_days == 0:
-                    # No dia de vencer: Aparece hoje! (Laranja)
                     start_date = hoje_dt
                     end_date = hoje_dt + datetime.timedelta(days=1)
                     summary = f"⚠️ [VENCE HOJE] Boleto: {cliente} - {valor_formatado}"
                     color_id = '6' # Laranja (Tangerine)
                 else:
-                    # VENCIDO: Rola de data automaticamente para continuar aparecendo HOJE até virar pago (Vermelho)
                     start_date = hoje_dt
                     end_date = hoje_dt + datetime.timedelta(days=1)
                     summary = f"🚨 [ATRASADO] Boleto: {cliente} - {valor_formatado} (Venceu em {venc_dt.strftime('%d/%m')})"
@@ -626,5 +621,4 @@ def sincronizar_boletos_com_calendar():
                 service.events().delete(calendarId='primary', eventId=ev_cal_id).execute()
 
     except Exception as e:
-        # Silencia erros para não quebrar a interface caso haja falha na API do Google
         pass
