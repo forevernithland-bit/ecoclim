@@ -5,8 +5,6 @@ import utils
 import zipfile
 import io
 from googleapiclient.http import MediaIoBaseUpload
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
 
 def formatar_tamanho(tamanho_bytes):
     try:
@@ -28,39 +26,22 @@ def parse_drive_date(iso_str):
     except:
         return pd.NaT
 
-# =============================================================================
-# AUTENTICAÇÃO DIRETA DO ROBÔ (Ignora o login antigo que expirou)
-# =============================================================================
-def obter_servico_drive_robot():
-    """Força o uso estrito da Conta de Serviço (Robô) salva no Secrets"""
-    try:
-        info_chave = dict(st.secrets["gcp_service_account"])
-        if "private_key" in info_chave:
-            # Corrige formatação de quebra de linha que o TOML do Streamlit às vezes escapa
-            info_chave["private_key"] = info_chave["private_key"].replace("\\n", "\n")
-        
-        escopos = ['https://www.googleapis.com/auth/drive']
-        credenciais = service_account.Credentials.from_service_account_info(info_chave, scopes=escopos)
-        return build('drive', 'v3', credentials=credenciais)
-    except Exception as e:
-        st.error(f"Erro de conexão com o Robô do Google: {e}")
-        return None
-
 def mover_arquivo_drive(file_id, folder_path_list):
     try:
-        service = obter_servico_drive_robot()
+        service = utils.get_drive_service()
         if not service: return False
-        file = service.files().get(fileId=file_id, fields='parents').execute()
+        file = service.files().get(fileId=file_id, fields='parents', supportsAllDrives=True).execute()
         previous_parents = ",".join(file.get('parents', []))
         new_folder_id = utils.get_or_create_nested_folder(service, utils.MAIN_DRIVE_FOLDER_ID, folder_path_list)
         service.files().update(
             fileId=file_id,
             addParents=new_folder_id,
             removeParents=previous_parents,
-            fields='id, parents'
+            fields='id, parents',
+            supportsAllDrives=True
         ).execute()
         return True
-    except Exception as e:
+    except:
         return False
 
 def add_months(dt, months):
@@ -71,12 +52,12 @@ def add_months(dt, months):
     return dt.replace(year=year, month=month, day=day)
 
 # =============================================================================
-# MOTOR CIRÚRGICO DE UPLOAD E BUSCA (USANDO OS SEUS IDs FIXOS)
+# MOTOR CIRÚRGICO DE UPLOAD E BUSCA DIRECTA POR IDs FIXOS
 # =============================================================================
 def upload_direto_gdrive(file_buffer, filename, mimetype, path_list):
     try:
-        service = obter_servico_drive_robot()
-        if not service: return False, "Falha na autenticação do robô."
+        service = utils.get_drive_service()
+        if not service: return False, "Falha na conexão global do robô."
         
         mapeamento_ids = {
             "Orçamentos": "1DySx6I2sMQ6OQNR74mwbTrAf2KuK2YI4",
@@ -113,8 +94,8 @@ def upload_direto_gdrive(file_buffer, filename, mimetype, path_list):
 @st.cache_data(ttl=60)
 def listar_arquivos_pasta_gdrive(nome_principal, path_list):
     try:
-        service = obter_servico_drive_robot()
-        if not service: return [], "Falha na autenticação do robô."
+        service = utils.get_drive_service()
+        if not service: return [], "Falha na conexão global do robô."
         
         mapeamento_ids = {
             "Orçamentos": "1DySx6I2sMQ6OQNR74mwbTrAf2KuK2YI4",
@@ -639,7 +620,7 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                     if st.button("📦 Preparar Pacote .ZIP para Baixar", key=f"btn_zip_gen_{nome_principal}", use_container_width=True):
                         with st.spinner("Buscando arquivos no Google Drive e compactando..."):
                             try:
-                                service = obter_servico_drive_robot()
+                                service = utils.get_drive_service()
                                 zip_buffer = io.BytesIO()
                                 with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
                                     df_filtrado_down = arquivos_reais_disponiveis[arquivos_reais_disponiveis["Nome"].isin(arquivos_selecionados)]
