@@ -30,15 +30,14 @@ def mover_arquivo_drive(file_id, folder_path_list):
     try:
         service = utils.get_drive_service()
         if not service: return False
-        file = service.files().get(fileId=file_id, fields='parents', supportsAllDrives=True).execute()
+        file = service.files().get(fileId=file_id, fields='parents').execute()
         previous_parents = ",".join(file.get('parents', []))
         new_folder_id = utils.get_or_create_nested_folder(service, utils.MAIN_DRIVE_FOLDER_ID, folder_path_list)
         service.files().update(
             fileId=file_id,
             addParents=new_folder_id,
             removeParents=previous_parents,
-            fields='id, parents',
-            supportsAllDrives=True
+            fields='id, parents'
         ).execute()
         return True
     except:
@@ -57,7 +56,7 @@ def add_months(dt, months):
 def upload_direto_gdrive(file_buffer, filename, mimetype, path_list):
     try:
         service = utils.get_drive_service()
-        if not service: return False, "Falha na conexão global do robô."
+        if not service: return False, "Falha na conexão global do motor OAuth."
         
         mapeamento_ids = {
             "Orçamentos": "1DySx6I2sMQ6OQNR74mwbTrAf2KuK2YI4",
@@ -72,19 +71,19 @@ def upload_direto_gdrive(file_buffer, filename, mimetype, path_list):
             if len(path_list) > 1:
                 for folder_name in path_list[1:]:
                     q = f"'{current_parent}' in parents and name = '{folder_name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
-                    res = service.files().list(q=q, fields="files(id)", supportsAllDrives=True, includeItemsFromAllDrives=True).execute()
+                    res = service.files().list(q=q, fields="files(id)").execute()
                     files = res.get('files', [])
                     if files:
                         current_parent = files[0]['id']
                     else:
                         folder_metadata = {'name': folder_name, 'mimeType': 'application/vnd.google-apps.folder', 'parents': [current_parent]}
-                        folder = service.files().create(body=folder_metadata, fields='id', supportsAllDrives=True).execute()
+                        folder = service.files().create(body=folder_metadata, fields='id').execute()
                         current_parent = folder.get('id')
                         
             file_metadata = {'name': filename, 'parents': [current_parent]}
             file_stream = io.BytesIO(file_buffer.getvalue())
             media = MediaIoBaseUpload(file_stream, mimetype=mimetype, resumable=True)
-            file = service.files().create(body=file_metadata, media_body=media, fields='id', supportsAllDrives=True).execute()
+            file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
             return True, file.get('id')
         else:
             return utils.upload_to_drive(file_buffer, filename, mimetype, path_list)
@@ -95,7 +94,7 @@ def upload_direto_gdrive(file_buffer, filename, mimetype, path_list):
 def listar_arquivos_pasta_gdrive(nome_principal, path_list):
     try:
         service = utils.get_drive_service()
-        if not service: return [], "Falha na conexão global do robô."
+        if not service: return [], "Falha na conexão global do motor OAuth."
         
         mapeamento_ids = {
             "Orçamentos": "1DySx6I2sMQ6OQNR74mwbTrAf2KuK2YI4",
@@ -109,14 +108,14 @@ def listar_arquivos_pasta_gdrive(nome_principal, path_list):
             if len(path_list) > 1:
                 for folder_name in path_list[1:]:
                     q = f"'{target_folder_id}' in parents and name = '{folder_name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
-                    res = service.files().list(q=q, fields="files(id)", supportsAllDrives=True, includeItemsFromAllDrives=True).execute()
+                    res = service.files().list(q=q, fields="files(id)").execute()
                     files = res.get('files', [])
                     if not files:
                         return [], None
                     target_folder_id = files[0]['id']
             
             q_files = f"'{target_folder_id}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false"
-            res_files = service.files().list(q=q_files, fields="files(id, name, createdTime, size, webViewLink)", supportsAllDrives=True, includeItemsFromAllDrives=True, pageSize=1000).execute()
+            res_files = service.files().list(q=q_files, fields="files(id, name, createdTime, size, webViewLink)", pageSize=1000).execute()
             return res_files.get('files', []), None
         else:
             return utils.list_drive_files(path_list), None
@@ -427,7 +426,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
     container_paginacao = st.container()
     container_acoes = st.container()
 
-    # Preenchemos o container da paginação primeiro (para o código saber a página atual)
     with container_paginacao:
         col_view, col_pag = st.columns([7, 3])
         with col_view:
@@ -443,7 +441,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
     inicio = (pagina_atual - 1) * itens_por_pagina
     df_pagina = df.iloc[inicio : inicio + itens_por_pagina].copy()
 
-    # Preenchemos a tabela no container de cima
     with container_tabela:
         if is_imagens and modo_visao == "Miniaturas":
             cols = st.columns(4)
@@ -602,7 +599,6 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                         st.cache_data.clear()
                         st.rerun()
 
-    # Preenchemos a área de download e resumos bem no fundo da página
     with container_acoes:
         arquivos_reais_disponiveis = df_pagina[df_pagina["ID_Drive"].notna() & (~df_pagina["Nome"].str.startswith("📝 "))]
         
