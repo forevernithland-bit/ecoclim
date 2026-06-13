@@ -18,8 +18,8 @@ try:
 except ImportError:
     pass
 
-# IMPORTAÇÕES DO GOOGLE DRIVE E CALENDAR VIA ROBÔ DEFINITIVO (SERVICE ACCOUNT)
-from google.oauth2 import service_account
+# IMPORTAÇÕES OAUTH (LOGIN VITALÍCIO)
+from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 
@@ -47,54 +47,53 @@ def init_connection():
     return create_client(url, key)
 
 # ==========================================
-# INTEGRAÇÃO GOOGLE DRIVE E CALENDAR (ROBÔ GLOBAL)
+# INTEGRAÇÃO GOOGLE DRIVE E CALENDAR (MOTOR VITALÍCIO)
 # ==========================================
 MAIN_DRIVE_FOLDER_ID = '1rdCO-d0CTF4UPQ1Vddxr0loCgqYaXE2l'
 
 def get_drive_service():
-    """Autentica no Drive de forma blindada usando as credenciais estáveis do Robô Service Account"""
+    """Autentica no Drive usando o seu login definitivo (OAuth)"""
     try:
-        info_chave = dict(st.secrets["gcp_service_account"])
-        if "private_key" in info_chave:
-            info_chave["private_key"] = info_chave["private_key"].replace("\\n", "\n")
-        
-        escopos = [
-            'https://www.googleapis.com/auth/drive',
-            'https://www.googleapis.com/auth/calendar'
-        ]
-        credenciais = service_account.Credentials.from_service_account_info(info_chave, scopes=escopos)
-        return build('drive', 'v3', credentials=credenciais)
+        oauth_info = st.secrets["google_oauth"]
+        creds = Credentials(
+            token=None,
+            refresh_token=oauth_info["refresh_token"],
+            client_id=oauth_info["client_id"],
+            client_secret=oauth_info["client_secret"],
+            token_uri="https://oauth2.googleapis.com/token"
+        )
+        return build('drive', 'v3', credentials=creds)
     except Exception as e:
-        st.error(f"Erro crítico ao gerar serviço do Google Drive: {e}")
+        st.error(f"Erro na conexão do Drive: {e}")
         return None
 
 def get_calendar_service():
-    """Autentica no Calendar de forma blindada usando as credenciais estáveis do Robô Service Account"""
+    """Autentica no Calendar usando o seu login definitivo (OAuth)"""
     try:
-        info_chave = dict(st.secrets["gcp_service_account"])
-        if "private_key" in info_chave:
-            info_chave["private_key"] = info_chave["private_key"].replace("\\n", "\n")
-        
-        escopos = [
-            'https://www.googleapis.com/auth/drive',
-            'https://www.googleapis.com/auth/calendar'
-        ]
-        credenciais = service_account.Credentials.from_service_account_info(info_chave, scopes=escopos)
-        return build('calendar', 'v3', credentials=credenciais)
+        oauth_info = st.secrets["google_oauth"]
+        creds = Credentials(
+            token=None,
+            refresh_token=oauth_info["refresh_token"],
+            client_id=oauth_info["client_id"],
+            client_secret=oauth_info["client_secret"],
+            token_uri="https://oauth2.googleapis.com/token"
+        )
+        return build('calendar', 'v3', credentials=creds)
     except Exception as e:
+        st.error(f"Erro na conexão do Calendário: {e}")
         return None
 
 def get_or_create_nested_folder(service, parent_id, path_list):
     current_id = parent_id
     for folder_name in path_list:
         query = f"'{current_id}' in parents and name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
-        response = service.files().list(q=query, spaces='drive', fields='files(id, name)', supportsAllDrives=True, includeItemsFromAllDrives=True).execute()
+        response = service.files().list(q=query, spaces='drive', fields='files(id, name)').execute()
         files = response.get('files', [])
         if files:
             current_id = files[0].get('id')
         else:
             folder_metadata = {'name': folder_name, 'parents': [current_id], 'mimeType': 'application/vnd.google-apps.folder'}
-            folder = service.files().create(body=folder_metadata, fields='id', supportsAllDrives=True).execute()
+            folder = service.files().create(body=folder_metadata, fields='id').execute()
             current_id = folder.get('id')
     return current_id
 
@@ -109,7 +108,7 @@ def upload_to_drive(file_buffer, filename, mimetype, folder_path):
         buffer_puro = BytesIO(file_buffer.getvalue())
         media = MediaIoBaseUpload(buffer_puro, mimetype=mimetype, resumable=True)
         
-        uploaded_file = service.files().create(body=file_metadata, media_body=media, fields='id', supportsAllDrives=True).execute()
+        uploaded_file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
         return True, uploaded_file.get('id')
     except Exception as e:
         return False, str(e)
@@ -122,7 +121,7 @@ def list_drive_files(folder_path):
         subfolder_id = get_or_create_nested_folder(service, MAIN_DRIVE_FOLDER_ID, folder_path)
         
         query = f"'{subfolder_id}' in parents and trashed=false and mimeType != 'application/vnd.google-apps.folder'"
-        response = service.files().list(q=query, spaces='drive', fields='files(id, name, size, createdTime, webViewLink)', supportsAllDrives=True, includeItemsFromAllDrives=True).execute()
+        response = service.files().list(q=query, spaces='drive', fields='files(id, name, size, createdTime, webViewLink)').execute()
         return response.get('files', [])
     except:
         return []
@@ -131,13 +130,13 @@ def delete_drive_file(file_id):
     try:
         service = get_drive_service()
         if not service: return False
-        service.files().delete(fileId=file_id, supportsAllDrives=True).execute()
+        service.files().delete(fileId=file_id).execute()
         return True
     except:
         return False
 
 # ==========================================
-# FUNÇÕES FINANCEIRAS
+# FUNÇÕES FINANCEIRAS E CATÁLOGOS (MANTIDAS 100%)
 # ==========================================
 def load_year_data(nome_tabela, contas_padrao, ano):
     supabase = st.session_state.supabase
@@ -168,9 +167,6 @@ def save_to_supabase(nome_tabela, df, ano):
         supabase.table(nome_tabela).insert(dados_finais).execute()
     except Exception as e: st.error(f"Erro ao salvar: {e}")
 
-# ==========================================
-# CATÁLOGOS E UTILITÁRIOS
-# ==========================================
 def load_catalog(nome_tabela):
     supabase = st.session_state.supabase
     colunas_corretas = ["Item", "Descrição", "Custo (R$)", "Margem (%)", "Lucro (R$)", "Venda (R$)"]
@@ -381,7 +377,7 @@ def gerar_pdf_contrato(nome, doc, tipo_cliente, endereco, objeto, df_items, mat_
 
     story.append(Paragraph("<b>CONTRATO DE FORNECIMENTO E PRESTAÇÃO DE SERVIÇOS</b>", style_title))
     
-    story.append(Paragraph("Pelo presente instrumento particular, as partes abaixo qualificadas firmam o presente CONTRATO:", style_normal))
+    story.append(Paragraph("Pelo presente instrumento particular, as parties abaixo qualificadas firmam o presente CONTRATO:", style_normal))
     story.append(Paragraph("A <b>ECOCLIM</b> com sede na cidade de Santa Luzia, MG, Av. Brasília, 2731 - Duquesa I, no CNPJ 40.111.279/0001-03, endereço eletrônico: comercial@ecoclim.com.br, doravante designada <b>CONTRATADA</b> e de outro lado;", style_normal))
     
     doc_tipo = "inscrito sob o CPF" if tipo_cliente == "Pessoa Física" else "inscrita sob o CNPJ"
@@ -438,7 +434,7 @@ def gerar_pdf_contrato(nome, doc, tipo_cliente, endereco, objeto, df_items, mat_
     story.append(Paragraph("<b>CLÁUSULA 5 – DAS OBRIGAÇÕES E RESPONSABILIDADES DO CONTRATANTE</b>", style_h3))
     story.append(Paragraph("Para a viabilização da instalação e o bom funcionamento do sistema, o CONTRATANTE compromete-se a:", style_normal))
     obs_list = [
-        "<b>Acompanhamento Técnico:</b> Manter no local da obra, durante o período de execução, um representative capaz, com autorização para fornecer instruções e dar aceite ao final do serviço.",
+        "<b>Acompanhamento Técnico:</b> Manter no local da obra, durante o período de execução, um representante capaz, com autorização para fornecer instruções e dar aceite ao final do serviço.",
         "<b>Infraestrutura Elétrica e Hidráulica:</b> Disponibilizar, sob sua exclusiva responsabilidade e custo, os pontos de energia para o sistema de pressurização e resistência de apoio.",
         "<b>Autorizações e Condomínios:</b> Providenciar todas as autorizações junto à administração do condomínio.",
         "<b>Logística de Materiais:</b> Informar e disponibilizar espaço adequado para o içamento de materiais e equipamentos.",
@@ -529,18 +525,16 @@ def extrair_dados_boleto(file_buffer):
 # SINCRONIZAÇÃO INTELIGENTE COM GOOGLE CALENDAR
 # ==========================================
 def sincronizar_boletos_com_calendar():
-    """Sincroniza todos os lembretes do banco com o Google Calendar usando o novo Robô definitivo"""
+    """Sincroniza todos os lembretes do banco com o Google Calendar usando o motor vitalício"""
     service = get_calendar_service()
     if not service:
         return
 
     try:
-        # 1. Busca todos os boletos no Supabase
         res = st.session_state.supabase.table('boletos_fornecedores').select('*').execute()
         boletos_db = res.data if res.data else []
         db_ids = {b['id'] for b in boletos_db}
 
-        # 2. Mapeia eventos Ecoclim ativos no Calendar
         events_result = service.events().list(calendarId='primary', q='[Ecoclim ID:', singleEvents=True).execute()
         events_calendar = events_result.get('items', [])
         
@@ -554,7 +548,6 @@ def sincronizar_boletos_com_calendar():
 
         hoje_dt = datetime.date.today()
 
-        # 3. Processa e aplica as regras dinâmicas do calendário
         for b in boletos_db:
             id_db = b['id']
             cliente = b['cliente']
@@ -615,7 +608,6 @@ def sincronizar_boletos_com_calendar():
             else:
                 service.events().insert(calendarId='primary', body=event_body).execute()
 
-        # 4. Limpeza automática: Apaga eventos de boletos removidos do Supabase
         for ev_id_db, ev_cal_id in calendar_map.items():
             if ev_id_db not in db_ids:
                 service.events().delete(calendarId='primary', eventId=ev_cal_id).execute()
