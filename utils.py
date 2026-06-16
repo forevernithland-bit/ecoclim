@@ -34,6 +34,11 @@ def safe_float(val):
     except:
         return 0.0
 
+def obter_data_atual_br():
+    """Retorna a data atual forçando o fuso horário de Brasília (GMT-3) de forma dinâmica."""
+    tz_br = datetime.timezone(datetime.timedelta(hours=-3))
+    return datetime.datetime.now(tz_br).date()
+
 hoje = datetime.date.today()
 ano_atual = hoje.year
 meses_pt = ['JANEIRO', 'FEVEREIRO', 'MARÇO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO']
@@ -251,7 +256,7 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
     p.drawString(largura - 9*cm, altura - 2.1*cm, "WWW.ECOCLIM.COM.BR"); p.drawString(largura - 9*cm, altura - 2.5*cm, "COMERCIAL@ECOCLIM.COM.BR")
     
     p.setFillColor(colors.black); p.setFont("Helvetica", 9)
-    p.drawString(largura - 9*cm, altura - 3.5*cm, f"Data: {datetime.date.today().strftime('%d/%m/%Y')}")
+    p.drawString(largura - 9*cm, altura - 3.5*cm, f"Data: {obter_data_atual_br().strftime('%d/%m/%Y')}")
     p.drawString(largura - 9*cm, altura - 4.0*cm, "Validade da Proposta: 15 dias")
     
     y = altura - 5.5*cm
@@ -461,7 +466,7 @@ def gerar_pdf_contrato(nome, doc, tipo_cliente, endereco, objeto, df_items, mat_
     story.append(Paragraph("Fica eleito o foro da Comarca de Santa Luzia/MG para dirimir quaisquer controvérsias oriundas deste contrato, com renúncia expressa a qualquer outro, por mais privilegiado que seja.", style_normal))
 
     story.append(Spacer(1, 1.0*cm))
-    story.append(Paragraph(f"Santa Luzia, MG, {datetime.date.today().strftime('%d de %B de %Y').lower()}.", style_normal))
+    story.append(Paragraph(f"Santa Luzia, MG, {obter_data_atual_br().strftime('%d de %B de %Y').lower()}.", style_normal))
     story.append(Spacer(1, 1.5*cm))
     
     try:
@@ -546,7 +551,7 @@ def sincronizar_boletos_com_calendar():
                 ev_id_db = int(match.group(1))
                 calendar_map[ev_id_db] = ev['id']
 
-        hoje_dt = datetime.date.today()
+        hoje_dt = obter_data_atual_br()
 
         for b in boletos_db:
             id_db = b['id']
