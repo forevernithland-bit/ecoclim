@@ -389,7 +389,8 @@ else:
     # =============================================================================
     if st.session_state.menu_option == "Página Inicial":
         
-        st.caption(f"📅 Calendário Operacional: {utils.hoje.strftime('%d/%m/%Y')}")
+        hoje_br = utils.obter_data_atual_br()
+        st.caption(f"📅 Calendário Operacional: {hoje_br.strftime('%d/%m/%Y')}")
 
         if 'calendar_sync_inicial' not in st.session_state:
             utils.sincronizar_boletos_com_calendar()
@@ -402,7 +403,7 @@ else:
             
             lembretes_ativos = []
             if res_bol.data:
-                hoje_dt = utils.hoje
+                hoje_dt = hoje_br
                 for b in res_bol.data:
                     venc_dt = datetime.datetime.strptime(b['vencimento'], "%Y-%m-%d").date()
                     diff_days = (venc_dt - hoje_dt).days
