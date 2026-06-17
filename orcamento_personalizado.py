@@ -99,7 +99,7 @@ def renderizar(lista_nomes_produtos, limpar_func):
             "Aquecedor de Piscina - Tradicional", 
             "Aquecedor de Piscina - Trocador de Calor", 
             "Sistema de Pressurização"
-        ], index=3)
+        ], index=1)
 
     with st.container(border=True):
         st.subheader("⚙️ 1. Equipamentos")
