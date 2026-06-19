@@ -22,6 +22,7 @@ import tela_financeira
 import tela_configuracoes
 import tela_airnb
 import tela_documentos
+import tela_relatorios
 
 # =============================================================================
 # 3. FUNÇÕES AUXILIARES PARA LEMBRETES NA PÁGINA INICIAL
@@ -365,10 +366,11 @@ else:
             "Serviços em Andamento", 
             "Documentos",
             "AirBnb e Locações",
+            "Relatórios",
             "Configurações"
         ]
         
-        index_atual = lista_paginas.index(st.session_state.menu_option)
+        index_atual = lista_paginas.index(st.session_state.menu_option) if st.session_state.menu_option in lista_paginas else 0
         menu = st.radio("Navegação", lista_paginas, index=index_atual)
         
         if menu != st.session_state.menu_option:
@@ -514,6 +516,9 @@ else:
 
     elif st.session_state.menu_option == "AirBnb e Locações":
         tela_airnb.renderizar()
+        
+    elif st.session_state.menu_option == "Relatórios":
+        tela_relatorios.renderizar()
 
     elif st.session_state.menu_option == "Configurações":
         tela_configuracoes.renderizar()
