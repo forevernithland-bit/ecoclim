@@ -547,7 +547,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                 "status_projeto": novo_status, 
                 "data_conclusao": nova_data.strftime('%Y-%m-%d'),
                 "instalador": novo_instalador,
-                "detalhamento_itens": df_itens_final.to_dict('records'),
+                "detalhamento_itens": df_itens_final.fillna("").to_dict('records'),
                 "custo_adicional_materiais": custo_ext, 
                 "custo_terceirizados": custo_mo,
                 "custo_comissao": valor_comissao, 
