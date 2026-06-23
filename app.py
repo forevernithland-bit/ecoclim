@@ -394,10 +394,6 @@ else:
         hoje_br = utils.obter_data_atual_br()
         st.caption(f"📅 Calendário Operacional: {hoje_br.strftime('%d/%m/%Y')}")
 
-        if 'calendar_sync_inicial' not in st.session_state:
-            utils.sincronizar_boletos_com_calendar()
-            st.session_state.calendar_sync_inicial = True
-
         st.markdown("<h4 style='font-weight: 600; margin-bottom: 10px;'>🔔 Lembretes de Pagamento</h4>", unsafe_allow_html=True)
         
         try:
