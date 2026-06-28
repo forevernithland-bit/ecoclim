@@ -14,8 +14,8 @@ supabase = utils.init_connection()
 
 # CONFIGURAÇÕES CRÍTICAS DA EVOLUTION API (Com base na sua infraestrutura)
 EVOLUTION_BASE_URL = "http://187.127.21.127:8080"
-EVOLUTION_API_KEY = "EcoclimBot2026!"
-INSTANCE_NAME = "ECOCLIM_01"
+EVOLUTION_API_KEY = "E76FE78F42C9-411F-A6E5-EE8432420A65"
+INSTANCE_NAME = "ERP"
 
 # ==========================================
 # ESTRUTURA DOS DADOS QUE O ROBÔ VAI MANDAR (MANUAL)
@@ -60,7 +60,7 @@ def enviar_pdf_via_whatsapp(telefone_cliente: str, url_pdf: str, nome_arquivo: s
     if not num_limpo.startswith("55"):
         num_limpo = f"55{num_limpo}"
         
-    endpoint = f"{EVOLUTION_BASE_URL}/media/sendMedia/{INSTANCE_NAME}"
+    endpoint = f"{EVOLUTION_BASE_URL}/message/sendMedia/{INSTANCE_NAME}"
     
     headers = {
         "apikey": EVOLUTION_API_KEY,
@@ -70,12 +70,11 @@ def enviar_pdf_via_whatsapp(telefone_cliente: str, url_pdf: str, nome_arquivo: s
     # Payload configurado para enviar documento via URL pública do Google Drive
     payload = {
         "number": num_limpo,
-        "mediaMessage": {
-            "mediatype": "document",
-            "media": url_pdf,
-            "fileName": nome_arquivo,
-            "caption": f"Olá, {nome_cliente}! Conforme conversamos, segue em anexo a sua proposta comercial detalhada da Ecoclim. Qualquer dúvida estou à disposição!"
-        },
+        "mediatype": "document",
+        "mimetype": "application/pdf",
+        "media": url_pdf,
+        "fileName": nome_arquivo,
+        "caption": f"Olá, {nome_cliente}! Conforme conversamos, segue em anexo a sua proposta comercial detalhada da Ecoclim. Qualquer dúvida estou à disposição!",
         "options": {
             "delay": 1200, # Delay sutil humano de 1.2 segundos
             "presence": "composing" # Mostra "digitando..." ou "enviando arquivo..." no zap
