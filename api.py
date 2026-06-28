@@ -12,7 +12,7 @@ app = FastAPI(title="Ecoclim API - V2", description="API para integração com n
 # Conecta no seu Supabase
 supabase = utils.init_connection()
 
-# CONFIGURAÇÕES CRÍTICAS DA EVOLUTION API (Com base na sua infraestrutura)
+# CONFIGURAÇÕES CRÍTICAS DA EVOLUTION API
 EVOLUTION_BASE_URL = "http://187.127.21.127:8080"
 EVOLUTION_API_KEY = "E76FE78F42C9-411F-A6E5-EE8432420A65"
 INSTANCE_NAME = "ERP"
@@ -28,7 +28,7 @@ class ItemOrcamento(BaseModel):
 
 class OrcamentoRequest(BaseModel):
     nome_cliente: str
-    telefone: str
+    telefone: Optional[str] = ""  # Agora é opcional!
     itens: List[ItemOrcamento]
     com_instalacao: bool
     valor_instalacao: float = 0.0
@@ -40,7 +40,7 @@ class OrcamentoRequest(BaseModel):
 # ==========================================
 class OrcamentoKitRequest(BaseModel):
     nome_cliente: str
-    telefone: str
+    telefone: Optional[str] = ""  # Agora é opcional!
     nome_do_kit: str
     com_instalacao: bool
     observacoes: Optional[str] = "Material hidráulico não incluso nesta proposta."
@@ -49,10 +49,6 @@ class OrcamentoKitRequest(BaseModel):
 # FUNÇÃO AUXILIAR PARA DISPARAR O PDF VIA WHATSAPP
 # ==========================================
 def enviar_pdf_via_whatsapp(telefone_cliente: str, url_pdf: str, nome_arquivo: str, nome_cliente: str):
-    """
-    Envia o arquivo PDF gerado diretamente para o WhatsApp do cliente
-    utilizando a sua instância conectada na Evolution API.
-    """
     # Limpa o número de telefone para garantir o formato correto (apenas números)
     num_limpo = "".join(filter(str.isdigit, telefone_cliente))
     
@@ -76,8 +72,8 @@ def enviar_pdf_via_whatsapp(telefone_cliente: str, url_pdf: str, nome_arquivo: s
         "fileName": nome_arquivo,
         "caption": f"Olá, {nome_cliente}! Conforme conversamos, segue em anexo a sua proposta comercial detalhada da Ecoclim. Qualquer dúvida estou à disposição!",
         "options": {
-            "delay": 1200, # Delay sutil humano de 1.2 segundos
-            "presence": "composing" # Mostra "digitando..." ou "enviando arquivo..." no zap
+            "delay": 1200,
+            "presence": "composing"
         }
     }
     
@@ -106,7 +102,7 @@ async def criar_orcamento_bot(req: OrcamentoRequest):
                 "Produto Manual": "",
                 "Descrição": item.descricao,
                 "Quantidade": item.quantidade,
-                "Custo (R$)": 0.0,  # Oculto para segurança comercial
+                "Custo (R$)": 0.0,
                 "Venda (R$)": item.preco_unidade,
                 "Custo Total": 0.0,
                 "Venda Total": v_tot
@@ -122,7 +118,7 @@ async def criar_orcamento_bot(req: OrcamentoRequest):
         # 3. Gerar o arquivo PDF usando o seu utils.py original
         pdf_buffer = utils.gerar_pdf_orcamento(
             nome=req.nome_cliente,
-            tel=req.telefone,
+            tel=req.telefone if req.telefone else "Não informado",
             capa="Aquecedor Solar Tradicional", 
             df_items=df_itens,
             d_s=desc_serv,
@@ -150,7 +146,7 @@ async def criar_orcamento_bot(req: OrcamentoRequest):
         payload = {
             "numero_orcamento": numero_orc,
             "nome_cliente": req.nome_cliente,
-            "telefone_cliente": req.telefone,
+            "telefone_cliente": req.telefone if req.telefone else "",
             "valor_venda_total": total_geral,
             "status_projeto": "Orçamento Enviado",
             "detalhamento_itens": snapshot_itens,
@@ -174,21 +170,27 @@ async def criar_orcamento_bot(req: OrcamentoRequest):
         if not sucesso_drive:
             return {"sucesso": False, "erro": f"Erro ao salvar no Drive: {drive_id_ou_erro}"}
 
-        # 6. Criar Link de Download Direto para a Evolution API consumir
+        # 6. Criar Link de Download Direto
         link_drive = f"https://drive.google.com/uc?export=download&id={drive_id_ou_erro}"
         
-        # 7. ENVIAR DIRETAMENTE VIA WHATSAPP (Mágica da Automação)
-        sucesso_whatsapp, retorno_whatsapp = enviar_pdf_via_whatsapp(
-            telefone_cliente=req.telefone,
-            url_pdf=link_drive,
-            nome_arquivo=nome_arquivo,
-            nome_cliente=req.nome_cliente
-        )
+        # 7. ENVIAR DIRETAMENTE VIA WHATSAPP (Somente se o telefone existir)
+        sucesso_whatsapp = False
+        retorno_whatsapp = "Não enviado (telefone não informado na requisição)"
+        mensagem_final = "Orçamento gerado e salvo no ERP com sucesso!"
+        
+        if req.telefone and req.telefone.strip():
+            sucesso_whatsapp, retorno_whatsapp = enviar_pdf_via_whatsapp(
+                telefone_cliente=req.telefone,
+                url_pdf=link_drive,
+                nome_arquivo=nome_arquivo,
+                nome_cliente=req.nome_cliente
+            )
+            mensagem_final = "Orçamento gerado, registrado no ERP e enviado ao WhatsApp do cliente!"
         
         # 8. Devolver a resposta consolidada para o n8n/robô
         return {
             "sucesso": True,
-            "mensagem": "Orçamento gerado, registrado no ERP e enviado ao WhatsApp!",
+            "mensagem": mensagem_final,
             "link_pdf_download": link_drive,
             "numero_orcamento": numero_orc,
             "valor_total_reais": total_geral,
@@ -245,7 +247,6 @@ async def gerar_orcamento_kit_bot(req: OrcamentoKitRequest):
             subtotal_item = p_preco * p_qtd
             total_equipamentos += subtotal_item
             
-            # Prepara a linha para a geração do PDF
             linhas_pdf.append({
                 "Produto da Base": p_nome,
                 "Produto Manual": "",
@@ -257,7 +258,6 @@ async def gerar_orcamento_kit_bot(req: OrcamentoKitRequest):
                 "Venda Total": subtotal_item
             })
             
-            # Prepara a linha para salvar no histórico do ERP
             snapshot_itens.append({
                 "Item": p_nome,
                 "Qtd": p_qtd,
@@ -267,7 +267,7 @@ async def gerar_orcamento_kit_bot(req: OrcamentoKitRequest):
             
         df_itens = pd.DataFrame(linhas_pdf)
 
-        # 4. Processar Serviço e Instalação (se solicitado pela IA)
+        # 4. Processar Serviço e Instalação
         val_serv = 0.0
         desc_serv = ""
         
@@ -293,7 +293,7 @@ async def gerar_orcamento_kit_bot(req: OrcamentoKitRequest):
         # 5. Gerar o arquivo PDF
         pdf_buffer = utils.gerar_pdf_orcamento(
             nome=req.nome_cliente,
-            tel=req.telefone,
+            tel=req.telefone if req.telefone else "Não informado",
             capa=capa_modelo,
             df_items=df_itens,
             d_s=desc_serv,
@@ -312,12 +312,12 @@ async def gerar_orcamento_kit_bot(req: OrcamentoKitRequest):
         payload_erp = {
             "numero_orcamento": numero_orc,
             "nome_cliente": req.nome_cliente,
-            "telefone_cliente": req.telefone,
+            "telefone_cliente": req.telefone if req.telefone else "",
             "valor_venda_total": total_geral,
             "status_projeto": "Orçamento Enviado",
             "detalhamento_itens": snapshot_itens,
             "data_conclusao": datetime.date.today().strftime('%Y-%m-%d'),
-            "notas_internas": f"Gerado automaticamente pelo Agente IA via WhatsApp. (Kit Utilizado: {req.nome_do_kit})"
+            "notas_internas": f"Gerado automaticamente pelo Agente IA. (Kit Utilizado: {req.nome_do_kit})"
         }
         
         supabase.table("servicos_andamento").insert(payload_erp).execute()
@@ -336,19 +336,25 @@ async def gerar_orcamento_kit_bot(req: OrcamentoKitRequest):
         if not sucesso_drive:
             return {"sucesso": False, "erro": f"Erro ao salvar no Drive: {drive_id_ou_erro}"}
 
-        # 8. Link Público e Envio via WhatsApp
+        # 8. Link Público e Envio via WhatsApp (Opcional)
         link_drive = f"https://drive.google.com/uc?export=download&id={drive_id_ou_erro}"
         
-        sucesso_whatsapp, retorno_whatsapp = enviar_pdf_via_whatsapp(
-            telefone_cliente=req.telefone,
-            url_pdf=link_drive,
-            nome_arquivo=nome_arquivo,
-            nome_cliente=req.nome_cliente
-        )
+        sucesso_whatsapp = False
+        retorno_whatsapp = "Não enviado (telefone não informado na requisição)"
+        mensagem_final = f"Orçamento gerado pelo Kit '{req.nome_do_kit}' e salvo com sucesso!"
+        
+        if req.telefone and req.telefone.strip():
+            sucesso_whatsapp, retorno_whatsapp = enviar_pdf_via_whatsapp(
+                telefone_cliente=req.telefone,
+                url_pdf=link_drive,
+                nome_arquivo=nome_arquivo,
+                nome_cliente=req.nome_cliente
+            )
+            mensagem_final = f"Orçamento gerado pelo Kit '{req.nome_do_kit}' e enviado ao cliente!"
         
         return {
             "sucesso": True,
-            "mensagem": f"Orçamento gerado pelo Kit '{req.nome_do_kit}' e enviado ao cliente!",
+            "mensagem": mensagem_final,
             "numero_orcamento": numero_orc,
             "link_pdf_download": link_drive,
             "valor_total_reais": total_geral,
