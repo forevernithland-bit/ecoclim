@@ -51,6 +51,13 @@ def init_connection():
     key = st.secrets["SUPABASE_KEY"]
     return create_client(url, key)
 
+def get_supabase_client():
+    """Tenta obter a conexão do Streamlit. Se falhar (API rodando no backend), cria uma nova."""
+    try:
+        return st.session_state.supabase
+    except Exception:
+        return init_connection()
+
 # ==========================================
 # INTEGRAÇÃO GOOGLE DRIVE E CALENDAR (MOTOR VITALÍCIO)
 # ==========================================
@@ -141,10 +148,10 @@ def delete_drive_file(file_id):
         return False
 
 # ==========================================
-# FUNÇÕES FINANCEIRAS E CATÁLOGOS (MANTIDAS 100%)
+# FUNÇÕES FINANCEIRAS E CATÁLOGOS
 # ==========================================
 def load_year_data(nome_tabela, contas_padrao, ano):
-    supabase = st.session_state.supabase
+    supabase = get_supabase_client()
     try:
         res = supabase.table(nome_tabela).select("*").eq("ano", ano).execute()
         df_banco = pd.DataFrame(res.data)
@@ -161,7 +168,7 @@ def load_year_data(nome_tabela, contas_padrao, ano):
         return pd.DataFrame({"MESES": contas_padrao, **{m: 0.0 for m in meses_pt}})
 
 def save_to_supabase(nome_tabela, df, ano):
-    supabase = st.session_state.supabase
+    supabase = get_supabase_client()
     dados_finais = []
     for _, linha in df.iterrows():
         registro = {"ano": ano, "MESES": linha["MESES"]}
@@ -173,7 +180,7 @@ def save_to_supabase(nome_tabela, df, ano):
     except Exception as e: st.error(f"Erro ao salvar: {e}")
 
 def load_catalog(nome_tabela):
-    supabase = st.session_state.supabase
+    supabase = get_supabase_client()
     colunas_corretas = ["Item", "Descrição", "Custo (R$)", "Margem (%)", "Lucro (R$)", "Venda (R$)"]
     try:
         res = supabase.table(nome_tabela).select("*").order("item").execute()
@@ -189,7 +196,7 @@ def load_catalog(nome_tabela):
         return pd.DataFrame(columns=colunas_corretas)
 
 def save_catalog(nome_tabela, df):
-    supabase = st.session_state.supabase
+    supabase = get_supabase_client()
     lista_dados = []
     for _, linha in df.iterrows():
         if linha.get('Item') and str(linha['Item']).strip() != "":
@@ -216,17 +223,19 @@ def parse_br_currency(texto_valor):
     except: return 0.0
 
 def load_taxas():
+    supabase = get_supabase_client()
     try:
-        res = st.session_state.supabase.table('catalogo_taxas').select("*").execute()
+        res = supabase.table('catalogo_taxas').select("*").execute()
         df = pd.DataFrame(res.data)
         if df.empty: return pd.DataFrame(columns=["Item", "Taxa (%)"])
         return df.rename(columns={"item": "Item", "taxa_percentual": "Taxa (%)"})
     except: return pd.DataFrame(columns=["Item", "Taxa (%)"])
 
 def save_taxas(df):
+    supabase = get_supabase_client()
     dados = [{"item": r['Item'], "taxa_percentual": float(r.get('Taxa (%)', 0.0))} for _, r in df.iterrows() if r.get('Item')]
-    st.session_state.supabase.table('catalogo_taxas').delete().neq("item", "___").execute()
-    if dados: st.session_state.supabase.table('catalogo_taxas').insert(dados).execute()
+    supabase.table('catalogo_taxas').delete().neq("item", "___").execute()
+    if dados: supabase.table('catalogo_taxas').insert(dados).execute()
 
 def buscar_cep(cep):
     cep = str(cep).replace('-', '').replace('.', '').strip()
@@ -536,7 +545,8 @@ def sincronizar_boletos_com_calendar():
         return
 
     try:
-        res = st.session_state.supabase.table('boletos_fornecedores').select('*').execute()
+        supabase = get_supabase_client()
+        res = supabase.table('boletos_fornecedores').select('*').execute()
         boletos_db = res.data if res.data else []
         db_ids = {b['id'] for b in boletos_db}
 
