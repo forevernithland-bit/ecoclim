@@ -18,7 +18,7 @@ EVOLUTION_API_KEY = "EcoclimBot2026!"
 INSTANCE_NAME = "ECOCLIM_01"
 
 # ==========================================
-# ESTRUTURA DOS DADOS QUE O ROBÔ VAI MANDAR
+# ESTRUTURA DOS DADOS QUE O ROBÔ VAI MANDAR (MANUAL)
 # ==========================================
 class ItemOrcamento(BaseModel):
     produto: str
@@ -33,6 +33,16 @@ class OrcamentoRequest(BaseModel):
     com_instalacao: bool
     valor_instalacao: float = 0.0
     descricao_instalacao: Optional[str] = ""
+    observacoes: Optional[str] = "Material hidráulico não incluso nesta proposta."
+
+# ==========================================
+# ESTRUTURA PARA O NOVO ORÇAMENTO VIA IA (KITS INTELIGENTES)
+# ==========================================
+class OrcamentoKitRequest(BaseModel):
+    nome_cliente: str
+    telefone: str
+    nome_do_kit: str
+    com_instalacao: bool
     observacoes: Optional[str] = "Material hidráulico não incluso nesta proposta."
 
 # ==========================================
@@ -79,7 +89,7 @@ def enviar_pdf_via_whatsapp(telefone_cliente: str, url_pdf: str, nome_arquivo: s
         return False, str(e)
 
 # ==========================================
-# ROTA DE GERAÇÃO E ENVIO DE ORÇAMENTO
+# ROTA ORIGINAL: GERAÇÃO E ENVIO DE ORÇAMENTO MANUAL
 # ==========================================
 @app.post("/gerar-orcamento")
 async def criar_orcamento_bot(req: OrcamentoRequest):
@@ -182,6 +192,166 @@ async def criar_orcamento_bot(req: OrcamentoRequest):
             "mensagem": "Orçamento gerado, registrado no ERP e enviado ao WhatsApp!",
             "link_pdf_download": link_drive,
             "numero_orcamento": numero_orc,
+            "valor_total_reais": total_geral,
+            "whatsapp_enviado": sucesso_whatsapp,
+            "detalhes_whatsapp": retorno_whatsapp
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ==========================================
+# NOVA ROTA: GERAÇÃO DE ORÇAMENTO INTELIGENTE POR KIT (USADA PELO N8N)
+# ==========================================
+@app.post("/gerar-orcamento-kit")
+async def gerar_orcamento_kit_bot(req: OrcamentoKitRequest):
+    try:
+        # 1. Buscar o Kit configurado no Supabase
+        res_kit = supabase.table('config_kits_lote').select('*').eq('nome_kit', req.nome_do_kit).execute()
+        
+        if not res_kit.data:
+            raise HTTPException(status_code=404, detail=f"O Kit '{req.nome_do_kit}' não foi encontrado na base de dados.")
+            
+        kit = res_kit.data[0]
+
+        # 2. Carregar catálogos atualizados para puxar os preços de hoje
+        db_produtos = utils.load_catalog('catalogo_produtos')
+        db_servicos = utils.load_catalog('catalogo_servicos')
+
+        # 3. Processar os itens do Kit e calcular valores
+        linhas_pdf = []
+        total_equipamentos = 0.0
+        snapshot_itens = []
+        
+        itens_do_kit = kit.get('itens', [])
+        
+        for ik in itens_do_kit:
+            p_nome = str(ik.get('Produto', '')).strip()
+            p_qtd = int(ik.get('Quantidade', 1))
+            
+            p_preco = 0.0
+            p_desc = ""
+            
+            # Cruzamento: Busca o preço e a descrição atualizada do produto
+            match_p = db_produtos[db_produtos['Item'].astype(str).str.strip().str.upper() == p_nome.upper()]
+            if not match_p.empty:
+                try: 
+                    p_preco = float(match_p['Venda (R$)'].values[0])
+                except: 
+                    pass
+                p_desc = str(match_p['Descrição'].values[0])
+                if p_desc.lower() == 'nan': 
+                    p_desc = ""
+                    
+            subtotal_item = p_preco * p_qtd
+            total_equipamentos += subtotal_item
+            
+            # Prepara a linha para a geração do PDF
+            linhas_pdf.append({
+                "Produto da Base": p_nome,
+                "Produto Manual": "",
+                "Descrição": p_desc,
+                "Quantidade": p_qtd,
+                "Custo (R$)": 0.0,
+                "Venda (R$)": p_preco,
+                "Custo Total": 0.0,
+                "Venda Total": subtotal_item
+            })
+            
+            # Prepara a linha para salvar no histórico do ERP
+            snapshot_itens.append({
+                "Item": p_nome,
+                "Qtd": p_qtd,
+                "Venda Un.": p_preco,
+                "Descrição": p_desc
+            })
+            
+        df_itens = pd.DataFrame(linhas_pdf)
+
+        # 4. Processar Serviço e Instalação (se solicitado pela IA)
+        val_serv = 0.0
+        desc_serv = ""
+        
+        if req.com_instalacao:
+            servico_nome = str(kit.get('servico_base', '')).strip()
+            if servico_nome:
+                match_s = db_servicos[db_servicos['Item'].astype(str).str.strip().str.upper() == servico_nome.upper()]
+                if not match_s.empty:
+                    try: 
+                        val_serv = float(match_s['Venda (R$)'].values[0])
+                    except: 
+                        pass
+                    nome_real_serv = str(match_s['Item'].values[0])
+                    desc_real_serv = str(match_s['Descrição'].values[0])
+                    
+                    desc_serv = f"{nome_real_serv}\n{desc_real_serv}"
+                    if desc_serv.endswith('\nnan') or desc_serv.endswith('\n'): 
+                        desc_serv = nome_real_serv
+
+        total_geral = total_equipamentos + val_serv
+        capa_modelo = str(kit.get('modelo_capa', 'Aquecedor Solar Tradicional'))
+
+        # 5. Gerar o arquivo PDF
+        pdf_buffer = utils.gerar_pdf_orcamento(
+            nome=req.nome_cliente,
+            tel=req.telefone,
+            capa=capa_modelo,
+            df_items=df_itens,
+            d_s=desc_serv,
+            v_s=val_serv,
+            d_o="",
+            v_o=0.0,
+            total=total_geral,
+            obs=req.observacoes,
+            mostrar_un=True 
+        )
+
+        # 6. Salvar Rastro no ERP (Painel de Serviços em Andamento)
+        string_data = datetime.datetime.now().strftime('%y%m%d-%H%M')
+        numero_orc = f"ORC-IA-{string_data}"
+        
+        payload_erp = {
+            "numero_orcamento": numero_orc,
+            "nome_cliente": req.nome_cliente,
+            "telefone_cliente": req.telefone,
+            "valor_venda_total": total_geral,
+            "status_projeto": "Orçamento Enviado",
+            "detalhamento_itens": snapshot_itens,
+            "data_conclusao": datetime.date.today().strftime('%Y-%m-%d'),
+            "notas_internas": f"Gerado automaticamente pelo Agente IA via WhatsApp. (Kit Utilizado: {req.nome_do_kit})"
+        }
+        
+        supabase.table("servicos_andamento").insert(payload_erp).execute()
+
+        # 7. Upload para o Google Drive
+        mes_atual = utils.mes_atual_nome
+        nome_arquivo = f"ORC_{req.nome_cliente.replace(' ', '_')}_{string_data}.pdf"
+        
+        sucesso_drive, drive_id_ou_erro = utils.upload_to_drive(
+            file_buffer=pdf_buffer,
+            filename=nome_arquivo,
+            mimetype="application/pdf",
+            folder_path=["Orçamentos", mes_atual]
+        )
+        
+        if not sucesso_drive:
+            return {"sucesso": False, "erro": f"Erro ao salvar no Drive: {drive_id_ou_erro}"}
+
+        # 8. Link Público e Envio via WhatsApp
+        link_drive = f"https://drive.google.com/uc?export=download&id={drive_id_ou_erro}"
+        
+        sucesso_whatsapp, retorno_whatsapp = enviar_pdf_via_whatsapp(
+            telefone_cliente=req.telefone,
+            url_pdf=link_drive,
+            nome_arquivo=nome_arquivo,
+            nome_cliente=req.nome_cliente
+        )
+        
+        return {
+            "sucesso": True,
+            "mensagem": f"Orçamento gerado pelo Kit '{req.nome_do_kit}' e enviado ao cliente!",
+            "numero_orcamento": numero_orc,
+            "link_pdf_download": link_drive,
             "valor_total_reais": total_geral,
             "whatsapp_enviado": sucesso_whatsapp,
             "detalhes_whatsapp": retorno_whatsapp
