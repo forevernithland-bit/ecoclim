@@ -131,7 +131,8 @@ async def criar_orcamento_bot(req: OrcamentoRequest):
         )
         
         # 4. Salvar os dados no seu Supabase para aparecer no Painel do ERP
-        string_data = datetime.datetime.now().strftime('%y%m%d-%H%M')
+        # CORREÇÃO: Adicionado %S para incluir os segundos e evitar conflito de IDs
+        string_data = datetime.datetime.now().strftime('%y%m%d-%H%M%S')
         numero_orc = f"ORC-BOT-{string_data}"
         
         snapshot_itens = []
@@ -306,7 +307,8 @@ async def gerar_orcamento_kit_bot(req: OrcamentoKitRequest):
         )
 
         # 6. Salvar Rastro no ERP (Painel de Serviços em Andamento)
-        string_data = datetime.datetime.now().strftime('%y%m%d-%H%M')
+        # CORREÇÃO: Adicionado %S para incluir os segundos e evitar conflito de IDs
+        string_data = datetime.datetime.now().strftime('%y%m%d-%H%M%S')
         numero_orc = f"ORC-IA-{string_data}"
         
         payload_erp = {
