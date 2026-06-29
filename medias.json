@@ -1,0 +1,17 @@
+{
+  "atualizado_em": "2026-06-29T00:00:00Z",
+  "fonte": "https://www.consorciomaggi.com.br/assembleia",
+  "grupos": {
+    "2014": { "media": null, "n": 0, "datas": [], "obs": "Sem contemplação por lance livre nos últimos resultados disponíveis." },
+    "2015": { "media": 55.97, "n": 3, "datas": ["2026-06-16", "2026-05-12", "2026-04-14"] },
+    "2016": { "media": null, "n": 0, "datas": [], "obs": "Sem resultado de lance livre disponível no site nos últimos meses." },
+    "2017": { "media": 54.74, "n": 4, "datas": ["2026-06-24", "2026-05-20"] },
+    "2018": { "media": 60.94, "n": 8, "datas": ["2026-06-24", "2026-05-20", "2026-04-22"] },
+    "2019": { "media": 62.82, "n": 8, "datas": ["2026-06-24", "2026-05-20", "2026-04-22"] },
+    "2020": { "media": 59.87, "n": 24, "datas": ["2026-06-24", "2026-05-20", "2026-04-22"] },
+    "634": { "media": 53.72, "n": 27, "datas": ["2026-06-22", "2026-05-18", "2026-04-20"] },
+    "644": { "media": 57.77, "n": 18, "datas": ["2026-06-23", "2026-05-25"] },
+    "8000": { "media": 55.57, "n": 27, "datas": ["2026-06-23", "2026-05-19", "2026-04-22"] },
+    "755": { "media": 61.27, "n": 14, "datas": ["2026-05-27"] }
+  }
+}
