@@ -69,6 +69,7 @@ def media_grupo(g, fixo, datas):
     fixoset = set(float(f) for f in fixo)
     vals = []
     usadas = []
+    por_mes = []   # média do lance livre em cada assembleia (mês a mês)
     for d in datas[:3]:
         url = "{}/assembleia/resultado/{}/{}".format(BASE, pad4(g), d)
         try:
@@ -80,9 +81,10 @@ def media_grupo(g, fixo, datas):
         if linha:
             vals.extend(linha)
             usadas.append(d)
+            por_mes.append({"data": d, "media": round(sum(linha) / len(linha), 2), "n": len(linha)})
     if not vals:
-        return None, 0, usadas
-    return round(sum(vals) / len(vals), 2), len(vals), usadas
+        return None, 0, usadas, por_mes
+    return round(sum(vals) / len(vals), 2), len(vals), usadas, por_mes
 
 
 def main():
@@ -94,12 +96,12 @@ def main():
     }
     for g, cfg in GRUPOS.items():
         datas = site.get(pad4(g)) or site.get(g) or []
-        media, n, usadas = media_grupo(g, cfg["fixo"], datas)
-        item = {"media": media, "n": n, "datas": usadas}
+        media, n, usadas, por_mes = media_grupo(g, cfg["fixo"], datas)
+        item = {"media": media, "n": n, "datas": usadas, "por_mes": por_mes}
         if media is None:
             item["obs"] = OBS_SEM_LIVRE
         saida["grupos"][g] = item
-        print("Grupo {:>5}: media={} (n={}) datas={}".format(g, media, n, usadas))
+        print("Grupo {:>5}: media={} (n={}) por_mes={}".format(g, media, n, por_mes))
 
     with open("medias.json", "w", encoding="utf-8") as f:
         json.dump(saida, f, ensure_ascii=False, indent=2)
