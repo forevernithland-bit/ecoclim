@@ -1,83 +1,17 @@
 {
-  "atualizado_em": "2026-06-29T18:20:45Z",
+  "atualizado_em": "2026-06-29T17:20:43Z",
   "fonte": "https://www.consorciomaggi.com.br/assembleia",
   "grupos": {
-    "2014": {
-      "media": null,
-      "n": 0,
-      "datas": [],
-      "por_mes": [],
-      "obs": "Sem contemplação por lance livre nos últimos resultados disponíveis."
-    },
-    "2015": {
-      "media": null,
-      "n": 0,
-      "datas": [],
-      "por_mes": [],
-      "obs": "Sem contemplação por lance livre nos últimos resultados disponíveis."
-    },
-    "2016": {
-      "media": null,
-      "n": 0,
-      "datas": [],
-      "por_mes": [],
-      "obs": "Sem contemplação por lance livre nos últimos resultados disponíveis."
-    },
-    "2017": {
-      "media": null,
-      "n": 0,
-      "datas": [],
-      "por_mes": [],
-      "obs": "Sem contemplação por lance livre nos últimos resultados disponíveis."
-    },
-    "2018": {
-      "media": null,
-      "n": 0,
-      "datas": [],
-      "por_mes": [],
-      "obs": "Sem contemplação por lance livre nos últimos resultados disponíveis."
-    },
-    "2019": {
-      "media": null,
-      "n": 0,
-      "datas": [],
-      "por_mes": [],
-      "obs": "Sem contemplação por lance livre nos últimos resultados disponíveis."
-    },
-    "2020": {
-      "media": null,
-      "n": 0,
-      "datas": [],
-      "por_mes": [],
-      "obs": "Sem contemplação por lance livre nos últimos resultados disponíveis."
-    },
-    "634": {
-      "media": null,
-      "n": 0,
-      "datas": [],
-      "por_mes": [],
-      "obs": "Sem contemplação por lance livre nos últimos resultados disponíveis."
-    },
-    "644": {
-      "media": null,
-      "n": 0,
-      "datas": [],
-      "por_mes": [],
-      "obs": "Sem contemplação por lance livre nos últimos resultados disponíveis."
-    },
-    "8000": {
-      "media": null,
-      "n": 0,
-      "datas": [],
-      "por_mes": [],
-      "obs": "Sem contemplação por lance livre nos últimos resultados disponíveis."
-    },
-    "755": {
-      "media": null,
-      "n": 0,
-      "datas": [],
-      "por_mes": [],
-      "obs": "Sem contemplação por lance livre nos últimos resultados disponíveis."
-    }
+    "2014": { "media": null, "n": 0, "datas": [], "obs": "Sem contemplação por lance livre nos últimos resultados disponíveis." },
+    "2015": { "media": 55.97, "n": 3, "datas": ["2026-06-16", "2026-05-12", "2026-04-14"] },
+    "2016": { "media": 57.1, "n": 1, "datas": ["2026-05-20"] },
+    "2017": { "media": 52.04, "n": 10, "datas": ["2026-06-24", "2026-05-20", "2026-04-22"] },
+    "2018": { "media": 60.94, "n": 8, "datas": ["2026-06-24", "2026-05-20", "2026-04-22"] },
+    "2019": { "media": 62.82, "n": 8, "datas": ["2026-06-24", "2026-05-20", "2026-04-22"] },
+    "2020": { "media": 59.87, "n": 24, "datas": ["2026-06-24", "2026-05-20", "2026-04-22"] },
+    "634": { "media": 53.72, "n": 27, "datas": ["2026-06-22", "2026-05-18", "2026-04-20"] },
+    "644": { "media": 57.77, "n": 18, "datas": ["2026-06-23", "2026-05-25"] },
+    "8000": { "media": 55.57, "n": 27, "datas": ["2026-06-23", "2026-05-19", "2026-04-22"] },
+    "755": { "media": 61.47, "n": 79, "datas": ["2026-05-27", "2026-04-29", "2026-04-01"] }
   }
 }
