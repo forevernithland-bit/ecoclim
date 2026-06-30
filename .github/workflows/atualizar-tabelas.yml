@@ -1,0 +1,43 @@
+name: Atualizar tabelas dos grupos
+
+on:
+  push:
+    paths:
+      - 'Maggi/tabelas/**'
+  workflow_dispatch: {}
+  schedule:
+    - cron: '0 9 1 * *'
+
+permissions:
+  contents: write
+
+jobs:
+  tabelas:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar o repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar dependencias
+        run: pip install pdfplumber
+
+      - name: Gerar tabelas.json a partir dos PDFs
+        run: python Maggi/tabelas_parser.py
+
+      - name: Salvar tabelas.json
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Maggi/tabelas.json
+          if git diff --staged --quiet; then
+            echo "Sem mudancas."
+            exit 0
+          fi
+          git commit -m "Atualiza Maggi/tabelas.json [automatico]"
+          git pull --rebase --autostash
+          git push
