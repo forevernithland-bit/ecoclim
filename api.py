@@ -49,13 +49,15 @@ class OrcamentoKitRequest(BaseModel):
 # FUNÇÃO AUXILIAR PARA DISPARAR O PDF VIA WHATSAPP
 # ==========================================
 def enviar_pdf_via_whatsapp(telefone_cliente: str, url_pdf: str, nome_arquivo: str, nome_cliente: str):
-    # Limpa o número de telefone para garantir o formato correto (apenas números)
-    num_limpo = "".join(filter(str.isdigit, telefone_cliente))
-    
-    # Adiciona o código do país caso não exista
-    if not num_limpo.startswith("55"):
-        num_limpo = f"55{num_limpo}"
-        
+    # Se o telefone vier do n8n com o formato nativo do WhatsApp (@lid ou @s.whatsapp.net), usa a string exata.
+    if "@" in telefone_cliente:
+        numero_final = telefone_cliente
+    else:
+        # Limpa o número de telefone para garantir o formato correto (testes manuais)
+        numero_final = "".join(filter(str.isdigit, telefone_cliente))
+        if not numero_final.startswith("55") and len(numero_final) > 0:
+            numero_final = f"55{numero_final}"
+            
     endpoint = f"{EVOLUTION_BASE_URL}/message/sendMedia/{INSTANCE_NAME}"
     
     headers = {
@@ -65,7 +67,7 @@ def enviar_pdf_via_whatsapp(telefone_cliente: str, url_pdf: str, nome_arquivo: s
     
     # Payload configurado para enviar documento via URL pública do Google Drive
     payload = {
-        "number": num_limpo,
+        "number": numero_final,
         "mediatype": "document",
         "mimetype": "application/pdf",
         "media": url_pdf,
