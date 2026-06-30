@@ -15,8 +15,19 @@ Coloque os PDFs em Maggi/tabelas/ no repositorio.
 """
 import pdfplumber, re, glob, os, json, datetime
 
-PASTA = os.path.join(os.path.dirname(__file__), "tabelas")
 SAIDA = os.path.join(os.path.dirname(__file__), "tabelas.json")
+
+def achar_pdfs():
+    """Procura PDFs em qualquer pasta chamada 'tabelas' (sem diferenciar
+    maiusculas/minusculas), a partir da raiz do repositorio."""
+    raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # repo root
+    achados = []
+    for dirpath, dirs, files in os.walk(raiz):
+        if os.path.basename(dirpath).lower() == "tabelas":
+            for f in files:
+                if f.lower().endswith(".pdf"):
+                    achados.append(os.path.join(dirpath, f))
+    return achados
 
 GRUPOS = ["2014", "2015", "2016", "2017", "2018", "2019", "2020", "634", "644", "8000", "755"]
 MES = r'(janeiro|fevereiro|mar[çc]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)'
@@ -92,7 +103,7 @@ def carregar_antigo():
 def main():
     antigo = carregar_antigo()
     grupos = dict(antigo)  # comeca com os valores anteriores (preserva)
-    pdfs = glob.glob(os.path.join(PASTA, "*.pdf")) + glob.glob(os.path.join(PASTA, "*.PDF"))
+    pdfs = achar_pdfs()
     print("PDFs encontrados:", len(pdfs))
     achou = 0
     for f in pdfs:
