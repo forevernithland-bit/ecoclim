@@ -136,9 +136,9 @@ def renderizar(lista_nomes_produtos, limpar_func):
 
     if refresh_rapido:
         st.session_state.rapido_df_orc = df_r_ed
+        if "editor_rapido" in st.session_state:
+            del st.session_state["editor_rapido"]
         deve_rerun = True
-        
-    st.session_state.rapido_df_orc = df_r_ed
 
     custo_total_produtos_r = pd.to_numeric(df_r_ed["Custo Total"], errors='coerce').fillna(0).sum()
     venda_total_produtos_r = pd.to_numeric(df_r_ed["Venda Total"], errors='coerce').fillna(0).sum()
