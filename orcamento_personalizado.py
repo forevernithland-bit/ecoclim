@@ -202,11 +202,10 @@ def renderizar(lista_nomes_produtos, limpar_func):
         if precisa_atualizar_tela:
             st.session_state.df_orc = df_editavel
             st.session_state.df_orc_prev = df_editavel.copy()
+            if "editor_orc_base" in st.session_state:
+                del st.session_state["editor_orc_base"]
             deve_rerun = True
 
-        st.session_state.df_orc = df_editavel
-        st.session_state.df_orc_prev = df_editavel.copy()
-        
         subtotal_equipamentos = df_editavel['Venda Total'].sum()
         st.markdown(f"**Subtotal Equipamentos:** :blue[{utils.to_br_currency(subtotal_equipamentos)}]")
         
