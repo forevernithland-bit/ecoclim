@@ -29,7 +29,7 @@ def achar_pdfs():
                     achados.append(os.path.join(dirpath, f))
     return achados
 
-GRUPOS = ["2014", "2015", "2016", "2017", "2018", "2019", "2020", "634", "644", "8000", "755"]
+GRUPOS = ["2013", "2014", "2015", "2016", "2017", "2018", "2019", "2020", "634", "644", "8000", "755"]
 MES = r'(janeiro|fevereiro|mar[çc]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)'
 
 
@@ -73,7 +73,10 @@ def parse_pdf(path):
             for mm in re.findall(r'\d+', dentro):
                 prazos.append({"meses": int(mm), "taxa": int(taxa)})
     else:
+        # taxa: 1) "TAXA DE ADMINISTRACAO.: 21%"; 2) "TAXA 15+1" / "TAXA 15%"
         tm = re.search(r'ADMINISTRA[çc][ãa]O[.:\s]*(\d+)\s*%', tline, re.I)
+        if not tm:
+            tm = re.search(r'\bTAXA\b[.:\s]*(\d+)', text, re.I)
         taxa = int(tm.group(1)) if tm else None
         pm = re.search(r'PLANO\s*(\d+)\s*PRESTA', text, re.I)
         if pm:
@@ -84,9 +87,9 @@ def parse_pdf(path):
         if meses and taxa:
             prazos = [{"meses": meses, "taxa": taxa}]
 
-    fm = re.search(r'Fundo de [Rr]eserva[:.\s]*([\d,]+)\s*%', text, re.I)
+    fm = re.search(r'Fundo de [Rr]eserva[\s=:.]*([\d,]+)\s*%', text, re.I)
     fundo = num(fm.group(1)) if fm else 1.0
-    sm = re.search(r'Seguro de [Vv]ida[:.\s]*([\d,]+)\s*%', text, re.I)
+    sm = re.search(r'Seguro de [Vv]ida[\s=:.]*([\d,]+)\s*%', text, re.I)
     seguro = num(sm.group(1)) if sm else None
 
     return {"ref": ref, "prazos": prazos, "fundo": fundo, "seguro": seguro, "creditos": creditos}
