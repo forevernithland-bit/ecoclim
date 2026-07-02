@@ -154,10 +154,11 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
 
     if precisa_atualizar:
         st.session_state[session_key] = df_itens_editavel
+        if f"edit_itens_{prefix_key}" in st.session_state:
+            del st.session_state[f"edit_itens_{prefix_key}"]
         st.rerun()
         
     df_itens_final = df_itens_editavel
-    st.session_state[session_key] = df_itens_final.copy()
     
     custo_total_produtos = pd.to_numeric(df_itens_final['Custo Total'], errors='coerce').fillna(0).sum()
     venda_total_produtos = pd.to_numeric(df_itens_final['Venda Total'], errors='coerce').fillna(0).sum()
