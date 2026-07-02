@@ -129,7 +129,11 @@ def renderizar(lista_nomes_produtos, limpar_func):
         tot_c_calc = qtd * c_un
         tot_v_calc = qtd * v_un
         
-        if abs(tot_c_calc - float(df_r_ed.at[i, "Custo Total"])) > 0.01 or abs(tot_v_calc - float(df_r_ed.at[i, "Venda Total"])) > 0.01:
+        # Pega os totais da tela com segurança, prevenindo o erro NoneType em linhas novas
+        c_tot_tela = float(df_r_ed.at[i, "Custo Total"]) if pd.notna(df_r_ed.at[i, "Custo Total"]) else 0.0
+        v_tot_tela = float(df_r_ed.at[i, "Venda Total"]) if pd.notna(df_r_ed.at[i, "Venda Total"]) else 0.0
+        
+        if abs(tot_c_calc - c_tot_tela) > 0.01 or abs(tot_v_calc - v_tot_tela) > 0.01:
             df_r_ed.at[i, "Custo Total"] = tot_c_calc
             df_r_ed.at[i, "Venda Total"] = tot_v_calc
             refresh_rapido = True
