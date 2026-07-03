@@ -92,7 +92,14 @@ def parse_pdf(path):
     sm = re.search(r'Seguro de [Vv]ida[\s=:.]*([\d,]+)\s*%', text, re.I)
     seguro = num(sm.group(1)) if sm else None
 
-    return {"ref": ref, "prazos": prazos, "fundo": fundo, "seguro": seguro, "creditos": creditos}
+    # Datas de assembleia e vencimento (guardadas em ISO aaaa-mm-dd)
+    am = re.search(r'(?:Data\s*[Aa]ssembleia|Assembleia)[^\d]*(\d{2})[./](\d{2})[./](\d{4})', text)
+    assembleia = "{}-{}-{}".format(am.group(3), am.group(2), am.group(1)) if am else None
+    vm = re.search(r'Vencimento[^\d]*(\d{2})[./](\d{2})[./](\d{4})', text)
+    vencimento = "{}-{}-{}".format(vm.group(3), vm.group(2), vm.group(1)) if vm else None
+
+    return {"ref": ref, "prazos": prazos, "fundo": fundo, "seguro": seguro,
+            "creditos": creditos, "assembleia": assembleia, "vencimento": vencimento}
 
 
 def carregar_antigo():
