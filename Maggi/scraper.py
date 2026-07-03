@@ -19,6 +19,7 @@ BASE = "https://www.consorciomaggi.com.br"
 
 # Grupos do simulador e os percentuais de LANCE FIXO a excluir da media.
 GRUPOS = {
+    "2013": {"fixo": [25, 35]},
     "2014": {"fixo": [25, 35]},
     "2015": {"fixo": [25]},
     "2016": {"fixo": [20]},
