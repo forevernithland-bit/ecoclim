@@ -1,21 +1,210 @@
 {
   "atualizado_em": "2026-07-03",
-  "_comentario": "Base de conhecimento do chatbot do Simulador Maggi. Preencha a lista 'itens'. Cada item tem: titulo, palavras_chave (o que o usuario pode digitar), resposta (o resumo que aparece no chat) e (opcional) documento para download. Os arquivos de documento ficam na pasta Maggi/documentos/ do GitHub e o campo 'arquivo' e apenas o nome do arquivo.",
+  "_comentario": "Base de conhecimento do assistente Tonim (Simulador Maggi). Preencha a lista 'itens'. Cada item tem: titulo, palavras_chave (o que o usuario pode digitar), resposta (o resumo que aparece no chat) e (opcional) documento para download. Os arquivos ficam em Maggi/documentos/ do GitHub; 'arquivo' e apenas o nome do arquivo. Veja COMO-ATUALIZAR-CONHECIMENTO.md.",
   "documentos_base_url": "https://raw.githubusercontent.com/forevernithland-bit/ecoclim/main/Maggi/documentos/",
   "itens": [
     {
-      "id": "checklist-credito-5mm",
-      "titulo": "Check list para análise de créditos de vendas acima de R$ 5 milhões",
-      "palavras_chave": ["checklist", "check list", "análise de crédito", "analise credito", "crédito 5mm", "5mm", "5 milhões", "acima de 5 milhões", "vendas acima de 5", "pré análise", "pre analise", "documentos para análise", "credito alto"],
-      "resposta": "Para a pré-análise de créditos acima de R$ 5 milhões, os documentos e verificações necessários são: (1) documento de identificação e CPF/CNPJ do proponente; (2) comprovação de renda/faturamento dos últimos 12 meses; (3) ficha cadastral completa e atualizada; (4) consulta a órgãos de proteção ao crédito; (5) justificativa da capacidade de pagamento para o valor solicitado. Este é um resumo — o passo a passo completo, com limites e alçadas de aprovação, está no documento de referência abaixo.",
-      "documento": { "nome": "Checklist - Análise de Créditos acima de 5MM.md", "arquivo": "checklist-creditos-5mm.md" }
+      "id": "checklist-pre-venda-5mm",
+      "titulo": "Check list de pré-venda para créditos de R$ 5 milhões ou mais",
+      "palavras_chave": ["checklist 5mm", "check list 5 milhoes", "credito acima de 5 milhoes", "5.000.000", "5mm", "pre venda 5 milhoes", "analise credito 5 milhoes", "documentos venda 5 milhoes", "credito alto imovel"],
+      "resposta": "Para créditos de R$ 5 milhões ou mais é necessário: parecer comercial e a finalidade dos créditos; dados da operação (nº de cotas, prazos, valores). Pessoa Física: CPF e RG (e do cônjuge se casado), comprovante de endereço atual, comprovante de renda (IRPF ou Decore dos últimos 3 meses), cartão de produtor rural (se houver) e comprovante do estado civil. Pessoa Jurídica: última alteração contratual/estatuto, ficha da Junta Comercial + cartão CNPJ + Sintegra, ECF (IRPJ) ou Simples Nacional (12 meses), balanço + DRE + declaração de faturamento dos últimos 12 meses, relação de bens e de endividamento, e comprovante de endereço da empresa. Confira o passo a passo completo no documento abaixo.",
+      "documento": { "nome": "Checklist Pré-Venda Imóveis - 5 milhões e acima.pdf", "arquivo": "checklist-pre-venda-imoveis-5mm.pdf" }
+    },
+    {
+      "id": "checklist-pre-venda-3mm",
+      "titulo": "Check list de pré-venda para créditos de R$ 3 a 4,99 milhões ou 10 cotas ou mais",
+      "palavras_chave": ["checklist 3mm", "check list 3 milhoes", "3.000.000", "3 a 5 milhoes", "3 milhoes", "10 cotas", "dez cotas", "pre venda 3 milhoes", "credito 3 milhoes", "documentos 10 cotas"],
+      "resposta": "Para créditos de R$ 3.000.000,00 a R$ 4.999.999,99 (ou 10 cotas ou mais no mesmo CPF/CNPJ) valem os mesmos documentos da faixa acima de 5 milhões: parecer comercial e finalidade; dados da operação; documentos do cliente (PF ou PJ), do cônjuge/sócios, comprovantes de renda, endereço, e — para PJ — contrato social, ficha da Junta, CNPJ/Sintegra, IRPJ/Simples, balanço, DRE, faturamento 12 meses e relação de bens/endividamento. O passo a passo completo está no documento abaixo.",
+      "documento": { "nome": "Checklist Pré-Venda Imóveis - 3 a 4,99 milhões ou 10 cotas.pdf", "arquivo": "checklist-pre-venda-imoveis-3mm.pdf" }
+    },
+    {
+      "id": "garantia-imovel-aceite",
+      "titulo": "Regra de aceite da garantia de imóvel (percentuais por tipo)",
+      "palavras_chave": ["garantia imovel", "aceite garantia", "valor de aceite", "percentual garantia", "circular garantia", "nova regra valores", "desconto avaliacao", "penhora", "laudo de avaliacao", "garantia rural comercial residencial"],
+      "resposta": "O imóvel dado em garantia deve atingir um valor mínimo de aceite sobre o saldo devedor total da operação, calculado sobre o laudo de avaliação padrão: Rural = 50% de aceite (50% de desconto); Comercial = 70% de aceite (30% de desconto); Residencial = 60% de aceite (40% de desconto); Terreno urbano = 50% de aceite (50% de desconto). A avaliação deve ser feita por empresa credenciada pela Administradora, com possibilidade de garantias complementares e devedor solidário. Veja a circular completa com exemplos no documento abaixo.",
+      "documento": { "nome": "Circular - Regra de valores de aceite da garantia (imóvel).pdf", "arquivo": "circular-garantia-imovel-valores-aceite.pdf" }
+    },
+    {
+      "id": "docs-pos-contemplacao-auto",
+      "titulo": "Documentos pós-contemplação — Automóveis",
+      "palavras_chave": ["pos contemplacao auto", "documentos pos contemplacao automovel", "contemplado automovel", "documentos apos contemplacao carro", "relacao documentos auto", "pos contemplacao veiculo"],
+      "resposta": "Após a contemplação de automóvel, o consorciado (e devedor solidário/sócios) deve enviar: PF — RG e CPF (e do cônjuge do devedor solidário), comprovante de endereço, comprovante de renda (IRPF ou Decore de 3 meses) e cartão de produtor rural se houver. PJ — ficha da Junta Comercial, atos constitutivos (contrato social/estatuto e alterações), comprovante de endereço, IRPJ (para optantes do Simples), faturamento de 12 meses, balanço e DRE, relação de bens e de endividamento. Além dos formulários (ficha cadastral, contrato de alienação etc.). Lista completa no documento abaixo.",
+      "documento": { "nome": "Relação de Documentos Pós-Contemplação - Automóveis.pdf", "arquivo": "docs-pos-contemplacao-automoveis.pdf" }
+    },
+    {
+      "id": "docs-pos-contemplacao-imovel",
+      "titulo": "Documentos pós-contemplação — Imóveis",
+      "palavras_chave": ["pos contemplacao imovel", "documentos pos contemplacao imovel", "contemplado imovel", "documentos apos contemplacao imovel", "checklist imovel contemplado", "escritura cartorio consorcio"],
+      "resposta": "Assim que souber da contemplação do imóvel, o consorciado deve providenciar: parecer comercial, carta de autorização de lance embutido, proposta do seguro de vida e a indicação do cartório de notas (com e-notariado). PF — formulário/pedido de compra, ficha cadastral assinada, CPF e RG (e do cônjuge), comprovante de endereço, comprovante de renda, certidão de casamento/nascimento e pacto antenupcial se houver. PJ — formulário próprio e ficha cadastral (com informações adicionais). O check-list completo está no documento abaixo.",
+      "documento": { "nome": "Documentos Pós-Contemplação - Imóveis (Check-List).pdf", "arquivo": "docs-pos-contemplacao-imoveis.pdf" }
+    },
+    {
+      "id": "docs-pos-contemplacao-pj",
+      "titulo": "Procedimentos pós-contemplação — Pessoa Jurídica",
+      "palavras_chave": ["contemplado pessoa juridica", "pos contemplacao pj", "procedimentos pj", "documentos pj contemplado", "empresa contemplada", "cnpj contemplado", "contemplacao pj"],
+      "resposta": "Para contemplados Pessoa Jurídica: o cliente é avisado por correio e a concessionária vê o informativo na área restrita. Depois, envia à administradora para análise de crédito: ficha cadastral da empresa, devedor solidário e sócios (preenchidas e assinadas); RG e CPF do devedor solidário, sócios e cônjuge; comprovante de renda (IRPF ou Decore 3 meses); comprovante de endereço da empresa e das pessoas; contrato social e alterações (2 vias autenticadas); ficha da Junta Comercial; cartão CNPJ; IRPJ e balanço atuais; faturamento de 12 meses; contrato de alienação fiduciária e nota promissória com firma reconhecida. Procedimento completo no documento abaixo.",
+      "documento": { "nome": "Procedimentos para Contemplados Pessoa Jurídica.pdf", "arquivo": "procedimentos-contemplados-pessoa-juridica.pdf" }
+    },
+    {
+      "id": "idade-veiculos-aceitos",
+      "titulo": "Idade dos veículos aceitos no consórcio",
+      "palavras_chave": ["idade veiculo", "ano do veiculo", "veiculo aceito", "idade caminhao", "idade moto", "idade automovel", "veiculo usado", "quantos anos de uso", "veiculo seminovo"],
+      "resposta": "Idades aceitas: Motos — zero km; motos de alta cilindrada até 3 anos. Automóveis — até 3 anos de uso. Caminhões — até 3 anos de uso.",
+      "documento": null
     },
     {
       "id": "lance-embutido",
-      "titulo": "O que é lance embutido?",
-      "palavras_chave": ["lance embutido", "embutido", "o que é embutido", "como funciona embutido"],
-      "resposta": "Lance embutido é a parte do lance que sai do próprio crédito contratado, sem o cliente precisar desembolsar do bolso. Na Maggi, o limite de embutido varia por grupo (geralmente até 20% do crédito). O restante do lance é o recurso próprio. No simulador, o campo Embutido já vem preenchido conforme o grupo e pode ser alterado.",
+      "titulo": "O que é lance embutido e qual o limite?",
+      "palavras_chave": ["lance embutido", "embutido", "o que e embutido", "como funciona embutido", "limite embutido", "percentual embutido"],
+      "resposta": "Lance embutido é a parte do lance que sai do próprio crédito contratado, sem o cliente desembolsar do bolso. Na maioria dos grupos da Maggi aceita-se de 20% a 30% de embutido (varia por grupo). O restante do lance é recurso próprio. No simulador o campo Embutido já vem preenchido conforme o grupo e pode ser alterado.",
       "documento": null
+    },
+    {
+      "id": "lance-fixo",
+      "titulo": "Como funciona o lance fixo na Maggi?",
+      "palavras_chave": ["lance fixo", "lances fixos", "25% e 35%", "lance fixo 25", "lance fixo 35", "tipos de lance", "modalidade de lance"],
+      "resposta": "A maioria dos grupos da Maggi tem lance fixo de 25% e 35%. Na maior parte deles o cliente pode participar simultaneamente dos dois lances fixos (25% e 35%), além do sorteio e do lance livre — ou seja, até 4 chances de contemplação por assembleia. Alguns grupos não têm lance fixo (contemplam só por sorteio e lance livre); o simulador indica isso no lembrete do grupo.",
+      "documento": null
+    },
+    {
+      "id": "chances-contemplacao",
+      "titulo": "Quantas chances de contemplação o cliente tem por assembleia?",
+      "palavras_chave": ["chances de contemplacao", "4 chances", "quatro chances", "formas de contemplacao", "como ser contemplado", "sorteio lance", "atraso lance", "participar com atraso"],
+      "resposta": "O consorciado tem até 4 chances mensais de contemplação: Sorteio, Lance Fixo 25%, Lance Fixo 35% e Lance Livre (nos grupos que têm lance fixo). A administradora não antecipa taxas nem oferece planos de parcela reduzida, o que fortalece o fundo comum. O cliente pode participar da assembleia por lance mesmo com atraso, desde que oferte o lance e pague o boleto correspondente antes da assembleia.",
+      "documento": null
+    },
+    {
+      "id": "mega-assembleias",
+      "titulo": "Mega assembleias e grupos especiais",
+      "palavras_chave": ["mega assembleia", "grupos especiais", "muitas contemplacoes", "100 contemplacoes", "mega caminhoes", "mega automoveis", "desconto caminhao", "bonus fidelidade"],
+      "resposta": "Existem grupos com mega assembleias (em múltiplos de 6 meses). Caminhões: podem chegar a 100 contemplações na mega, e o contemplado pode ter 1,5% de desconto na compra de caminhão 0km na rede parceira Maggi. Automóveis: mega assembleias de 50 contemplações, podendo chegar a 130 conforme o termo de aditamento do grupo. Há grupos com mais de 20 contemplações por assembleia normal.",
+      "documento": null
+    },
+    {
+      "id": "capital-de-giro",
+      "titulo": "Alavancagem financeira / capital de giro com imóvel",
+      "palavras_chave": ["capital de giro", "alavancagem", "usar imovel garantia", "credito com imovel", "penhora imovel", "capital com imovel", "giro imovel rural"],
+      "resposta": "A Maggi permite usar bens imóveis como garantia para obter capital de giro. Imóvel residencial: até 60% do valor da avaliação de penhora. Imóvel rural: até 50% do valor da avaliação. Tanto o bem quanto a cota podem permanecer registrados no nome do consorciado.",
+      "documento": null
+    },
+    {
+      "id": "condicoes-premium",
+      "titulo": "Condições premium e contemplação acelerada (diretoria)",
+      "palavras_chave": ["condicoes premium", "contemplacao acelerada", "negociacao especial", "diretoria", "reciprocidade", "cronograma de contemplacao", "programada", "lance pre-estipulado"],
+      "resposta": "A Maggi oferece negociações exclusivas com aval direto da diretoria, para cotas de Automóveis e Caminhões. Após análise da documentação e um estudo personalizado, define-se uma programação (cronograma) de contemplação das cotas, com um valor e um prazo pré-estabelecidos, mediante lance pré-estipulado e adesão de cotas extras. Fechado o acordo, o cliente faz um crédito de igual valor a título de reciprocidade — esse crédito de reciprocidade não tem garantia de contemplação.",
+      "documento": null
+    },
+    {
+      "id": "programa-premiacao",
+      "titulo": "Programa de premiação (Convenção Anual Maggi)",
+      "palavras_chave": ["premiacao", "convencao anual", "premio parceiro", "sorteio carro parceiro", "viagem internacional", "convencao maggi", "campanha vendas"],
+      "resposta": "Todo mês de janeiro a Maggi realiza a Convenção Anual, onde são sorteados carros 0km e viagens internacionais para os parceiros de destaque. Os parceiros com melhor performance de vendas e retenção podem ser convidados a participar presencialmente, sem custos.",
+      "documento": null
+    },
+    {
+      "id": "comissionamento",
+      "titulo": "Regras de comissionamento (imóveis, automóveis e caminhões)",
+      "palavras_chave": ["comissao", "comissionamento", "quanto ganho", "percentual comissao", "pagamento comissao", "comissao imovel", "comissao automovel", "comissao caminhao"],
+      "resposta": "Imóveis e Automóveis: 4% no total — 1% na 1ª parcela e 0,6% em cada uma da 2ª à 5ª parcela. Caminhões: 3% no total, pago nas primeiras parcelas. Para vendas grandes (a partir de R$ 3 milhões ou 10 cotas no mesmo CPF/CNPJ) a comissão passa a 4% fracionada em 8 meses (0,5% ao mês).",
+      "documento": null
+    },
+    {
+      "id": "estorno-comissao",
+      "titulo": "Estorno de comissão em caso de cancelamento",
+      "palavras_chave": ["estorno", "cancelamento", "devolver comissao", "estorno imovel", "cancelou cota", "estorno comissao"],
+      "resposta": "Automóveis e Caminhões: NÃO têm estorno de comissão. Imóveis têm estorno: 80% se o cliente cancelar entre as parcelas 1 e 3; 50% se cancelar entre as parcelas 4 e 6; 20% se cancelar entre as parcelas 7 e 10.",
+      "documento": null
+    },
+    {
+      "id": "portfolio-produtos",
+      "titulo": "Portfólio de produtos do consórcio Maggi",
+      "palavras_chave": ["portfolio", "produtos", "o que posso comprar", "o que a maggi vende", "o que vende", "o que voces vendem", "vende", "vender", "tipos de consorcio", "bens contemplados", "imovel veiculo maquina", "maquina agricola", "onibus", "mesma carta", "mais de um veiculo", "alienar mais de um bem"],
+      "resposta": "O consórcio Maggi abrange veículos leves e pesados, caminhões e ônibus, motocicletas, máquinas agrícolas e equipamentos industriais, além de imóveis residenciais e comerciais. É possível usar a mesma carta de crédito para comprar mais de um veículo e alienar mais de um bem para compor a garantia da operação.",
+      "documento": null
+    },
+    {
+      "id": "aditamento-2013",
+      "titulo": "Termo de aditamento — Grupo 2013 (Imóveis)",
+      "palavras_chave": ["aditamento 2013", "termo de aditamento 2013", "adit 2013", "regras do grupo 2013", "grupo 2013", "documento grupo 2013"],
+      "resposta": "Grupo 2013 — Imóveis. 900 participantes. Lance embutido de até 20% do crédito. NÃO tem lance fixo: contemplação por sorteio e lance livre. Grupo em fase final. Termo de aditamento completo no documento abaixo.",
+      "documento": { "nome": "Termo de Aditamento - Grupo 2013.pdf", "arquivo": "aditamento-2013.pdf" }
+    },
+    {
+      "id": "aditamento-2014",
+      "titulo": "Termo de aditamento — Grupo 2014 (Imóveis)",
+      "palavras_chave": ["aditamento 2014", "termo de aditamento 2014", "adit 2014", "regras do grupo 2014", "grupo 2014", "documento grupo 2014"],
+      "resposta": "Grupo 2014 — Imóveis. 999 participantes. Embutido até 20%. Lance Fixo de 25% e 35% (1 cota de cada por assembleia), além de sorteio e lance livre (livre mínimo de 25%). Termo de aditamento completo no documento abaixo.",
+      "documento": { "nome": "Termo de Aditamento - Grupo 2014.pdf", "arquivo": "aditamento-2014.pdf" }
+    },
+    {
+      "id": "aditamento-2015",
+      "titulo": "Termo de aditamento — Grupo 2015 (Imóveis)",
+      "palavras_chave": ["aditamento 2015", "termo de aditamento 2015", "adit 2015", "regras do grupo 2015", "grupo 2015", "documento grupo 2015"],
+      "resposta": "Grupo 2015 — Imóveis. 999 participantes. Embutido até 20%. Lance Fixo de 25%, além de sorteio e lance livre. Termo de aditamento completo no documento abaixo.",
+      "documento": { "nome": "Termo de Aditamento - Grupo 2015.pdf", "arquivo": "aditamento-2015.pdf" }
+    },
+    {
+      "id": "aditamento-2016",
+      "titulo": "Termo de aditamento — Grupo 2016 (Imóveis)",
+      "palavras_chave": ["aditamento 2016", "termo de aditamento 2016", "adit 2016", "regras do grupo 2016", "grupo 2016", "documento grupo 2016"],
+      "resposta": "Grupo 2016 — Imóveis. 600 participantes. Embutido até 20% (permitido a partir da 7ª assembleia). Lance Fixo de 20%, além de sorteio e lance livre. Termo de aditamento completo no documento abaixo.",
+      "documento": { "nome": "Termo de Aditamento - Grupo 2016.pdf", "arquivo": "aditamento-2016.pdf" }
+    },
+    {
+      "id": "aditamento-2017",
+      "titulo": "Termo de aditamento — Grupo 2017 (Imóveis)",
+      "palavras_chave": ["aditamento 2017", "termo de aditamento 2017", "adit 2017", "regras do grupo 2017", "grupo 2017", "documento grupo 2017"],
+      "resposta": "Grupo 2017 — Imóveis. 999 participantes. Embutido até 20%. Lance Fixo de 20% e 30%, além de sorteio e lance livre. Termo de aditamento completo no documento abaixo.",
+      "documento": { "nome": "Termo de Aditamento - Grupo 2017.pdf", "arquivo": "aditamento-2017.pdf" }
+    },
+    {
+      "id": "aditamento-2018",
+      "titulo": "Termo de aditamento — Grupo 2018 (Imóveis)",
+      "palavras_chave": ["aditamento 2018", "termo de aditamento 2018", "adit 2018", "regras do grupo 2018", "grupo 2018", "documento grupo 2018"],
+      "resposta": "Grupo 2018 — Imóveis. 999 participantes. Embutido até 20%. Lance Fixo de 25% (2 cotas), além de sorteio e lance livre. Termo de aditamento completo no documento abaixo.",
+      "documento": { "nome": "Termo de Aditamento - Grupo 2018.pdf", "arquivo": "aditamento-2018.pdf" }
+    },
+    {
+      "id": "aditamento-2019",
+      "titulo": "Termo de aditamento — Grupo 2019 (Imóveis)",
+      "palavras_chave": ["aditamento 2019", "termo de aditamento 2019", "adit 2019", "regras do grupo 2019", "grupo 2019", "documento grupo 2019"],
+      "resposta": "Grupo 2019 — Imóveis. 2.000 participantes. Embutido até 20%. Lance Fixo de 25% (3 cotas) e 35% (3 cotas), além de sorteio e lance livre. Termo de aditamento completo no documento abaixo.",
+      "documento": { "nome": "Termo de Aditamento - Grupo 2019.pdf", "arquivo": "aditamento-2019.pdf" }
+    },
+    {
+      "id": "aditamento-2020",
+      "titulo": "Termo de aditamento — Grupo 2020 (Imóveis)",
+      "palavras_chave": ["aditamento 2020", "termo de aditamento 2020", "adit 2020", "regras do grupo 2020", "grupo 2020", "documento grupo 2020"],
+      "resposta": "Grupo 2020 — Imóveis. 2.000 participantes. Embutido até 20%. Lance Fixo de 25% (3 cotas) e 35% (3 cotas), além de sorteio e lance livre. Termo de aditamento completo no documento abaixo.",
+      "documento": { "nome": "Termo de Aditamento - Grupo 2020.pdf", "arquivo": "aditamento-2020.pdf" }
+    },
+    {
+      "id": "aditamento-634",
+      "titulo": "Termo de aditamento — Grupo 634 (Automóveis)",
+      "palavras_chave": ["aditamento 634", "termo de aditamento 634", "adit 634", "regras do grupo 634", "grupo 634", "documento grupo 634"],
+      "resposta": "Grupo 634 — Automóveis. 2.000 participantes. Embutido até 20%. Lance Fixo de 25% e 30%, além de sorteio e lance livre. Possui mega assembleias (até 130 cotas). Termo de aditamento completo no documento abaixo.",
+      "documento": { "nome": "Termo de Aditamento - Grupo 634.pdf", "arquivo": "aditamento-634.pdf" }
+    },
+    {
+      "id": "aditamento-644",
+      "titulo": "Termo de aditamento — Grupo 644 (Automóveis)",
+      "palavras_chave": ["aditamento 644", "termo de aditamento 644", "adit 644", "regras do grupo 644", "grupo 644", "documento grupo 644"],
+      "resposta": "Grupo 644 — Automóveis. 999 participantes. Embutido até 10%. NÃO tem lance fixo: contemplação por sorteio e lance livre. Possui mega assembleias (até 50 cotas). Termo de aditamento completo no documento abaixo.",
+      "documento": { "nome": "Termo de Aditamento - Grupo 644.pdf", "arquivo": "aditamento-644.pdf" }
+    },
+    {
+      "id": "aditamento-8000",
+      "titulo": "Termo de aditamento — Grupo 8000 (Automóveis Volvo)",
+      "palavras_chave": ["aditamento 8000", "termo de aditamento 8000", "adit 8000", "regras do grupo 8000", "grupo 8000", "documento grupo 8000", "volvo"],
+      "resposta": "Grupo 8000 — Automóveis (Volvo). 500 participantes. Embutido até 20%. NÃO tem lance fixo: contemplação por sorteio e lance livre. Bônus fidelidade de 2% na compra de Volvo 0km na rede do Grupo Volvo. Possui mega assembleias. Termo de aditamento completo no documento abaixo.",
+      "documento": { "nome": "Termo de Aditamento - Grupo 8000.pdf", "arquivo": "aditamento-8000.pdf" }
+    },
+    {
+      "id": "aditamento-755",
+      "titulo": "Termo de aditamento — Grupo 755 (Caminhões VW)",
+      "palavras_chave": ["aditamento 755", "termo de aditamento 755", "adit 755", "regras do grupo 755", "grupo 755", "documento grupo 755", "supremo"],
+      "resposta": "Grupo 755 — Caminhões (VW Supremo). 3.000 participantes. Embutido até 20%. Lance Fixo de 25% e 35%, além de sorteio e lance livre. Bônus fidelidade de 1,5% na compra de caminhão VW 0km na rede credenciada. Possui mega assembleias (até 100 contemplações). Termo de aditamento completo no documento abaixo.",
+      "documento": { "nome": "Termo de Aditamento - Grupo 755.pdf", "arquivo": "aditamento-755.pdf" }
     }
   ]
 }
