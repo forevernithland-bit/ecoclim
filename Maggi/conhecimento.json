@@ -1,0 +1,21 @@
+{
+  "atualizado_em": "2026-07-03",
+  "_comentario": "Base de conhecimento do chatbot do Simulador Maggi. Preencha a lista 'itens'. Cada item tem: titulo, palavras_chave (o que o usuario pode digitar), resposta (o resumo que aparece no chat) e (opcional) documento para download. Os arquivos de documento ficam na pasta Maggi/documentos/ do GitHub e o campo 'arquivo' e apenas o nome do arquivo.",
+  "documentos_base_url": "https://raw.githubusercontent.com/forevernithland-bit/ecoclim/main/Maggi/documentos/",
+  "itens": [
+    {
+      "id": "checklist-credito-5mm",
+      "titulo": "Check list para análise de créditos de vendas acima de R$ 5 milhões",
+      "palavras_chave": ["checklist", "check list", "análise de crédito", "analise credito", "crédito 5mm", "5mm", "5 milhões", "acima de 5 milhões", "vendas acima de 5", "pré análise", "pre analise", "documentos para análise", "credito alto"],
+      "resposta": "Para a pré-análise de créditos acima de R$ 5 milhões, os documentos e verificações necessários são: (1) documento de identificação e CPF/CNPJ do proponente; (2) comprovação de renda/faturamento dos últimos 12 meses; (3) ficha cadastral completa e atualizada; (4) consulta a órgãos de proteção ao crédito; (5) justificativa da capacidade de pagamento para o valor solicitado. Este é um resumo — o passo a passo completo, com limites e alçadas de aprovação, está no documento de referência abaixo.",
+      "documento": { "nome": "Checklist - Análise de Créditos acima de 5MM.md", "arquivo": "checklist-creditos-5mm.md" }
+    },
+    {
+      "id": "lance-embutido",
+      "titulo": "O que é lance embutido?",
+      "palavras_chave": ["lance embutido", "embutido", "o que é embutido", "como funciona embutido"],
+      "resposta": "Lance embutido é a parte do lance que sai do próprio crédito contratado, sem o cliente precisar desembolsar do bolso. Na Maggi, o limite de embutido varia por grupo (geralmente até 20% do crédito). O restante do lance é o recurso próprio. No simulador, o campo Embutido já vem preenchido conforme o grupo e pode ser alterado.",
+      "documento": null
+    }
+  ]
+}
