@@ -5,6 +5,7 @@ import pandas as pd
 import datetime
 import requests
 import utils
+import base64
 
 # Inicia a API
 app = FastAPI(title="Ecoclim API - V2", description="API para integração com n8n, ERP e envio automático de PDF via Evolution API")
@@ -46,9 +47,9 @@ class OrcamentoKitRequest(BaseModel):
     observacoes: Optional[str] = "Material hidráulico não incluso nesta proposta."
 
 # ==========================================
-# FUNÇÃO AUXILIAR PARA DISPARAR O PDF VIA WHATSAPP
+# FUNÇÃO AUXILIAR PARA DISPARAR O PDF VIA WHATSAPP (AGORA COM BASE64)
 # ==========================================
-def enviar_pdf_via_whatsapp(telefone_cliente: str, url_pdf: str, nome_arquivo: str, nome_cliente: str):
+def enviar_pdf_via_whatsapp(telefone_cliente: str, b64_pdf: str, nome_arquivo: str, nome_cliente: str):
     # Se o telefone vier do n8n com o formato nativo do WhatsApp (@lid ou @s.whatsapp.net), usa a string exata.
     if "@" in telefone_cliente:
         numero_final = telefone_cliente
@@ -65,12 +66,12 @@ def enviar_pdf_via_whatsapp(telefone_cliente: str, url_pdf: str, nome_arquivo: s
         "Content-Type": "application/json"
     }
     
-    # Payload configurado para enviar documento via URL pública do Google Drive
+    # Payload configurado para enviar documento via base64 direto da memória
     payload = {
         "number": numero_final,
         "mediatype": "document",
         "mimetype": "application/pdf",
-        "media": url_pdf,
+        "media": b64_pdf,
         "fileName": nome_arquivo,
         "caption": f"Olá, {nome_cliente}! Conforme conversamos, segue em anexo a sua proposta comercial detalhada da Ecoclim. Qualquer dúvida estou à disposição!",
         "options": {
@@ -91,7 +92,6 @@ def enviar_pdf_via_whatsapp(telefone_cliente: str, url_pdf: str, nome_arquivo: s
 @app.post("/gerar-orcamento")
 async def criar_orcamento_bot(req: OrcamentoRequest):
     try:
-        # 1. Montar a tabela de itens para o PDF
         linhas_pdf = []
         total_equipamentos = 0.0
         
@@ -112,12 +112,10 @@ async def criar_orcamento_bot(req: OrcamentoRequest):
             
         df_itens = pd.DataFrame(linhas_pdf)
         
-        # 2. Configurar Serviços e Instalação
         val_serv = req.valor_instalacao if req.com_instalacao else 0.0
         desc_serv = req.descricao_instalacao if req.com_instalacao else ""
         total_geral = total_equipamentos + val_serv
         
-        # 3. Gerar o arquivo PDF usando o seu utils.py original
         pdf_buffer = utils.gerar_pdf_orcamento(
             nome=req.nome_cliente,
             tel=req.telefone if req.telefone else "Não informado",
@@ -132,8 +130,6 @@ async def criar_orcamento_bot(req: OrcamentoRequest):
             mostrar_un=True
         )
         
-        # 4. Salvar os dados no seu Supabase para aparecer no Painel do ERP
-        # CORREÇÃO: Adicionado %S para incluir os segundos e evitar conflito de IDs
         string_data = datetime.datetime.now().strftime('%y%m%d-%H%M%S')
         numero_orc = f"ORC-BOT-{string_data}"
         
@@ -159,10 +155,10 @@ async def criar_orcamento_bot(req: OrcamentoRequest):
         
         supabase.table("servicos_andamento").insert(payload).execute()
         
-        # 5. Fazer upload do PDF para o Google Drive
         mes_atual = utils.mes_atual_nome
         nome_arquivo = f"ORC_{req.nome_cliente.replace(' ', '_')}_{string_data}.pdf"
         
+        # Salva no Drive apenas para backup
         sucesso_drive, drive_id_ou_erro = utils.upload_to_drive(
             file_buffer=pdf_buffer,
             filename=nome_arquivo,
@@ -173,10 +169,11 @@ async def criar_orcamento_bot(req: OrcamentoRequest):
         if not sucesso_drive:
             return {"sucesso": False, "erro": f"Erro ao salvar no Drive: {drive_id_ou_erro}"}
 
-        # 6. Criar Link de Download Direto
         link_drive = f"https://drive.google.com/uc?export=download&id={drive_id_ou_erro}"
         
-        # 7. ENVIAR DIRETAMENTE VIA WHATSAPP (Somente se o telefone existir)
+        # Converte o buffer do PDF direto para Base64 para envio via API
+        pdf_b64 = base64.b64encode(pdf_buffer.getvalue()).decode('utf-8')
+        
         sucesso_whatsapp = False
         retorno_whatsapp = "Não enviado (telefone não informado na requisição)"
         mensagem_final = "Orçamento gerado e salvo no ERP com sucesso!"
@@ -184,13 +181,12 @@ async def criar_orcamento_bot(req: OrcamentoRequest):
         if req.telefone and req.telefone.strip():
             sucesso_whatsapp, retorno_whatsapp = enviar_pdf_via_whatsapp(
                 telefone_cliente=req.telefone,
-                url_pdf=link_drive,
+                b64_pdf=pdf_b64,
                 nome_arquivo=nome_arquivo,
                 nome_cliente=req.nome_cliente
             )
             mensagem_final = "Orçamento gerado, registrado no ERP e enviado ao WhatsApp do cliente!"
         
-        # 8. Devolver a resposta consolidada para o n8n/robô
         return {
             "sucesso": True,
             "mensagem": mensagem_final,
@@ -210,7 +206,6 @@ async def criar_orcamento_bot(req: OrcamentoRequest):
 @app.post("/gerar-orcamento-kit")
 async def gerar_orcamento_kit_bot(req: OrcamentoKitRequest):
     try:
-        # 1. Buscar o Kit configurado no Supabase
         res_kit = supabase.table('config_kits_lote').select('*').eq('nome_kit', req.nome_do_kit).execute()
         
         if not res_kit.data:
@@ -218,11 +213,9 @@ async def gerar_orcamento_kit_bot(req: OrcamentoKitRequest):
             
         kit = res_kit.data[0]
 
-        # 2. Carregar catálogos atualizados para puxar os preços de hoje
         db_produtos = utils.load_catalog('catalogo_produtos')
         db_servicos = utils.load_catalog('catalogo_servicos')
 
-        # 3. Processar os itens do Kit e calcular valores
         linhas_pdf = []
         total_equipamentos = 0.0
         snapshot_itens = []
@@ -236,7 +229,6 @@ async def gerar_orcamento_kit_bot(req: OrcamentoKitRequest):
             p_preco = 0.0
             p_desc = ""
             
-            # Cruzamento: Busca o preço e a descrição atualizada do produto
             match_p = db_produtos[db_produtos['Item'].astype(str).str.strip().str.upper() == p_nome.upper()]
             if not match_p.empty:
                 try: 
@@ -270,7 +262,6 @@ async def gerar_orcamento_kit_bot(req: OrcamentoKitRequest):
             
         df_itens = pd.DataFrame(linhas_pdf)
 
-        # 4. Processar Serviço e Instalação
         val_serv = 0.0
         desc_serv = ""
         
@@ -293,7 +284,6 @@ async def gerar_orcamento_kit_bot(req: OrcamentoKitRequest):
         total_geral = total_equipamentos + val_serv
         capa_modelo = str(kit.get('modelo_capa', 'Aquecedor Solar Tradicional'))
 
-        # 5. Gerar o arquivo PDF
         pdf_buffer = utils.gerar_pdf_orcamento(
             nome=req.nome_cliente,
             tel=req.telefone if req.telefone else "Não informado",
@@ -308,8 +298,6 @@ async def gerar_orcamento_kit_bot(req: OrcamentoKitRequest):
             mostrar_un=True 
         )
 
-        # 6. Salvar Rastro no ERP (Painel de Serviços em Andamento)
-        # CORREÇÃO: Adicionado %S para incluir os segundos e evitar conflito de IDs
         string_data = datetime.datetime.now().strftime('%y%m%d-%H%M%S')
         numero_orc = f"ORC-IA-{string_data}"
         
@@ -326,10 +314,10 @@ async def gerar_orcamento_kit_bot(req: OrcamentoKitRequest):
         
         supabase.table("servicos_andamento").insert(payload_erp).execute()
 
-        # 7. Upload para o Google Drive
         mes_atual = utils.mes_atual_nome
         nome_arquivo = f"ORC_{req.nome_cliente.replace(' ', '_')}_{string_data}.pdf"
         
+        # Salva no Drive apenas para backup
         sucesso_drive, drive_id_ou_erro = utils.upload_to_drive(
             file_buffer=pdf_buffer,
             filename=nome_arquivo,
@@ -340,8 +328,10 @@ async def gerar_orcamento_kit_bot(req: OrcamentoKitRequest):
         if not sucesso_drive:
             return {"sucesso": False, "erro": f"Erro ao salvar no Drive: {drive_id_ou_erro}"}
 
-        # 8. Link Público e Envio via WhatsApp (Opcional)
         link_drive = f"https://drive.google.com/uc?export=download&id={drive_id_ou_erro}"
+        
+        # Converte o buffer do PDF direto para Base64 para envio via API
+        pdf_b64 = base64.b64encode(pdf_buffer.getvalue()).decode('utf-8')
         
         sucesso_whatsapp = False
         retorno_whatsapp = "Não enviado (telefone não informado na requisição)"
@@ -350,7 +340,7 @@ async def gerar_orcamento_kit_bot(req: OrcamentoKitRequest):
         if req.telefone and req.telefone.strip():
             sucesso_whatsapp, retorno_whatsapp = enviar_pdf_via_whatsapp(
                 telefone_cliente=req.telefone,
-                url_pdf=link_drive,
+                b64_pdf=pdf_b64,
                 nome_arquivo=nome_arquivo,
                 nome_cliente=req.nome_cliente
             )
