@@ -121,7 +121,18 @@ def upload_to_drive(file_buffer, filename, mimetype, folder_path):
         media = MediaIoBaseUpload(buffer_puro, mimetype=mimetype, resumable=True)
         
         uploaded_file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-        return True, uploaded_file.get('id')
+        file_id = uploaded_file.get('id')
+        
+        # ==========================================
+        # CORREÇÃO: TORNAR O ARQUIVO PÚBLICO (QUALQUER PESSOA COM O LINK)
+        # ==========================================
+        try:
+            permission = {'type': 'anyone', 'role': 'reader'}
+            service.permissions().create(fileId=file_id, body=permission).execute()
+        except Exception as e:
+            pass # Se falhar a permissão, o arquivo já foi salvo pelo menos
+            
+        return True, file_id
     except Exception as e:
         return False, str(e)
 
