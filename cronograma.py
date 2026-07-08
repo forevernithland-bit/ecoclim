@@ -21,7 +21,7 @@ def modal_cronograma(df_servicos, lista_instaladores):
         st.info("🎉 Nenhum serviço com status 'Em Andamento' no momento.")
         return
         
-    # Função para formatar a lista forçando a quebra em exatamente 2 linhas
+    # Como o Streamlit trava a altura da linha editável, unimos os itens com "+" para a melhor leitura horizontal
     def formatar_equipamentos(itens):
         if not isinstance(itens, list): return ""
         arr = []
@@ -30,16 +30,7 @@ def modal_cronograma(df_servicos, lista_instaladores):
             nome = it.get('Item', '')
             if qtd > 0 and nome:
                 arr.append(f"{int(qtd)}x {nome}")
-        
-        # Divide os equipamentos em 2 blocos (metade em cima, metade embaixo)
-        if len(arr) > 1:
-            meio = len(arr) // 2 + (len(arr) % 2) # Pega a metade (arredondando pra cima)
-            linha1 = " + ".join(arr[:meio])
-            linha2 = " + ".join(arr[meio:])
-            return f"{linha1}\n{linha2}"
-        elif len(arr) == 1:
-            return arr[0]
-        return ""
+        return " + ".join(arr)
         
     # Motores da "Camada de Sombra": Lê a data/valor do cronograma, se não existir, usa o oficial como sugestão
     def get_crono_date(row):
@@ -87,14 +78,14 @@ def modal_cronograma(df_servicos, lista_instaladores):
         st.warning("Nenhum agendamento encontrado para os filtros selecionados.")
         return
 
-    # Configuração visual das colunas da tabela editável
+    # Configuração visual cravada com as proporções da sua imagem
     cfg_colunas = {
         "id": None, # Esconde o ID do banco
-        "instalador": st.column_config.SelectboxColumn("Instalador", options=lista_instaladores, width="medium"),
-        "nome_cliente": st.column_config.TextColumn("Cliente", disabled=True, width="medium"),
-        "Equipamentos": st.column_config.TextColumn("Equipamentos Vendidos", disabled=True, width="large"),
-        "Valor Instalação": st.column_config.NumberColumn("Valor Inst.", format="R$ %.2f", disabled=False, width="small"),
-        "Data Agendada": st.column_config.DateColumn("Data da Instalação", format="DD/MM/YYYY", disabled=False, width="medium")
+        "instalador": st.column_config.SelectboxColumn("Instalador", options=lista_instaladores, width=110),
+        "nome_cliente": st.column_config.TextColumn("Cliente", disabled=True, width=170),
+        "Equipamentos": st.column_config.TextColumn("Equipamentos Vendidos", disabled=True, width="large", help="Dê um clique duplo na célula para ler o texto inteiro caso esteja muito longo."),
+        "Valor Instalação": st.column_config.NumberColumn("Valor Inst.", format="R$ %.2f", disabled=False, width=100),
+        "Data Agendada": st.column_config.DateColumn("Data da Instalação", format="DD/MM/YYYY", disabled=False, width=120)
     }
     
     df_final = st.data_editor(
