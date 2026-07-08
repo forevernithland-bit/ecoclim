@@ -17,7 +17,7 @@ def modal_cronograma(df_servicos, lista_instaladores):
         st.info("🎉 Nenhum serviço com status 'Em Andamento' no momento.")
         return
         
-    # Função para formatar a lista de itens vendidos numa string limpa
+    # Função para formatar a lista de itens vendidos com QUEBRA DE LINHA (\n)
     def formatar_equipamentos(itens):
         if not isinstance(itens, list): return ""
         arr = []
@@ -26,10 +26,14 @@ def modal_cronograma(df_servicos, lista_instaladores):
             nome = it.get('Item', '')
             if qtd > 0 and nome:
                 arr.append(f"{int(qtd)}x {nome}")
-        return " + ".join(arr)
+        # O \n força o Streamlit a quebrar o texto em múltiplas linhas, aumentando a altura da célula
+        return "\n".join(arr) 
         
     df_cron['Equipamentos'] = df_cron['detalhamento_itens'].apply(formatar_equipamentos)
     df_cron['Data Agendada'] = pd.to_datetime(df_cron['data_conclusao'], errors='coerce').dt.date
+    
+    # Puxa o valor da mão de obra salvo no serviço
+    df_cron['Valor Instalação'] = pd.to_numeric(df_cron['custo_terceirizados'], errors='coerce').fillna(0.0)
     
     # Aplicação dos filtros do usuário
     if filtro_inst != "TODOS":
@@ -43,7 +47,7 @@ def modal_cronograma(df_servicos, lista_instaladores):
     elif filtro_tempo == "Este Mês":
         df_cron = df_cron[pd.to_datetime(df_cron['Data Agendada']).dt.month == hoje.month]
         
-    cols_mostrar = ['id', 'instalador', 'nome_cliente', 'Equipamentos', 'Data Agendada']
+    cols_mostrar = ['id', 'instalador', 'nome_cliente', 'Equipamentos', 'Valor Instalação', 'Data Agendada']
     df_edit = df_cron[cols_mostrar].sort_values('Data Agendada', na_position='last')
     
     if df_edit.empty:
@@ -56,6 +60,7 @@ def modal_cronograma(df_servicos, lista_instaladores):
         "instalador": st.column_config.SelectboxColumn("Instalador", options=lista_instaladores, width="medium"),
         "nome_cliente": st.column_config.TextColumn("Cliente", disabled=True, width="medium"),
         "Equipamentos": st.column_config.TextColumn("Equipamentos Vendidos", disabled=True, width="large"),
+        "Valor Instalação": st.column_config.NumberColumn("Valor Instalação", format="R$ %.2f", disabled=True, width="small"),
         "Data Agendada": st.column_config.DateColumn("Data da Instalação", format="DD/MM/YYYY", width="medium")
     }
     
