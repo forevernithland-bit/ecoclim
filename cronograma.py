@@ -1,14 +1,18 @@
 import streamlit as st
 import pandas as pd
 import datetime
+import utils
 
 @st.dialog("📅 Cronograma de Instalações", width="large")
 def modal_cronograma(df_servicos, lista_instaladores):
-    st.markdown("Organize a agenda da equipe. Apenas serviços **Em Andamento** são exibidos.")
+    st.markdown("<h4 style='color: #004488; margin-top: 0;'>Organize a agenda da equipe técnica</h4>", unsafe_allow_html=True)
+    st.caption("As alterações de Data e Valor feitas aqui **NÃO** alteram os dados oficiais do Painel de Serviços.")
     
-    c1, c2 = st.columns([1, 1.5])
-    filtro_inst = c1.selectbox("👷 Filtro por Instalador", ["TODOS"] + lista_instaladores)
-    filtro_tempo = c2.radio("🗓️ Visão de Tempo", ["Todas as Datas", "Esta Semana", "Este Mês"], horizontal=True)
+    # Filtros dentro de um container com borda para um design mais limpo
+    with st.container(border=True):
+        c1, c2 = st.columns([1, 1.5])
+        filtro_inst = c1.selectbox("👷 Filtro por Instalador", ["TODOS"] + lista_instaladores)
+        filtro_tempo = c2.radio("🗓️ Visão de Tempo", ["Todas as Datas", "Esta Semana", "Este Mês"], horizontal=True)
     
     # Filtra rigorosamente apenas o que está "Em Andamento"
     df_cron = df_servicos[df_servicos['status_projeto'] == 'Em Andamento'].copy()
@@ -17,7 +21,7 @@ def modal_cronograma(df_servicos, lista_instaladores):
         st.info("🎉 Nenhum serviço com status 'Em Andamento' no momento.")
         return
         
-    # Função para formatar a lista de itens vendidos com QUEBRA DE LINHA (\n)
+    # Função para formatar a lista forçando a quebra em exatamente 2 linhas
     def formatar_equipamentos(itens):
         if not isinstance(itens, list): return ""
         arr = []
@@ -26,14 +30,43 @@ def modal_cronograma(df_servicos, lista_instaladores):
             nome = it.get('Item', '')
             if qtd > 0 and nome:
                 arr.append(f"{int(qtd)}x {nome}")
-        # O \n força o Streamlit a quebrar o texto em múltiplas linhas, aumentando a altura da célula
-        return "\n".join(arr) 
         
+        # Divide os equipamentos em 2 blocos (metade em cima, metade embaixo)
+        if len(arr) > 1:
+            meio = len(arr) // 2 + (len(arr) % 2) # Pega a metade (arredondando pra cima)
+            linha1 = " + ".join(arr[:meio])
+            linha2 = " + ".join(arr[meio:])
+            return f"{linha1}\n{linha2}"
+        elif len(arr) == 1:
+            return arr[0]
+        return ""
+        
+    # Motores da "Camada de Sombra": Lê a data/valor do cronograma, se não existir, usa o oficial como sugestão
+    def get_crono_date(row):
+        d_ct = row.get('dados_contrato')
+        if isinstance(d_ct, dict) and 'crono_data' in d_ct and d_ct['crono_data']:
+            try: return pd.to_datetime(d_ct['crono_data']).date()
+            except: pass
+        val = row.get('data_conclusao')
+        if pd.notna(val):
+            try: return pd.to_datetime(val).date()
+            except: pass
+        return pd.NaT
+
+    def get_crono_valor(row):
+        d_ct = row.get('dados_contrato')
+        if isinstance(d_ct, dict) and 'crono_valor' in d_ct:
+            try: return float(d_ct['crono_valor'])
+            except: pass
+        val = row.get('custo_terceirizados')
+        if pd.notna(val):
+            try: return float(val)
+            except: pass
+        return 0.0
+
     df_cron['Equipamentos'] = df_cron['detalhamento_itens'].apply(formatar_equipamentos)
-    df_cron['Data Agendada'] = pd.to_datetime(df_cron['data_conclusao'], errors='coerce').dt.date
-    
-    # Puxa o valor da mão de obra salvo no serviço
-    df_cron['Valor Instalação'] = pd.to_numeric(df_cron['custo_terceirizados'], errors='coerce').fillna(0.0)
+    df_cron['Data Agendada'] = df_cron.apply(get_crono_date, axis=1)
+    df_cron['Valor Instalação'] = df_cron.apply(get_crono_valor, axis=1)
     
     # Aplicação dos filtros do usuário
     if filtro_inst != "TODOS":
@@ -60,11 +93,10 @@ def modal_cronograma(df_servicos, lista_instaladores):
         "instalador": st.column_config.SelectboxColumn("Instalador", options=lista_instaladores, width="medium"),
         "nome_cliente": st.column_config.TextColumn("Cliente", disabled=True, width="medium"),
         "Equipamentos": st.column_config.TextColumn("Equipamentos Vendidos", disabled=True, width="large"),
-        "Valor Instalação": st.column_config.NumberColumn("Valor Instalação", format="R$ %.2f", disabled=True, width="small"),
-        "Data Agendada": st.column_config.DateColumn("Data da Instalação", format="DD/MM/YYYY", width="medium")
+        "Valor Instalação": st.column_config.NumberColumn("Valor Inst.", format="R$ %.2f", disabled=False, width="small"),
+        "Data Agendada": st.column_config.DateColumn("Data da Instalação", format="DD/MM/YYYY", disabled=False, width="medium")
     }
     
-    st.markdown("---")
     df_final = st.data_editor(
         df_edit,
         column_config=cfg_colunas,
@@ -73,22 +105,54 @@ def modal_cronograma(df_servicos, lista_instaladores):
         key="ed_cronograma_equipe"
     )
     
-    st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("💾 Gravar Novo Cronograma", type="primary", use_container_width=True):
-        with st.spinner("Atualizando agenda..."):
-            for idx, row in df_final.iterrows():
-                id_bd = row['id']
-                row_orig = df_edit[df_edit['id'] == id_bd].iloc[0]
-                
-                # Se mudou a data ou o instalador, disparamos a atualização no banco
-                if row['Data Agendada'] != row_orig['Data Agendada'] or row['instalador'] != row_orig['instalador']:
+    # =========================================================
+    # SOMA DE VALORES NO RODAPÉ (Calculado ao vivo)
+    # =========================================================
+    total_remuneracao = df_final['Valor Instalação'].sum()
+    
+    st.markdown(f"""
+        <div style='background-color: #f0fdf4; border: 1px solid #16a34a; border-radius: 8px; padding: 15px; margin-top: 15px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;'>
+            <span style='color: #16a34a; font-size: 16px; font-weight: 500;'>Resumo Financeiro ({filtro_tempo})</span>
+            <span style='color: #166534; font-size: 18px; font-weight: 700;'>Total Instalações: {utils.to_br_currency(total_remuneracao)}</span>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # Centralizando o botão de salvar para ficar mais harmonioso
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        if st.button("💾 Gravar Novo Cronograma", type="primary", use_container_width=True):
+            with st.spinner("Salvando planejamento..."):
+                for idx, row in df_final.iterrows():
+                    id_bd = row['id']
+                    row_orig = df_edit[df_edit['id'] == id_bd].iloc[0]
+                    
+                    # Carrega a linha original bruta do banco para ler o JSON interno
+                    full_orig = df_cron[df_cron['id'] == id_bd].iloc[0]
+                    d_ct = full_orig.get('dados_contrato')
+                    if not isinstance(d_ct, dict): d_ct = {}
+                    
                     payload = {}
-                    if pd.notna(row['Data Agendada']):
-                        payload['data_conclusao'] = row['Data Agendada'].strftime('%Y-%m-%d')
-                    if str(row['instalador']).strip() and str(row['instalador']).lower() != 'nan':
-                        payload['instalador'] = str(row['instalador'])
+                    updated = False
+                    
+                    # 1. Atualiza Instalador
+                    if row['instalador'] != row_orig['instalador']:
+                        payload['instalador'] = str(row['instalador']) if pd.notna(row['instalador']) else ""
+                        updated = True
                         
-                    st.session_state.supabase.table('servicos_andamento').update(payload).eq('id', int(id_bd)).execute()
-            
-            st.success("✅ Cronograma atualizado com sucesso!")
-            st.rerun()
+                    # 2. Atualiza a Data de Agendamento na camada de Sombra (JSON)
+                    if row['Data Agendada'] != row_orig['Data Agendada']:
+                        d_ct['crono_data'] = row['Data Agendada'].strftime('%Y-%m-%d') if pd.notna(row['Data Agendada']) else None
+                        updated = True
+                        
+                    # 3. Atualiza o Valor da Instalação na camada de Sombra (JSON)
+                    if row['Valor Instalação'] != row_orig['Valor Instalação']:
+                        d_ct['crono_valor'] = float(row['Valor Instalação']) if pd.notna(row['Valor Instalação']) else 0.0
+                        updated = True
+                        
+                    # Se houve alteração, dispara para o banco
+                    if updated:
+                        payload['dados_contrato'] = d_ct
+                        st.session_state.supabase.table('servicos_andamento').update(payload).eq('id', int(id_bd)).execute()
+                
+                st.success("✅ Cronograma salvo com sucesso!")
+                st.rerun()
