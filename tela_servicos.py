@@ -3,6 +3,7 @@ import pandas as pd
 import datetime
 import utils
 import servicos_painel
+import cronograma  # Importação do módulo específico criado acima
 
 def deve_ir_para_finalizados(status, data_conc_str):
     if status in ["Concluído PIX", "Concluído CARTÃO"]:
@@ -10,9 +11,6 @@ def deve_ir_para_finalizados(status, data_conc_str):
     return False
 
 def renderizar():
-    # =========================================================================
-    # CSS RESPONSIVO PARA CELULAR + CSS GLOBAL
-    # =========================================================================
     st.markdown("""
         <style>
         /* CSS Nativo: Ocultar setinhas de number_inputs */
@@ -30,11 +28,9 @@ def renderizar():
 
         /* Responsividade Mobile */
         @media screen and (max-width: 768px) {
-            /* Permite scroll horizontal nas Dataframes para não espremer colunas */
             div[data-testid="stDataFrame"] {
                 overflow-x: auto !important;
             }
-            /* Empilha colunas no painel de detalhes do cliente */
             div[data-testid="column"] {
                 width: 100% !important;
                 min-width: 100% !important;
@@ -45,7 +41,10 @@ def renderizar():
         </style>
     """, unsafe_allow_html=True)
 
-    st.markdown("## 📋 Gestão de Serviços")
+    col_tit, col_btn = st.columns([2, 1])
+    with col_tit:
+        st.markdown("## 📋 Gestão de Serviços")
+        
     supabase = st.session_state.supabase
     
     try:
@@ -65,6 +64,12 @@ def renderizar():
     except:
         lista_instaladores = []
 
+    # Chamada isolada e limpa do componente de cronograma externo
+    with col_btn:
+        st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
+        if st.button("📅 Cronograma de Serviços", use_container_width=True, type="secondary"):
+            cronograma.modal_cronograma(df, lista_instaladores)
+
     if 'instalador' not in df.columns:
         df['instalador'] = ""
 
@@ -82,7 +87,7 @@ def renderizar():
 
     def descobrir_data_termino(row):
         status = str(row['status_projeto'])
-        alvos = ["Aguardando Pagamento", "Concluído PIX", "Concluído CARTÃO", "Aguardando Peças"]
+        alvos = ["Aguardando Pagamento", "Concluído PIX", "Concluído CARTÃO", "Aguardando Peças", "Em Andamento"]
         if status in alvos and pd.notna(row['data_conclusao']) and str(row['data_conclusao']).lower() not in ['nat', 'none', 'nan']:
             try:
                 return pd.to_datetime(row['data_conclusao']).strftime('%d/%m/%Y')
