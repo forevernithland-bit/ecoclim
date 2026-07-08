@@ -6,7 +6,7 @@ import utils
 @st.dialog("📅 Cronograma de Instalações", width="large")
 def modal_cronograma(df_servicos, lista_instaladores):
     st.markdown("<h4 style='color: #004488; margin-top: 0;'>Organize a agenda da equipe técnica</h4>", unsafe_allow_html=True)
-    st.caption("As alterações de Data e Valor feitas aqui **NÃO** alteram os dados oficiais do Painel de Serviços.")
+    st.caption("As alterações de Data, Valor e Equipamentos feitas aqui **NÃO** alteram os dados oficiais do Painel de Serviços.")
     
     # Filtros dentro de um container com borda para um design mais limpo
     with st.container(border=True):
@@ -21,8 +21,17 @@ def modal_cronograma(df_servicos, lista_instaladores):
         st.info("🎉 Nenhum serviço com status 'Em Andamento' no momento.")
         return
         
-    # Como o Streamlit trava a altura da linha editável, unimos os itens com "+" para a melhor leitura horizontal
-    def formatar_equipamentos(itens):
+    # ====================================================================
+    # MOTORES DA CAMADA DE SOMBRA (Leitura dos dados editados do cronograma)
+    # ====================================================================
+    def get_crono_equipamentos(row):
+        d_ct = row.get('dados_contrato')
+        # 1. Tenta ler o resumo digitado pelo usuário na tela do cronograma
+        if isinstance(d_ct, dict) and 'crono_equipamentos' in d_ct and d_ct['crono_equipamentos']:
+            return str(d_ct['crono_equipamentos'])
+            
+        # 2. Se não houver resumo salvo, puxa os dados oficiais do banco de dados 
+        itens = row.get('detalhamento_itens')
         if not isinstance(itens, list): return ""
         arr = []
         for it in itens:
@@ -31,8 +40,7 @@ def modal_cronograma(df_servicos, lista_instaladores):
             if qtd > 0 and nome:
                 arr.append(f"{int(qtd)}x {nome}")
         return " + ".join(arr)
-        
-    # Motores da "Camada de Sombra": Lê a data/valor do cronograma, se não existir, usa o oficial como sugestão
+
     def get_crono_date(row):
         d_ct = row.get('dados_contrato')
         if isinstance(d_ct, dict) and 'crono_data' in d_ct and d_ct['crono_data']:
@@ -55,7 +63,8 @@ def modal_cronograma(df_servicos, lista_instaladores):
             except: pass
         return 0.0
 
-    df_cron['Equipamentos'] = df_cron['detalhamento_itens'].apply(formatar_equipamentos)
+    # Aplicação das funções na tabela visual
+    df_cron['Equipamentos'] = df_cron.apply(get_crono_equipamentos, axis=1)
     df_cron['Data Agendada'] = df_cron.apply(get_crono_date, axis=1)
     df_cron['Valor Instalação'] = df_cron.apply(get_crono_valor, axis=1)
     
@@ -78,12 +87,15 @@ def modal_cronograma(df_servicos, lista_instaladores):
         st.warning("Nenhum agendamento encontrado para os filtros selecionados.")
         return
 
-    # Configuração visual cravada com as proporções da sua imagem
+    # Configuração visual cravada com as proporções do seu layout base
     cfg_colunas = {
         "id": None, # Esconde o ID do banco
         "instalador": st.column_config.SelectboxColumn("Instalador", options=lista_instaladores, width=110),
         "nome_cliente": st.column_config.TextColumn("Cliente", disabled=True, width=170),
-        "Equipamentos": st.column_config.TextColumn("Equipamentos Vendidos", disabled=True, width="large", help="Dê um clique duplo na célula para ler o texto inteiro caso esteja muito longo."),
+        
+        # Coluna DESBLOQUEADA para você poder resumir o texto
+        "Equipamentos": st.column_config.TextColumn("Equipamentos Vendidos", disabled=False, width="large", help="Edite livremente o texto para resumir os equipamentos para o instalador."),
+        
         "Valor Instalação": st.column_config.NumberColumn("Valor Inst.", format="R$ %.2f", disabled=False, width=100),
         "Data Agendada": st.column_config.DateColumn("Data da Instalação", format="DD/MM/YYYY", disabled=False, width=120)
     }
@@ -138,6 +150,11 @@ def modal_cronograma(df_servicos, lista_instaladores):
                     # 3. Atualiza o Valor da Instalação na camada de Sombra (JSON)
                     if row['Valor Instalação'] != row_orig['Valor Instalação']:
                         d_ct['crono_valor'] = float(row['Valor Instalação']) if pd.notna(row['Valor Instalação']) else 0.0
+                        updated = True
+                        
+                    # 4. Atualiza o Resumo de Equipamentos na camada de Sombra (JSON)
+                    if row['Equipamentos'] != row_orig['Equipamentos']:
+                        d_ct['crono_equipamentos'] = str(row['Equipamentos']) if pd.notna(row['Equipamentos']) else ""
                         updated = True
                         
                     # Se houve alteração, dispara para o banco
