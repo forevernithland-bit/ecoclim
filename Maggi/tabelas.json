@@ -1,5 +1,5 @@
 {
-  "atualizado_em": "2026-07-03T18:10:26Z",
+  "atualizado_em": "2026-07-09T12:30:24Z",
   "fonte": "Tabelas de precos Maggi (PDF)",
   "grupos": {
     "2014": {
@@ -53,6 +53,30 @@
       ],
       "assembleia": "2026-07-22",
       "vencimento": "2026-07-16"
+    },
+    "757": {
+      "ref": "SETEMBRO 2026",
+      "prazos": [
+        {
+          "meses": 150,
+          "taxa": 15
+        }
+      ],
+      "fundo": 1.0,
+      "seguro": 0.05,
+      "creditos": [
+        400000,
+        450000,
+        500000,
+        550000,
+        600000,
+        650000,
+        700000,
+        750000,
+        800000
+      ],
+      "assembleia": "2026-09-24",
+      "vencimento": null
     },
     "755": {
       "ref": "ABRIL 2026",
@@ -228,10 +252,10 @@
       "vencimento": "2026-07-16"
     },
     "2013": {
-      "ref": "Julho 2026",
+      "ref": "Março 2026",
       "prazos": [
         {
-          "meses": 49,
+          "meses": 53,
           "taxa": 21
         }
       ],
@@ -245,8 +269,8 @@
         353831,
         404381
       ],
-      "assembleia": "2026-07-15",
-      "vencimento": "2026-07-09"
+      "assembleia": "2026-03-18",
+      "vencimento": "2026-03-12"
     },
     "2017": {
       "ref": "Julho 2026",
@@ -299,6 +323,29 @@
         140000
       ],
       "assembleia": "2026-07-21",
+      "vencimento": "2026-07-16"
+    },
+    "636": {
+      "ref": "Julho 2026",
+      "prazos": [
+        {
+          "meses": 96,
+          "taxa": 18
+        }
+      ],
+      "fundo": 1.0,
+      "seguro": 0.05,
+      "creditos": [
+        77208,
+        88237,
+        99267,
+        110296,
+        121326,
+        132355,
+        143385,
+        154413
+      ],
+      "assembleia": "2026-07-20",
       "vencimento": "2026-07-16"
     },
     "634": {
