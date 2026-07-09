@@ -154,7 +154,11 @@ def modal_cronograma(df_servicos, lista_instaladores):
                             
                         # 2. Atualiza Data (Blindado contra textos variados)
                         nova_data = str(row['Data Agendada']).strip() if pd.notna(row['Data Agendada']) else ""
+                        if nova_data.lower() in ['none', 'nan', 'nat']: nova_data = ""
+                        
                         orig_data = str(row_orig['Data Agendada']).strip() if pd.notna(row_orig['Data Agendada']) else ""
+                        if orig_data.lower() in ['none', 'nan', 'nat']: orig_data = ""
+                        
                         if nova_data != orig_data:
                             d_ct['crono_data_str'] = nova_data
                             updated_shadow = True
@@ -168,24 +172,36 @@ def modal_cronograma(df_servicos, lista_instaladores):
                             
                         # 4. Atualiza Equipamentos
                         novo_eq = str(row['Equipamentos']).strip() if pd.notna(row['Equipamentos']) else ""
+                        if novo_eq.lower() in ['none', 'nan']: novo_eq = ""
+                        
                         orig_eq = str(row_orig['Equipamentos']).strip() if pd.notna(row_orig['Equipamentos']) else ""
+                        if orig_eq.lower() in ['none', 'nan']: orig_eq = ""
+                        
                         if novo_eq != orig_eq:
                             d_ct['crono_equipamentos'] = novo_eq
                             updated_shadow = True
                             
-                        # Dispara para o banco se teve alteração
+                        # Dispara para o banco se teve alteração e atualiza a memória para não fechar a janela
                         if updated_shadow:
                             payload['dados_contrato'] = d_ct
                             
                         if payload:
                             st.session_state.supabase.table('servicos_andamento').update(payload).eq('id', int(id_bd)).execute()
+                            
+                            # Atualiza em memória: isso garante que ao trocar de aba ou filtro a janela não feche e mantenha os dados!
+                            idx_mask = df_servicos['id'] == id_bd
+                            if 'instalador' in payload:
+                                df_servicos.loc[idx_mask, 'instalador'] = payload['instalador']
+                            if 'dados_contrato' in payload:
+                                for i_df in df_servicos[idx_mask].index:
+                                    df_servicos.at[i_df, 'dados_contrato'] = payload['dados_contrato']
                     
                     st.success("✅ Cronograma salvo com sucesso!")
-                    st.rerun()
+                    # Removido o st.rerun() propositalmente para o Modal não fechar!
 
     with aba_zap:
         st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
-        st.info("💡 **Dica:** O texto copia os dados exatamente como estão na tabela da aba anterior. Edite lá e copie aqui!")
+        st.info("💡 **Dica:** O texto copia os dados exatamente como estão na tabela da aba anterior. Edite lá, grave e copie aqui!")
         
         texto_zap = f"🗓️ *CRONOGRAMA DE INSTALAÇÕES*\n"
         texto_zap += f"👷 *Técnico:* {filtro_inst if filtro_inst != 'TODOS' else 'Equipe Geral'}\n"
@@ -204,7 +220,6 @@ def modal_cronograma(df_servicos, lista_instaladores):
             equip = str(row['Equipamentos']).strip()
             if equip.lower() in ['none', 'nan']: equip = ""
             
-            # Formatação solicitada: Nome do cliente em NEGRITO
             texto_zap += f"👤 *Cliente:* *{row['nome_cliente']}*\n"
             if filtro_inst == "TODOS":
                 texto_zap += f"🛠️ *Instalador:* {row['instalador']}\n"
@@ -213,7 +228,6 @@ def modal_cronograma(df_servicos, lista_instaladores):
             texto_zap += f"📦 *Equipamentos:*\n{equip}\n"
             texto_zap += "〰️〰️〰️〰️〰️〰️〰️〰️〰️〰️〰️\n\n"
             
-        # Adicionado o TOTAL A RECEBER no final
         texto_zap += f"💵 *TOTAL A RECEBER:* *{utils.to_br_currency(total_remuneracao_zap)}*\n"
 
         st.markdown("#### 📝 Texto Pronto para Copiar")
