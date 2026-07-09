@@ -37,7 +37,6 @@ def modal_cronograma(df_servicos, lista_instaladores):
                 arr.append(f"{int(qtd)}x {nome}")
         return " + ".join(arr)
 
-    # NOVO: Carrega a data como TEXTO LIVRE (permite "A definir", "Ligar antes", ou em branco)
     def get_crono_data_str(row):
         d_ct = row.get('dados_contrato')
         if isinstance(d_ct, dict) and 'crono_data_str' in d_ct:
@@ -61,17 +60,13 @@ def modal_cronograma(df_servicos, lista_instaladores):
         return 0.0
 
     # ====================================================================
-    # MOTOR DE FILTRO DE DATAS (Data Invisível)
+    # MOTOR DE FILTRO DE DATAS (Data Invisível para manter a ordem)
     # ====================================================================
-    # Como a coluna agora é de texto, precisamos de uma data real por trás 
-    # dos panos para os botões "Esta Semana" e "Este Mês" funcionarem.
     def get_data_invisivel_filtro(row):
-        # Tenta converter o que está escrito na tela
         texto = str(row['Data Agendada']).strip()
         try: return pd.to_datetime(texto, format='%d/%m/%Y').date()
         except: pass
         
-        # Se for texto ("Amanhã"), usa a data do banco para ele não sumir do filtro
         val = row.get('data_conclusao')
         if pd.notna(val) and str(val).lower() not in ['nat', 'none', 'nan', '']:
             try: return pd.to_datetime(val).date()
@@ -102,71 +97,118 @@ def modal_cronograma(df_servicos, lista_instaladores):
         st.warning("Nenhum agendamento encontrado para os filtros selecionados.")
         return
 
-    # Configuração visual EXATA da sua imagem (Data Agendada agora é TextColumn!)
-    cfg_colunas = {
-        "id": None, 
-        "Data_Filtro_Invisivel": None, # Esconde a coluna do motor de filtro
-        "instalador": st.column_config.SelectboxColumn("Instalador", options=lista_instaladores, width=110),
-        "nome_cliente": st.column_config.TextColumn("Cliente", disabled=True, width=170),
-        "Equipamentos": st.column_config.TextColumn("Equipamentos Vendidos", disabled=False, width="large"),
-        "Valor Instalação": st.column_config.NumberColumn("Valor Inst.", format="R$ %.2f", disabled=False, width=100),
-        "Data Agendada": st.column_config.TextColumn("Data da Instalação", disabled=False, width=130, help="Padrão: DD/MM/YYYY. Mas aceita textos como 'A definir'.")
-    }
-    
-    df_final = st.data_editor(
-        df_edit,
-        column_config=cfg_colunas,
-        use_container_width=True,
-        hide_index=True,
-        key="ed_cronograma_equipe"
-    )
-    
-    total_remuneracao = df_final['Valor Instalação'].sum()
-    
-    st.markdown(f"""
-        <div style='background-color: #f0fdf4; border: 1px solid #16a34a; border-radius: 8px; padding: 15px; margin-top: 15px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;'>
-            <span style='color: #16a34a; font-size: 16px; font-weight: 500;'>Resumo Financeiro ({filtro_tempo})</span>
-            <span style='color: #166534; font-size: 18px; font-weight: 700;'>Total Instalações: {utils.to_br_currency(total_remuneracao)}</span>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        if st.button("💾 Gravar Novo Cronograma", type="primary", use_container_width=True):
-            with st.spinner("Salvando planejamento..."):
-                for idx, row in df_final.iterrows():
-                    id_bd = row['id']
-                    row_orig = df_edit[df_edit['id'] == id_bd].iloc[0]
+    # ====================================================================
+    # SISTEMA DE ABAS (Tabela vs WhatsApp)
+    # ====================================================================
+    aba_edit, aba_zap = st.tabs(["✏️ 1. Editar Cronograma", "📲 2. Enviar para WhatsApp"])
+
+    with aba_edit:
+        cfg_colunas = {
+            "id": None, 
+            "Data_Filtro_Invisivel": None, 
+            "instalador": st.column_config.SelectboxColumn("Instalador", options=lista_instaladores, width=110),
+            "nome_cliente": st.column_config.TextColumn("Cliente", disabled=True, width=170),
+            "Equipamentos": st.column_config.TextColumn("Equipamentos Vendidos", disabled=False, width="large"),
+            "Valor Instalação": st.column_config.NumberColumn("Valor Inst.", format="R$ %.2f", disabled=False, width=100),
+            "Data Agendada": st.column_config.TextColumn("Data da Instalação", disabled=False, width=130, help="Escreva a data, 'A definir', ou deixe em branco.")
+        }
+        
+        df_final = st.data_editor(
+            df_edit,
+            column_config=cfg_colunas,
+            use_container_width=True,
+            hide_index=True,
+            key="ed_cronograma_equipe"
+        )
+        
+        total_remuneracao = df_final['Valor Instalação'].sum()
+        
+        st.markdown(f"""
+            <div style='background-color: #f0fdf4; border: 1px solid #16a34a; border-radius: 8px; padding: 15px; margin-top: 15px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;'>
+                <span style='color: #16a34a; font-size: 16px; font-weight: 500;'>Resumo Financeiro ({filtro_tempo})</span>
+                <span style='color: #166534; font-size: 18px; font-weight: 700;'>Total Instalações: {utils.to_br_currency(total_remuneracao)}</span>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            if st.button("💾 Gravar Novo Cronograma", type="primary", use_container_width=True):
+                with st.spinner("Salvando planejamento..."):
+                    for idx, row in df_final.iterrows():
+                        id_bd = row['id']
+                        row_orig = df_edit[df_edit['id'] == id_bd].iloc[0]
+                        
+                        full_orig = df_cron[df_cron['id'] == id_bd].iloc[0]
+                        d_ct = full_orig.get('dados_contrato')
+                        if not isinstance(d_ct, dict): d_ct = {}
+                        
+                        payload = {}
+                        updated = False
+                        
+                        # 1. Atualiza Instalador
+                        if row['instalador'] != row_orig['instalador']:
+                            payload['instalador'] = str(row['instalador']) if pd.notna(row['instalador']) else ""
+                            updated = True
+                            
+                        # 2. Atualiza a Data de Agendamento (Texto Livre c/ Blindagem de Pandas)
+                        val_data_nova = str(row['Data Agendada']).strip() if pd.notna(row['Data Agendada']) else ""
+                        if val_data_nova.lower() in ['none', 'nan', 'nat']: val_data_nova = ""
+                        
+                        val_data_orig = str(row_orig['Data Agendada']).strip() if pd.notna(row_orig['Data Agendada']) else ""
+                        if val_data_orig.lower() in ['none', 'nan', 'nat']: val_data_orig = ""
+                        
+                        if val_data_nova != val_data_orig:
+                            d_ct['crono_data_str'] = val_data_nova
+                            updated = True
+                            
+                        # 3. Atualiza o Valor da Instalação
+                        if row['Valor Instalação'] != row_orig['Valor Instalação']:
+                            d_ct['crono_valor'] = float(row['Valor Instalação']) if pd.notna(row['Valor Instalação']) else 0.0
+                            updated = True
+                            
+                        # 4. Atualiza os Equipamentos
+                        val_eq_nova = str(row['Equipamentos']).strip() if pd.notna(row['Equipamentos']) else ""
+                        if val_eq_nova.lower() in ['none', 'nan']: val_eq_nova = ""
+                        
+                        val_eq_orig = str(row_orig['Equipamentos']).strip() if pd.notna(row_orig['Equipamentos']) else ""
+                        if val_eq_orig.lower() in ['none', 'nan']: val_eq_orig = ""
+                        
+                        if val_eq_nova != val_eq_orig:
+                            d_ct['crono_equipamentos'] = val_eq_nova
+                            updated = True
+                            
+                        # Dispara para o banco se teve alteração
+                        if updated:
+                            payload['dados_contrato'] = d_ct
+                            st.session_state.supabase.table('servicos_andamento').update(payload).eq('id', int(id_bd)).execute()
                     
-                    full_orig = df_cron[df_cron['id'] == id_bd].iloc[0]
-                    d_ct = full_orig.get('dados_contrato')
-                    if not isinstance(d_ct, dict): d_ct = {}
-                    
-                    payload = {}
-                    updated = False
-                    
-                    if row['instalador'] != row_orig['instalador']:
-                        payload['instalador'] = str(row['instalador']) if pd.notna(row['instalador']) else ""
-                        updated = True
-                        
-                    # NOVO: Salva exatamente o texto que você digitou na data (mesmo que seja em branco ou "Ligar")
-                    if row['Data Agendada'] != row_orig['Data Agendada']:
-                        val_str = str(row['Data Agendada']) if pd.notna(row['Data Agendada']) else ""
-                        if val_str.lower() in ["none", "nan"]: val_str = ""
-                        d_ct['crono_data_str'] = val_str
-                        updated = True
-                        
-                    if row['Valor Instalação'] != row_orig['Valor Instalação']:
-                        d_ct['crono_valor'] = float(row['Valor Instalação']) if pd.notna(row['Valor Instalação']) else 0.0
-                        updated = True
-                        
-                    if row['Equipamentos'] != row_orig['Equipamentos']:
-                        d_ct['crono_equipamentos'] = str(row['Equipamentos']) if pd.notna(row['Equipamentos']) else ""
-                        updated = True
-                        
-                    if updated:
-                        payload['dados_contrato'] = d_ct
-                        st.session_state.supabase.table('servicos_andamento').update(payload).eq('id', int(id_bd)).execute()
+                    st.success("✅ Cronograma salvo com sucesso!")
+                    st.rerun()
+
+    with aba_zap:
+        st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
+        st.info("💡 **Dica:** O texto copia os dados exatamente como estão na tabela da aba anterior. Edite lá e copie aqui!")
+        
+        texto_zap = f"🗓️ *CRONOGRAMA DE INSTALAÇÕES*\n"
+        texto_zap += f"👷 *Técnico:* {filtro_inst if filtro_inst != 'TODOS' else 'Equipe Geral'}\n"
+        texto_zap += f"🔎 *Período:* {filtro_tempo}\n\n"
+
+        for idx, row in df_final.iterrows():
+            dt_str = str(row['Data Agendada']).strip()
+            if dt_str.lower() in ['none', 'nan', '']: dt_str = "A definir"
                 
-                st.success("✅ Cronograma salvo com sucesso!")
-                st.rerun()
+            vl_str = utils.to_br_currency(row['Valor Instalação'])
+            equip = str(row['Equipamentos']).strip()
+            if equip.lower() in ['none', 'nan']: equip = ""
+            
+            texto_zap += f"👤 *Cliente:* {row['nome_cliente']}\n"
+            if filtro_inst == "TODOS":
+                texto_zap += f"🛠️ *Instalador:* {row['instalador']}\n"
+            texto_zap += f"📅 *Data:* {dt_str}\n"
+            texto_zap += f"💰 *Valor da Mão de Obra:* {vl_str}\n"
+            texto_zap += f"📦 *Equipamentos:*\n{equip}\n"
+            texto_zap += "〰️〰️〰️〰️〰️〰️〰️〰️〰️〰️〰️\n\n"
+
+        st.markdown("#### 📝 Texto Pronto para Copiar")
+        st.caption("A caixa abaixo tem um ícone de 'Copiar' (duas folhas) no canto superior direito. Passe o mouse, clique e cole no WhatsApp.")
+        st.code(texto_zap.strip(), language="markdown")
