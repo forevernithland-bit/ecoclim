@@ -29,7 +29,7 @@ def achar_pdfs():
                     achados.append(os.path.join(dirpath, f))
     return achados
 
-GRUPOS = ["2013", "2014", "2015", "2016", "2017", "2018", "2019", "2020", "634", "644", "8000", "755"]
+GRUPOS = ["2013", "2014", "2015", "2016", "2017", "2018", "2019", "2020", "634", "636", "644", "755", "757", "8000"]
 MES = r'(janeiro|fevereiro|mar[çc]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)'
 
 
