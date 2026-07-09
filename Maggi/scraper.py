@@ -19,7 +19,7 @@ BASE = "https://www.consorciomaggi.com.br"
 
 # Grupos do simulador e os percentuais de LANCE FIXO a excluir da media.
 GRUPOS = {
-    "2013": {"fixo": [25, 35]},
+    "2013": {"fixo": []},
     "2014": {"fixo": [25, 35]},
     "2015": {"fixo": [25]},
     "2016": {"fixo": [20]},
@@ -28,9 +28,11 @@ GRUPOS = {
     "2019": {"fixo": [25, 35]},
     "2020": {"fixo": [25, 35]},
     "634":  {"fixo": [25, 30]},
+    "636":  {"fixo": []},
     "644":  {"fixo": []},
     "8000": {"fixo": []},
     "755":  {"fixo": [25, 35]},
+    "757":  {"fixo": [25, 35]},
 }
 
 OBS_SEM_LIVRE = "Sem contemplacao por lance livre nos ultimos resultados disponiveis."
