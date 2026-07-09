@@ -219,6 +219,20 @@
       "palavras_chave": ["aditamento 755", "termo de aditamento 755", "adit 755", "grupo 755", "regras do grupo 755", "taxa 755", "taxa do grupo 755", "prazo 755", "credito 755", "media de lance 755", "fundo 755", "seguro 755", "assembleia 755", "vencimento 755", "documento grupo 755", "supremo"],
       "resposta": "Grupo 755 — Caminhões (VW Supremo 3000). 3.000 participantes. Taxa de administração 15%. Prazo de 138 meses. Fundo de reserva 1%, seguro de vida 0,05%. Créditos de R$ 519.063 a R$ 1.038.125. Lance embutido de até 20%. Lance Fixo de 25% e 35%, além de sorteio e lance livre. Bônus fidelidade de 1,5% na compra de caminhão VW 0km na rede credenciada. Possui mega assembleias (até 100 contemplações). Média de lance livre (últimos 3 meses): ~61,47%. Assembleia: 29/04/2026. Termo de aditamento completo no documento abaixo.",
       "documento": { "nome": "Termo de Aditamento - Grupo 755.pdf", "arquivo": "aditamento-755.pdf" }
+    },
+    {
+      "id": "aditamento-636",
+      "titulo": "Grupo 636 (Automóveis) — dados e termo de aditamento",
+      "palavras_chave": ["aditamento 636", "termo de aditamento 636", "adit 636", "grupo 636", "regras do grupo 636", "taxa 636", "taxa do grupo 636", "prazo 636", "credito 636", "media de lance 636", "fundo 636", "seguro 636", "assembleia 636", "vencimento 636", "documento grupo 636"],
+      "resposta": "Grupo 636 — Automóveis. 2.000 participantes. Taxa de administração 18%. Prazo de 96 meses. Fundo de reserva 1%, seguro de vida 0,050%. Créditos de R$ 77.208 a R$ 154.413. Lance embutido de até 10%. NÃO tem lance fixo: contemplação por sorteio e lance livre (1 cota por sorteio + lance livre conforme o saldo do grupo). Veículo usado aceito até 3 anos. Assembleia: 20/07/2026; vencimento: 16/07/2026. Termo de aditamento completo no documento abaixo.",
+      "documento": { "nome": "Termo de Aditamento - Grupo 636.pdf", "arquivo": "aditamento-636.pdf" }
+    },
+    {
+      "id": "aditamento-757",
+      "titulo": "Grupo 757 (Caminhões VW) — dados e termo de aditamento",
+      "palavras_chave": ["aditamento 757", "termo de aditamento 757", "adit 757", "grupo 757", "regras do grupo 757", "taxa 757", "taxa do grupo 757", "prazo 757", "credito 757", "media de lance 757", "fundo 757", "seguro 757", "assembleia 757", "vencimento 757", "documento grupo 757"],
+      "resposta": "Grupo 757 — Caminhões (VW). 2.000 participantes. Taxa de administração 15%. Prazo de 150 meses. Fundo de reserva 1%, seguro de vida 0,050%. Créditos de R$ 400.000 a R$ 800.000. Lance embutido de até 20%. Lance Fixo de 25% e 35%, além de sorteio e lance livre. Grupo aberto em Setembro/2026, com mega assembleias em Fevereiro e Agosto (até 60 contemplações). Assembleia de abertura: 24/09/2026. Termo de aditamento completo no documento abaixo.",
+      "documento": { "nome": "Termo de Aditamento - Grupo 757.pdf", "arquivo": "aditamento-757.pdf" }
     }
   ]
 }
