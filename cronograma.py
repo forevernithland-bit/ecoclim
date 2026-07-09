@@ -103,6 +103,7 @@ def modal_cronograma(df_servicos, lista_instaladores):
     aba_edit, aba_zap = st.tabs(["✏️ 1. Editar Cronograma", "📲 2. Enviar para WhatsApp"])
 
     with aba_edit:
+        st.info("🚨 **DICA DE OURO:** Após digitar qualquer texto (Data ou Equipamento) na tabela, **pressione ENTER** ou clique fora do quadrado para o sistema registrar a mudança antes de Gravar.")
         cfg_colunas = {
             "id": None, 
             "Data_Filtro_Invisivel": None, 
@@ -110,7 +111,7 @@ def modal_cronograma(df_servicos, lista_instaladores):
             "nome_cliente": st.column_config.TextColumn("Cliente", disabled=True, width=170),
             "Equipamentos": st.column_config.TextColumn("Equipamentos Vendidos", disabled=False, width="large"),
             "Valor Instalação": st.column_config.NumberColumn("Valor Inst.", format="R$ %.2f", disabled=False, width=100),
-            "Data Agendada": st.column_config.TextColumn("Data da Instalação", disabled=False, width=130, help="Escreva a data, 'A definir', ou deixe em branco.")
+            "Data Agendada": st.column_config.TextColumn("Data da Instalação", disabled=False, width=130, help="Escreva a data, 'A definir', 'Concluído' ou deixe em branco.")
         }
         
         df_final = st.data_editor(
@@ -143,43 +144,40 @@ def modal_cronograma(df_servicos, lista_instaladores):
                         if not isinstance(d_ct, dict): d_ct = {}
                         
                         payload = {}
-                        updated = False
+                        updated_shadow = False
                         
                         # 1. Atualiza Instalador
-                        if row['instalador'] != row_orig['instalador']:
-                            payload['instalador'] = str(row['instalador']) if pd.notna(row['instalador']) else ""
-                            updated = True
+                        novo_inst = str(row['instalador']).strip() if pd.notna(row['instalador']) else ""
+                        orig_inst = str(row_orig['instalador']).strip() if pd.notna(row_orig['instalador']) else ""
+                        if novo_inst != orig_inst:
+                            payload['instalador'] = novo_inst
                             
-                        # 2. Atualiza a Data de Agendamento (Texto Livre c/ Blindagem de Pandas)
-                        val_data_nova = str(row['Data Agendada']).strip() if pd.notna(row['Data Agendada']) else ""
-                        if val_data_nova.lower() in ['none', 'nan', 'nat']: val_data_nova = ""
-                        
-                        val_data_orig = str(row_orig['Data Agendada']).strip() if pd.notna(row_orig['Data Agendada']) else ""
-                        if val_data_orig.lower() in ['none', 'nan', 'nat']: val_data_orig = ""
-                        
-                        if val_data_nova != val_data_orig:
-                            d_ct['crono_data_str'] = val_data_nova
-                            updated = True
+                        # 2. Atualiza Data (Blindado contra textos variados)
+                        nova_data = str(row['Data Agendada']).strip() if pd.notna(row['Data Agendada']) else ""
+                        orig_data = str(row_orig['Data Agendada']).strip() if pd.notna(row_orig['Data Agendada']) else ""
+                        if nova_data != orig_data:
+                            d_ct['crono_data_str'] = nova_data
+                            updated_shadow = True
                             
-                        # 3. Atualiza o Valor da Instalação
-                        if row['Valor Instalação'] != row_orig['Valor Instalação']:
-                            d_ct['crono_valor'] = float(row['Valor Instalação']) if pd.notna(row['Valor Instalação']) else 0.0
-                            updated = True
+                        # 3. Atualiza Valor
+                        novo_valor = float(row['Valor Instalação']) if pd.notna(row['Valor Instalação']) else 0.0
+                        orig_valor = float(row_orig['Valor Instalação']) if pd.notna(row_orig['Valor Instalação']) else 0.0
+                        if abs(novo_valor - orig_valor) > 0.01:
+                            d_ct['crono_valor'] = novo_valor
+                            updated_shadow = True
                             
-                        # 4. Atualiza os Equipamentos
-                        val_eq_nova = str(row['Equipamentos']).strip() if pd.notna(row['Equipamentos']) else ""
-                        if val_eq_nova.lower() in ['none', 'nan']: val_eq_nova = ""
-                        
-                        val_eq_orig = str(row_orig['Equipamentos']).strip() if pd.notna(row_orig['Equipamentos']) else ""
-                        if val_eq_orig.lower() in ['none', 'nan']: val_eq_orig = ""
-                        
-                        if val_eq_nova != val_eq_orig:
-                            d_ct['crono_equipamentos'] = val_eq_nova
-                            updated = True
+                        # 4. Atualiza Equipamentos
+                        novo_eq = str(row['Equipamentos']).strip() if pd.notna(row['Equipamentos']) else ""
+                        orig_eq = str(row_orig['Equipamentos']).strip() if pd.notna(row_orig['Equipamentos']) else ""
+                        if novo_eq != orig_eq:
+                            d_ct['crono_equipamentos'] = novo_eq
+                            updated_shadow = True
                             
                         # Dispara para o banco se teve alteração
-                        if updated:
+                        if updated_shadow:
                             payload['dados_contrato'] = d_ct
+                            
+                        if payload:
                             st.session_state.supabase.table('servicos_andamento').update(payload).eq('id', int(id_bd)).execute()
                     
                     st.success("✅ Cronograma salvo com sucesso!")
@@ -192,22 +190,31 @@ def modal_cronograma(df_servicos, lista_instaladores):
         texto_zap = f"🗓️ *CRONOGRAMA DE INSTALAÇÕES*\n"
         texto_zap += f"👷 *Técnico:* {filtro_inst if filtro_inst != 'TODOS' else 'Equipe Geral'}\n"
         texto_zap += f"🔎 *Período:* {filtro_tempo}\n\n"
+        
+        total_remuneracao_zap = 0.0
 
         for idx, row in df_final.iterrows():
             dt_str = str(row['Data Agendada']).strip()
             if dt_str.lower() in ['none', 'nan', '']: dt_str = "A definir"
                 
-            vl_str = utils.to_br_currency(row['Valor Instalação'])
+            v_inst = float(row['Valor Instalação']) if pd.notna(row['Valor Instalação']) else 0.0
+            total_remuneracao_zap += v_inst
+            vl_str = utils.to_br_currency(v_inst)
+            
             equip = str(row['Equipamentos']).strip()
             if equip.lower() in ['none', 'nan']: equip = ""
             
-            texto_zap += f"👤 *Cliente:* {row['nome_cliente']}\n"
+            # Formatação solicitada: Nome do cliente em NEGRITO
+            texto_zap += f"👤 *Cliente:* *{row['nome_cliente']}*\n"
             if filtro_inst == "TODOS":
                 texto_zap += f"🛠️ *Instalador:* {row['instalador']}\n"
             texto_zap += f"📅 *Data:* {dt_str}\n"
-            texto_zap += f"💰 *Valor da Mão de Obra:* {vl_str}\n"
+            texto_zap += f"💰 *Valor da Instalação:* {vl_str}\n"
             texto_zap += f"📦 *Equipamentos:*\n{equip}\n"
             texto_zap += "〰️〰️〰️〰️〰️〰️〰️〰️〰️〰️〰️\n\n"
+            
+        # Adicionado o TOTAL A RECEBER no final
+        texto_zap += f"💵 *TOTAL A RECEBER:* *{utils.to_br_currency(total_remuneracao_zap)}*\n"
 
         st.markdown("#### 📝 Texto Pronto para Copiar")
         st.caption("A caixa abaixo tem um ícone de 'Copiar' (duas folhas) no canto superior direito. Passe o mouse, clique e cole no WhatsApp.")
