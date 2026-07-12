@@ -3,7 +3,7 @@ import pandas as pd
 import datetime
 import utils
 import servicos_painel
-import cronograma  # Importação do módulo específico criado acima
+import cronograma  
 
 def deve_ir_para_finalizados(status, data_conc_str):
     if status in ["Concluído PIX", "Concluído CARTÃO"]:
@@ -13,30 +13,12 @@ def deve_ir_para_finalizados(status, data_conc_str):
 def renderizar():
     st.markdown("""
         <style>
-        /* CSS Nativo: Ocultar setinhas de number_inputs */
-        div[data-testid="stNumberInputStepUp"], div[data-testid="stNumberInputStepDown"] { 
-            display: none !important; 
-        }
-        input[type=number]::-webkit-inner-spin-button, 
-        input[type=number]::-webkit-outer-spin-button { 
-            -webkit-appearance: none !important; 
-            margin: 0 !important; 
-        }
-        input[type=number] { 
-            -moz-appearance: textfield !important; 
-        }
-
-        /* Responsividade Mobile */
+        div[data-testid="stNumberInputStepUp"], div[data-testid="stNumberInputStepDown"] { display: none !important; }
+        input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none !important; margin: 0 !important; }
+        input[type=number] { -moz-appearance: textfield !important; }
         @media screen and (max-width: 768px) {
-            div[data-testid="stDataFrame"] {
-                overflow-x: auto !important;
-            }
-            div[data-testid="column"] {
-                width: 100% !important;
-                min-width: 100% !important;
-                display: block !important;
-                margin-bottom: 0.8rem !important;
-            }
+            div[data-testid="stDataFrame"] { overflow-x: auto !important; }
+            div[data-testid="column"] { width: 100% !important; min-width: 100% !important; display: block !important; margin-bottom: 0.8rem !important; }
         }
         </style>
     """, unsafe_allow_html=True)
@@ -64,7 +46,6 @@ def renderizar():
     except:
         lista_instaladores = []
 
-    # Chamada isolada e limpa do componente de cronograma externo
     with col_btn:
         st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
         if st.button("📅 Cronograma de Serviços", use_container_width=True, type="secondary"):
@@ -89,21 +70,19 @@ def renderizar():
         status = str(row['status_projeto'])
         alvos = ["Aguardando Pagamento", "Concluído PIX", "Concluído CARTÃO", "Aguardando Peças", "Em Andamento"]
         if status in alvos and pd.notna(row['data_conclusao']) and str(row['data_conclusao']).lower() not in ['nat', 'none', 'nan']:
-            try:
-                return pd.to_datetime(row['data_conclusao']).strftime('%d/%m/%Y')
-            except:
-                pass
+            try: return pd.to_datetime(row['data_conclusao']).strftime('%d/%m/%Y')
+            except: pass
         return ""
+    
     df['Data de término'] = df.apply(descobrir_data_termino, axis=1)
 
     def descobrir_venc_fornecedor(row):
         venc = row.get('vencimento_boleto')
         if pd.notna(venc) and str(venc).strip().lower() not in ['none', 'nan', 'nat', '']:
-            try: 
-                return pd.to_datetime(venc).strftime('%d/%m/%Y')
-            except: 
-                return str(venc)
+            try: return pd.to_datetime(venc).strftime('%d/%m/%Y')
+            except: return str(venc)
         return ""
+    
     df['($) Fornecedor'] = df.apply(descobrir_venc_fornecedor, axis=1)
 
     ativos_status = ["Em Andamento", "Aguardando Pagamento", "Aguardando Peças", "Concluído PIX", "Concluído CARTÃO"]
@@ -117,8 +96,7 @@ def renderizar():
     colunas_visiveis = ['Cliente', 'Status', 'Valor Total', 'Lucro Líquido', 'Data de término', 'Instalador', '($) Fornecedor']
     
     config_colunas = {
-        "Cliente": "Cliente",
-        "Status": "Status",
+        "Cliente": "Cliente", "Status": "Status",
         "Valor Total": st.column_config.TextColumn("Valor Total"),
         "Lucro Líquido": st.column_config.TextColumn("Lucro Líquido"),
         "Data de término": st.column_config.TextColumn("Data de término"),
@@ -128,10 +106,8 @@ def renderizar():
     
     with aba1:
         sel = st.dataframe(df_atv[colunas_visiveis], use_container_width=True, on_select="rerun", selection_mode="single-row", hide_index=True, column_config=config_colunas, key="g_atv")
-        
         total_bruto_atv = pd.to_numeric(df_atv['valor_venda_total'], errors='coerce').fillna(0).sum()
         total_lucro_atv = pd.to_numeric(df_atv['lucro_estimado'], errors='coerce').fillna(0).sum()
-        
         st.markdown(f"<div style='text-align: right; font-size: 18px; font-weight: bold; margin-bottom: 20px;'><span style='color: #555; margin-right: 20px;'>Faturamento Bruto: {utils.to_br_currency(total_bruto_atv)}</span> <span style='color: #004488;'>Lucro Líquido Estimado: {utils.to_br_currency(total_lucro_atv)}</span></div>", unsafe_allow_html=True)
         
         if sel.selection.rows and len(df_atv) > sel.selection.rows[0]: 
@@ -139,10 +115,8 @@ def renderizar():
     
     with aba2:
         sel = st.dataframe(df_orc[colunas_visiveis], use_container_width=True, on_select="rerun", selection_mode="single-row", hide_index=True, column_config=config_colunas, key="g_orc")
-        
         total_bruto_orc = pd.to_numeric(df_orc['valor_venda_total'], errors='coerce').fillna(0).sum()
         total_lucro_orc = pd.to_numeric(df_orc['lucro_estimado'], errors='coerce').fillna(0).sum()
-        
         st.markdown(f"<div style='text-align: right; font-size: 18px; font-weight: bold; margin-bottom: 20px;'><span style='color: #555; margin-right: 20px;'>Faturamento Bruto: {utils.to_br_currency(total_bruto_orc)}</span> <span style='color: #004488;'>Lucro Líquido Estimado: {utils.to_br_currency(total_lucro_orc)}</span></div>", unsafe_allow_html=True)
         
         if sel.selection.rows and len(df_orc) > sel.selection.rows[0]: 
@@ -150,14 +124,12 @@ def renderizar():
 
     with aba3:
         st.caption("Histórico de serviços concluídos e faturados.")
-        
         hoje = datetime.date.today()
         ano_atual = hoje.year
         mes_atual_idx = hoje.month
 
         df_fin['Ano'] = df_fin['data_conclusao'].dt.year.fillna(ano_atual).astype(int)
         df_fin['Mes_idx'] = df_fin['data_conclusao'].dt.month.fillna(mes_atual_idx).astype(int)
-
         anos_disponiveis = sorted(list(set(df_fin['Ano'].unique()) | {ano_atual}), reverse=True)
 
         c_ano, c_mes, c_vazio = st.columns([1.5, 1.5, 7])
@@ -173,10 +145,8 @@ def renderizar():
             st.info(f"Nenhum serviço finalizado registrado em {mes_sel} de {ano_sel}.")
         else:
             sel_fin = st.dataframe(df_fin_mes[colunas_visiveis], use_container_width=True, on_select="rerun", selection_mode="single-row", hide_index=True, column_config=config_colunas, key=f"g_fin_{ano_sel}_{mes_sel_idx}")
-            
             total_bruto_fin_mes = pd.to_numeric(df_fin_mes['valor_venda_total'], errors='coerce').fillna(0).sum()
             total_lucro_fin_mes = pd.to_numeric(df_fin_mes['lucro_estimado'], errors='coerce').fillna(0).sum()
-            
             st.markdown(f"<div style='text-align: right; font-size: 18px; font-weight: bold; margin-bottom: 20px;'><span style='color: #555; margin-right: 20px;'>Faturamento Bruto ({mes_sel}): {utils.to_br_currency(total_bruto_fin_mes)}</span> <span style='color: #004488;'>Lucro Líquido Realizado: {utils.to_br_currency(total_lucro_fin_mes)}</span></div>", unsafe_allow_html=True)
             
             if sel_fin.selection.rows and len(df_fin_mes) > sel_fin.selection.rows[0]: 
