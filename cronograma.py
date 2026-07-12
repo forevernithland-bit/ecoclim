@@ -197,7 +197,6 @@ def modal_cronograma(df_servicos, lista_instaladores):
                                     df_servicos.at[i_df, 'dados_contrato'] = payload['dados_contrato']
                     
                     st.success("✅ Cronograma salvo com sucesso!")
-                    # Removido o st.rerun() propositalmente para o Modal não fechar!
 
     with aba_zap:
         st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
