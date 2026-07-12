@@ -22,6 +22,8 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         st.markdown("---")
         st.markdown(f"### ⚙️ Detalhes e Fechamento")
         
+        id_projeto = int(projeto_selecionado.get('id', 0))
+        
         c_cad1, c_cad2 = st.columns(2)
         novo_nome_cliente = c_cad1.text_input("Nome do Cliente", value=str(projeto_selecionado.get('nome_cliente', 'Sem Nome')), key=f"edit_nome_{prefix_key}")
         novo_tel_cliente = c_cad2.text_input("Telefone / WhatsApp", value=str(projeto_selecionado.get('telefone_cliente', '')), key=f"edit_tel_{prefix_key}")
@@ -74,32 +76,44 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
 
         st.markdown("#### 🛒 Itens Vendidos (Ajuste Quantidades e Custos)")
         
-        lista_prod = df_produtos['Item'].dropna().tolist() if not df_produtos.empty else []
+        lista_prod = df_produtos['Item'].dropna().tolist() if not df_produtos.empty and 'Item' in df_produtos.columns else []
         
+        # =========================================================================
+        # NOVO MOTOR DE TABELA 100% BLINDADO CONTRA KEYERRORS
+        # =========================================================================
+        colunas_padrao = ['Item', 'Descrição', 'Qtd', 'Custo Un.', 'Venda Un.', 'Custo Total', 'Venda Total']
         itens_json = projeto_selecionado.get('detalhamento_itens', [])
-        df_itens = pd.DataFrame(itens_json) if (isinstance(itens_json, list) and len(itens_json) > 0) else pd.DataFrame()
         
-        for col in ['Item', 'Descrição', 'Qtd', 'Custo Un.', 'Venda Un.', 'Custo Total', 'Venda Total']:
-            if col not in df_itens.columns: 
-                df_itens[col] = 0.0 if 'Un.' in col or 'Qtd' in col or 'Total' in col else ""
-            
-            if col in ['Qtd', 'Custo Un.', 'Venda Un.', 'Custo Total', 'Venda Total']:
-                df_itens[col] = df_itens[col].apply(lambda x: safe_float(x))
+        clean_data = []
+        if isinstance(itens_json, list):
+            for linha in itens_json:
+                if isinstance(linha, dict):
+                    clean_data.append({
+                        'Item': str(linha.get('Item', '')),
+                        'Descrição': str(linha.get('Descrição', '')),
+                        'Qtd': safe_float(linha.get('Qtd', 0)),
+                        'Custo Un.': safe_float(linha.get('Custo Un.', 0)),
+                        'Venda Un.': safe_float(linha.get('Venda Un.', 0)),
+                        'Custo Total': safe_float(linha.get('Custo Total', 0)),
+                        'Venda Total': safe_float(linha.get('Venda Total', 0))
+                    })
+        
+        df_itens = pd.DataFrame(clean_data, columns=colunas_padrao)
 
         session_key = f"itens_state_{prefix_key}"
         if session_key not in st.session_state:
-            if not df_produtos.empty:
-                for idx, row in df_itens.iterrows():
-                    if safe_float(row.get('Custo Un.')) == 0.0:
-                        nome_procurado = str(row.get('Item', '')).strip().upper()
+            if not df_produtos.empty and 'Item' in df_produtos.columns:
+                for idx in df_itens.index:
+                    if safe_float(df_itens.loc[idx, 'Custo Un.']) == 0.0:
+                        nome_procurado = str(df_itens.loc[idx, 'Item']).strip().upper()
                         match = df_produtos[df_produtos['Item'].astype(str).str.strip().str.upper() == nome_procurado]
                         if not match.empty:
-                            df_itens.at[idx, 'Custo Un.'] = safe_float(match.iloc[0].get('Custo (R$)', 0))
-                    if safe_float(row.get('Venda Un.')) == 0.0:
-                        nome_procurado = str(row.get('Item', '')).strip().upper()
+                            df_itens.loc[idx, 'Custo Un.'] = safe_float(match.iloc[0].get('Custo (R$)', 0))
+                    if safe_float(df_itens.loc[idx, 'Venda Un.']) == 0.0:
+                        nome_procurado = str(df_itens.loc[idx, 'Item']).strip().upper()
                         match = df_produtos[df_produtos['Item'].astype(str).str.strip().str.upper() == nome_procurado]
                         if not match.empty:
-                            df_itens.at[idx, 'Venda Un.'] = safe_float(match.iloc[0].get('Venda (R$)', 0))
+                            df_itens.loc[idx, 'Venda Un.'] = safe_float(match.iloc[0].get('Venda (R$)', 0))
             st.session_state[session_key] = df_itens.copy()
 
         config_itens = {
@@ -112,12 +126,10 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             "Venda Total": st.column_config.NumberColumn("Venda Total", format="R$ %.2f", disabled=True, width="small")
         }
         
-        ordem_cols = ["Item", "Descrição", "Qtd", "Custo Un.", "Venda Un.", "Custo Total", "Venda Total"]
-        
         df_itens_editavel = st.data_editor(
             st.session_state[session_key], 
             column_config=config_itens, 
-            column_order=ordem_cols,
+            column_order=colunas_padrao,
             num_rows="dynamic", 
             use_container_width=True, 
             key=f"edit_itens_{prefix_key}"
@@ -125,32 +137,38 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         
         precisa_atualizar = False
         
-        # Correção do KeyError: Iterando sobre o índice real para prevenir falhas se alguma linha for apagada
+        # Iteração blindada usando .loc e verificação explícita de colunas
         for idx in df_itens_editavel.index:
-            item_atual = str(df_itens_editavel.at[idx, 'Item'] if pd.notna(df_itens_editavel.at[idx, 'Item']) else "").strip()
+            item_atual = str(df_itens_editavel.loc[idx, 'Item']).strip() if 'Item' in df_itens_editavel.columns and pd.notna(df_itens_editavel.loc[idx, 'Item']) else ""
+            
             item_ant = ""
             if idx in st.session_state[session_key].index:
-                item_ant = str(st.session_state[session_key].at[idx, 'Item'] if pd.notna(st.session_state[session_key].at[idx, 'Item']) else "").strip()
+                item_ant = str(st.session_state[session_key].loc[idx, 'Item']).strip() if 'Item' in st.session_state[session_key].columns and pd.notna(st.session_state[session_key].loc[idx, 'Item']) else ""
                 
             if item_atual != item_ant and item_atual != "" and item_atual != "OUTRO":
-                match = df_produtos[df_produtos['Item'].astype(str).str.strip().str.upper() == item_atual.upper()]
-                if not match.empty:
-                    df_itens_editavel.at[idx, 'Custo Un.'] = safe_float(match.iloc[0].get('Custo (R$)', 0))
-                    df_itens_editavel.at[idx, 'Venda Un.'] = safe_float(match.iloc[0].get('Venda (R$)', 0))
-                    if pd.isna(df_itens_editavel.at[idx, 'Qtd']) or float(df_itens_editavel.at[idx, 'Qtd']) <= 0:
-                        df_itens_editavel.at[idx, 'Qtd'] = 1
-                    precisa_atualizar = True
+                if not df_produtos.empty and 'Item' in df_produtos.columns:
+                    match = df_produtos[df_produtos['Item'].astype(str).str.strip().str.upper() == item_atual.upper()]
+                    if not match.empty:
+                        df_itens_editavel.loc[idx, 'Custo Un.'] = safe_float(match.iloc[0].get('Custo (R$)', 0))
+                        df_itens_editavel.loc[idx, 'Venda Un.'] = safe_float(match.iloc[0].get('Venda (R$)', 0))
+                        qtd_atual = df_itens_editavel.loc[idx, 'Qtd'] if 'Qtd' in df_itens_editavel.columns else 0
+                        if pd.isna(qtd_atual) or safe_float(qtd_atual) <= 0:
+                            df_itens_editavel.loc[idx, 'Qtd'] = 1
+                        precisa_atualizar = True
 
-            qtd_calc = safe_float(df_itens_editavel.at[idx, 'Qtd'])
-            c_un_calc = safe_float(df_itens_editavel.at[idx, 'Custo Un.'])
-            v_un_calc = safe_float(df_itens_editavel.at[idx, 'Venda Un.'])
+            qtd_calc = safe_float(df_itens_editavel.loc[idx, 'Qtd']) if 'Qtd' in df_itens_editavel.columns else 0.0
+            c_un_calc = safe_float(df_itens_editavel.loc[idx, 'Custo Un.']) if 'Custo Un.' in df_itens_editavel.columns else 0.0
+            v_un_calc = safe_float(df_itens_editavel.loc[idx, 'Venda Un.']) if 'Venda Un.' in df_itens_editavel.columns else 0.0
             
             tot_c = qtd_calc * c_un_calc
             tot_v = qtd_calc * v_un_calc
             
-            if abs(tot_c - safe_float(df_itens_editavel.at[idx, 'Custo Total'])) > 0.01 or abs(tot_v - safe_float(df_itens_editavel.at[idx, 'Venda Total'])) > 0.01:
-                df_itens_editavel.at[idx, 'Custo Total'] = tot_c
-                df_itens_editavel.at[idx, 'Venda Total'] = tot_v
+            c_tot_atual = safe_float(df_itens_editavel.loc[idx, 'Custo Total']) if 'Custo Total' in df_itens_editavel.columns else 0.0
+            v_tot_atual = safe_float(df_itens_editavel.loc[idx, 'Venda Total']) if 'Venda Total' in df_itens_editavel.columns else 0.0
+            
+            if abs(tot_c - c_tot_atual) > 0.01 or abs(tot_v - v_tot_atual) > 0.01:
+                df_itens_editavel.loc[idx, 'Custo Total'] = tot_c
+                df_itens_editavel.loc[idx, 'Venda Total'] = tot_v
                 precisa_atualizar = True
 
         if precisa_atualizar:
@@ -161,8 +179,8 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             
         df_itens_final = df_itens_editavel
         
-        custo_total_produtos = pd.to_numeric(df_itens_final['Custo Total'], errors='coerce').fillna(0).sum()
-        venda_total_produtos = pd.to_numeric(df_itens_final['Venda Total'], errors='coerce').fillna(0).sum()
+        custo_total_produtos = pd.to_numeric(df_itens_final['Custo Total'], errors='coerce').fillna(0).sum() if 'Custo Total' in df_itens_final.columns else 0.0
+        venda_total_produtos = pd.to_numeric(df_itens_final['Venda Total'], errors='coerce').fillna(0).sum() if 'Venda Total' in df_itens_final.columns else 0.0
         lucro_total_produtos = venda_total_produtos - custo_total_produtos
 
         st.markdown(f"""
@@ -271,7 +289,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                 except: pass
 
             try:
-                res_bol_check = supabase.table('boletos_fornecedores').select('*').eq('servico_id', int(projeto_selecionado['id'])).execute()
+                res_bol_check = supabase.table('boletos_fornecedores').select('*').eq('servico_id', id_projeto).execute()
                 boletos_importados = res_bol_check.data
             except:
                 boletos_importados = []
@@ -288,7 +306,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             novo_venc_boleto = c_venc.date_input("Vencimento Boleto (Cliente)", value=venc_boleto_inicial, format="DD/MM/YYYY", key=f"venc_bol_{prefix_key}")
 
             with st.container(border=True):
-                st.markdown("##### 📥 Importar Boletos de Fornecedores (PDF)")
+                st.markdown("##### 📥 Importar Boleto de Fornecedor (PDF)")
                 
                 if boletos_importados:
                     st.success(f"✅ {len(boletos_importados)} boleto(s) de fornecedor(es) já importado(s).")
@@ -301,7 +319,6 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                         
                         val_str = utils.to_br_currency(b_imp.get('valor', 0))
                         link = b_imp.get('link_drive_id', '')
-                        # Indexação robusta para evitar erro de chaves duplicadas no widget do Streamlit
                         b_id = b_imp.get('id', f'desc_{i_bol}')
                         
                         c_bol1, c_bol2 = st.columns([4, 1])
@@ -320,12 +337,11 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                                     st.error(f"Erro ao remover: {e}")
                     st.markdown("---")
                 
-                # Controle rigoroso do Uploader para impedir loops de memória
-                upload_key_name = f"up_bol_k_{prefix_key}"
-                if upload_key_name not in st.session_state:
-                    st.session_state[upload_key_name] = 0
-
-                arquivo_boleto = st.file_uploader("Anexar PDF de um Novo Boleto para leitura de IA", type=["pdf"], key=f"up_bol_{prefix_key}_{st.session_state[upload_key_name]}")
+                upload_key = f"up_bol_k_{prefix_key}"
+                if upload_key not in st.session_state:
+                    st.session_state[upload_key] = 0
+                    
+                arquivo_boleto = st.file_uploader("Anexar PDF do Boleto para leitura de IA", type=["pdf"], key=f"up_bol_{prefix_key}_{st.session_state[upload_key]}")
                 
                 if arquivo_boleto:
                     if f"dados_bol_{prefix_key}" not in st.session_state:
@@ -333,69 +349,61 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                             venc_ext, val_ext = utils.extrair_dados_boleto(arquivo_boleto)
                             st.session_state[f"dados_bol_{prefix_key}"] = {"vencimento": venc_ext, "valor": val_ext}
 
-                    dados_ext = st.session_state.get(f"dados_bol_{prefix_key}", {})
+                    dados_ext = st.session_state[f"dados_bol_{prefix_key}"]
                     
                     st.caption("Verifique e corrija os dados extraídos pelo sistema:")
                     col_b1, col_b2 = st.columns(2)
                     
                     venc_obj = datetime.date.today()
-                    if dados_ext.get('vencimento'):
+                    if dados_ext['vencimento']:
                         try: venc_obj = datetime.datetime.strptime(dados_ext['vencimento'], "%d/%m/%Y").date()
                         except: pass
                     
                     data_confirmada = col_b1.date_input("Vencimento do Fornecedor", value=venc_obj, format="DD/MM/YYYY", key=f"conf_data_{prefix_key}")
-                    valor_confirmado = col_b2.number_input("Valor Extraído (R$)", value=float(dados_ext.get('valor', 0.0)), format="%.2f", step=None, key=f"conf_val_{prefix_key}")
+                    valor_confirmado = col_b2.number_input("Valor Extraído (R$)", value=float(dados_ext['valor']), format="%.2f", step=None, key=f"conf_val_{prefix_key}")
                     
                     if st.button("🚀 Salvar Boleto e Criar Lembrete", type="primary", use_container_width=True, key=f"btn_salvar_bol_{prefix_key}"):
-                        if not data_confirmada:
-                            st.error("⚠️ A data de vencimento não pode estar vazia.")
-                        else:
-                            with st.spinner("Salvando no Drive e no ERP..."):
-                                mes_idx = data_confirmada.month
-                                nome_mes_pasta = utils.meses_pt[mes_idx - 1]
-                                
-                                partes_nome = novo_nome_cliente.strip().split() if novo_nome_cliente and novo_nome_cliente.strip() else []
-                                nome_cliente_limpo = partes_nome[0] if partes_nome else "Cliente"
-                                
-                                timestamp_str = datetime.datetime.now().strftime('%H%M%S')
-                                nome_arquivo_drive = f"FORNECEDOR_{nome_cliente_limpo}_{data_confirmada.strftime('%d%m%Y')}_{timestamp_str}.pdf"
-                                
-                                arquivo_boleto.seek(0)
-                                
-                                sucesso, link_id = utils.upload_to_drive(
-                                    file_buffer=arquivo_boleto, 
-                                    filename=nome_arquivo_drive, 
-                                    mimetype="application/pdf", 
-                                    folder_path=["Boletos", nome_mes_pasta]
-                                )
-                                
-                                if sucesso:
-                                    novo_boleto = {
-                                        "cliente": novo_nome_cliente if novo_nome_cliente else "Cliente",
-                                        "servico_id": int(projeto_selecionado['id']),
-                                        "vencimento": data_confirmada.strftime("%Y-%m-%d"),
-                                        "valor": valor_confirmado,
-                                        "link_drive_id": link_id,
-                                        "status": "Pendente"
-                                    }
-                                    try:
-                                        supabase.table('boletos_fornecedores').insert(novo_boleto).execute()
-                                        utils.sincronizar_boletos_com_calendar()
-                                        
-                                        if pd.isna(venc_boleto_banco) or str(venc_boleto_banco).lower() in ['none', 'nan', 'nat', '']:
-                                            supabase.table('servicos_andamento').update({'vencimento_boleto': data_confirmada.strftime('%Y-%m-%d')}).eq('id', int(projeto_selecionado['id'])).execute()
-                                        
-                                        st.success(f"✅ Boleto salvo com sucesso!")
-                                        if f"dados_bol_{prefix_key}" in st.session_state:
-                                            del st.session_state[f"dados_bol_{prefix_key}"]
-                                            
-                                        # Ejetar o arquivo do uploader para impedir leituras duplicadas (Anti-Crash Memory Bug)
-                                        st.session_state[upload_key_name] += 1
-                                        st.rerun() 
-                                    except Exception as e:
-                                        st.error(f"Erro no banco de dados. Detalhe: {e}")
-                                else:
-                                    st.error(f"Erro ao fazer o upload para o Google Drive. Detalhes: {link_id}")
+                        with st.spinner("Salvando no Drive e no ERP..."):
+                            mes_idx = data_confirmada.month
+                            nome_mes_pasta = utils.meses_pt[mes_idx - 1]
+                            
+                            nome_cliente_limpo = novo_nome_cliente.split()[0] if novo_nome_cliente else "Cliente"
+                            timestamp_str = datetime.datetime.now().strftime('%H%M%S')
+                            nome_arquivo_drive = f"FORNECEDOR_{nome_cliente_limpo}_{data_confirmada.strftime('%d%m%Y')}_{timestamp_str}.pdf"
+                            
+                            arquivo_boleto.seek(0)
+                            
+                            sucesso, link_id = utils.upload_to_drive(
+                                file_buffer=arquivo_boleto, 
+                                filename=nome_arquivo_drive, 
+                                mimetype="application/pdf", 
+                                folder_path=["Boletos", nome_mes_pasta]
+                            )
+                            
+                            if sucesso:
+                                novo_boleto = {
+                                    "cliente": novo_nome_cliente,
+                                    "servico_id": id_projeto,
+                                    "vencimento": data_confirmada.strftime("%Y-%m-%d"),
+                                    "valor": valor_confirmado,
+                                    "link_drive_id": link_id,
+                                    "status": "Pendente"
+                                }
+                                try:
+                                    supabase.table('boletos_fornecedores').insert(novo_boleto).execute()
+                                    utils.sincronizar_boletos_com_calendar()
+                                    
+                                    if pd.isna(venc_boleto_banco) or str(venc_boleto_banco).lower() in ['none', 'nan', 'nat', '']:
+                                        supabase.table('servicos_andamento').update({'vencimento_boleto': data_confirmada.strftime('%Y-%m-%d')}).eq('id', id_projeto).execute()
+                                    
+                                    st.success(f"✅ Boleto salvo com sucesso!")
+                                    del st.session_state[f"dados_bol_{prefix_key}"]
+                                    st.session_state[upload_key] += 1 
+                                    st.rerun() 
+                                except Exception as e:
+                                    st.error(f"Erro no banco de dados. Tabela 'boletos_fornecedores' existe? Erro: {e}")
+                            else:
+                                st.error(f"Erro ao fazer o upload para o Google Drive. Detalhes: {link_id}")
 
         st.markdown("<br>", unsafe_allow_html=True)
         
@@ -518,7 +526,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                         "val_outros": c_val_outros, "desc_outros": c_desc_outros
                     }
                     try:
-                        supabase.table('servicos_andamento').update({"dados_contrato": payload}).eq('id', int(projeto_selecionado['id'])).execute()
+                        supabase.table('servicos_andamento').update({"dados_contrato": payload}).eq('id', id_projeto).execute()
                         st.success("✅ Dados do contrato salvos com sucesso!")
                     except Exception as e:
                         st.error("⚠️ ERRO: Certifique-se de que a coluna 'dados_contrato' existe no Supabase.")
@@ -582,7 +590,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             st.error("⚠️ **ATENÇÃO:** Você selecionou a opção de Excluir. Isso apagará permanentemente este cliente e orçamento do sistema.")
             if st.button("🗑️ CONFIRMAR EXCLUSÃO", type="primary", use_container_width=True, key=f"del_{prefix_key}"):
                 try:
-                    supabase.table('servicos_andamento').delete().eq('id', int(projeto_selecionado['id'])).execute()
+                    supabase.table('servicos_andamento').delete().eq('id', id_projeto).execute()
                     st.success("✅ Orçamento excluído com sucesso!")
                     st.rerun()
                 except Exception as e:
@@ -608,7 +616,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     "vencimento_boleto": novo_venc_boleto.strftime('%Y-%m-%d') if novo_venc_boleto else None
                 }
                 try:
-                    supabase.table('servicos_andamento').update(dados).eq('id', int(projeto_selecionado['id'])).execute()
+                    supabase.table('servicos_andamento').update(dados).eq('id', id_projeto).execute()
                     if f"itens_state_{prefix_key}" in st.session_state:
                         del st.session_state[f"itens_state_{prefix_key}"]
                     if f"last_status_{prefix_key}" in st.session_state: 
@@ -621,7 +629,6 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                 except Exception as e: 
                     st.error(f"Erro ao salvar. Verifique se as colunas 'nf_entrada', 'vencimento_boleto' e 'instalador' foram criadas no Supabase. Detalhe: {e}")
 
-    # Captura 100% de qualquer erro fatal antes que derrube o Streamlit ("Oh no. Error running app.")
     except Exception as global_e:
         st.error(f"⚠️ **Erro Interno de Execução:** Ocorreu uma falha ao renderizar este painel.")
         st.info("Para que o suporte possa ajudar, por favor tire um print do erro abaixo:")
