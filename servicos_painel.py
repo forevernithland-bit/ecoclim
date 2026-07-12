@@ -268,17 +268,19 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             except: pass
 
         # =====================================================================
-        # CONSULTA INTELIGENTE DE MÚLTIPLOS BOLETOS CADASTRADOS
+        # CONSULTA INTELIGENTE E SEGURA DE MÚLTIPLOS BOLETOS (BLINDADA CONTRA ERROS DE COLUNA)
         # =====================================================================
         try:
-            res_bol_check = supabase.table('boletos_fornecedores').select('id, vencimento, valor, link_drive_id').eq('servico_id', int(projeto_selecionado['id'])).execute()
+            res_bol_check = supabase.table('boletos_fornecedores').select('*').eq('servico_id', int(projeto_selecionado['id'])).execute()
             boletos_importados = res_bol_check.data
         except:
             boletos_importados = []
             
         if boletos_importados and venc_boleto_inicial is None:
             try:
-                venc_boleto_inicial = pd.to_datetime(boletos_importados[0]['vencimento']).date()
+                venc_b_temp = boletos_importados[0].get('vencimento')
+                if venc_b_temp:
+                    venc_boleto_inicial = pd.to_datetime(venc_b_temp).date()
             except:
                 pass
         
@@ -293,10 +295,14 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                 st.success(f"✅ {len(boletos_importados)} boleto(s) de fornecedor(es) já importado(s) para este projeto.")
                 for b_imp in boletos_importados:
                     dt_str = "Sem data"
-                    try: dt_str = pd.to_datetime(b_imp['vencimento']).strftime('%d/%m/%Y')
+                    try: 
+                        dt_b = pd.to_datetime(b_imp.get('vencimento'))
+                        if pd.notna(dt_b): dt_str = dt_b.strftime('%d/%m/%Y')
                     except: pass
+                    
                     val_str = utils.to_br_currency(b_imp.get('valor', 0))
                     link = b_imp.get('link_drive_id', '')
+                    b_id = b_imp.get('id', 'desconhecido')
                     
                     c_bol1, c_bol2 = st.columns([4, 1])
                     with c_bol1:
@@ -305,12 +311,13 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                         else:
                             st.markdown(f"📄 **Venc:** {dt_str} | **Valor:** {val_str}")
                     with c_bol2:
-                        # Botão prático para apagar se subiu o boleto errado
-                        if st.button("🗑️ Remover", key=f"del_bol_{b_imp['id']}_{prefix_key}"):
-                            supabase.table('boletos_fornecedores').delete().eq('id', b_imp['id']).execute()
-                            if link:
-                                utils.delete_drive_file(link)
-                            st.rerun()
+                        if st.button("🗑️ Remover", key=f"del_bol_{b_id}_{prefix_key}"):
+                            try:
+                                supabase.table('boletos_fornecedores').delete().eq('id', b_id).execute()
+                                if link: utils.delete_drive_file(link)
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Erro ao remover: {e}")
                 st.markdown("---")
             
             # --- ÁREA: UPLOAD DE NOVOS BOLETOS (MÚLTIPLOS FORNECEDORES) ---
@@ -328,54 +335,61 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                 col_b1, col_b2 = st.columns(2)
                 
                 venc_obj = datetime.date.today()
-                if dados_ext['vencimento']:
+                if dados_ext.get('vencimento'):
                     try: venc_obj = datetime.datetime.strptime(dados_ext['vencimento'], "%d/%m/%Y").date()
                     except: pass
                 
                 data_confirmada = col_b1.date_input("Vencimento do Fornecedor", value=venc_obj, format="DD/MM/YYYY", key=f"conf_data_{prefix_key}")
-                valor_confirmado = col_b2.number_input("Valor Extraído (R$)", value=float(dados_ext['valor']), format="%.2f", step=None, key=f"conf_val_{prefix_key}")
+                valor_confirmado = col_b2.number_input("Valor Extraído (R$)", value=float(dados_ext.get('valor', 0.0)), format="%.2f", step=None, key=f"conf_val_{prefix_key}")
                 
                 if st.button("🚀 Salvar Boleto e Criar Lembrete", type="primary", use_container_width=True, key=f"btn_salvar_bol_{prefix_key}"):
-                    with st.spinner("Salvando no Drive e no ERP..."):
-                        mes_idx = data_confirmada.month
-                        nome_mes_pasta = utils.meses_pt[mes_idx - 1]
-                        
-                        nome_cliente_limpo = novo_nome_cliente.split()[0] if novo_nome_cliente else "Cliente"
-                        # Carimbo de tempo adicionado para não substituir arquivos caso suba dois no mesmo dia!
-                        timestamp_str = datetime.datetime.now().strftime('%H%M%S')
-                        nome_arquivo_drive = f"FORNECEDOR_{nome_cliente_limpo}_{data_confirmada.strftime('%d%m%Y')}_{timestamp_str}.pdf"
-                        
-                        sucesso, link_id = utils.upload_to_drive(
-                            file_buffer=arquivo_boleto, 
-                            filename=nome_arquivo_drive, 
-                            mimetype="application/pdf", 
-                            folder_path=["Boletos", nome_mes_pasta]
-                        )
-                        
-                        if sucesso:
-                            novo_boleto = {
-                                "cliente": novo_nome_cliente,
-                                "servico_id": int(projeto_selecionado['id']),
-                                "vencimento": data_confirmada.strftime("%Y-%m-%d"),
-                                "valor": valor_confirmado,
-                                "link_drive_id": link_id,
-                                "status": "Pendente"
-                            }
-                            try:
-                                supabase.table('boletos_fornecedores').insert(novo_boleto).execute()
-                                utils.sincronizar_boletos_com_calendar()
-                                
-                                # Se o serviço não tinha nenhum vencimento anotado lá em cima, ele preenche pra você
-                                if pd.isna(venc_boleto_banco) or str(venc_boleto_banco).lower() in ['none', 'nan', 'nat', '']:
-                                    supabase.table('servicos_andamento').update({'vencimento_boleto': data_confirmada.strftime('%Y-%m-%d')}).eq('id', int(projeto_selecionado['id'])).execute()
-                                
-                                st.success(f"✅ Boleto salvo com sucesso na aba Documentos -> Boletos -> {nome_mes_pasta} e lembrete gerado no Calendar!")
-                                del st.session_state[f"dados_bol_{prefix_key}"]
-                                st.rerun() 
-                            except Exception as e:
-                                st.error(f"Erro no banco de dados. Tabela 'boletos_fornecedores' existe? Erro: {e}")
-                        else:
-                            st.error(f"Erro ao fazer o upload para o Google Drive. Detalhes: {link_id}")
+                    if not data_confirmada:
+                        st.error("⚠️ A data de vencimento não pode estar vazia.")
+                    else:
+                        with st.spinner("Salvando no Drive e no ERP..."):
+                            mes_idx = data_confirmada.month
+                            nome_mes_pasta = utils.meses_pt[mes_idx - 1]
+                            
+                            # Tratamento seguro contra nomes vazios que causavam quebras no split()
+                            partes_nome = novo_nome_cliente.strip().split() if novo_nome_cliente and novo_nome_cliente.strip() else []
+                            nome_cliente_limpo = partes_nome[0] if partes_nome else "Cliente"
+                            
+                            timestamp_str = datetime.datetime.now().strftime('%H%M%S')
+                            nome_arquivo_drive = f"FORNECEDOR_{nome_cliente_limpo}_{data_confirmada.strftime('%d%m%Y')}_{timestamp_str}.pdf"
+                            
+                            # Força o retorno do leitor pro início antes do upload
+                            arquivo_boleto.seek(0)
+                            
+                            sucesso, link_id = utils.upload_to_drive(
+                                file_buffer=arquivo_boleto, 
+                                filename=nome_arquivo_drive, 
+                                mimetype="application/pdf", 
+                                folder_path=["Boletos", nome_mes_pasta]
+                            )
+                            
+                            if sucesso:
+                                novo_boleto = {
+                                    "cliente": novo_nome_cliente if novo_nome_cliente else "Cliente",
+                                    "servico_id": int(projeto_selecionado['id']),
+                                    "vencimento": data_confirmada.strftime("%Y-%m-%d"),
+                                    "valor": valor_confirmado,
+                                    "link_drive_id": link_id,
+                                    "status": "Pendente"
+                                }
+                                try:
+                                    supabase.table('boletos_fornecedores').insert(novo_boleto).execute()
+                                    utils.sincronizar_boletos_com_calendar()
+                                    
+                                    if pd.isna(venc_boleto_banco) or str(venc_boleto_banco).lower() in ['none', 'nan', 'nat', '']:
+                                        supabase.table('servicos_andamento').update({'vencimento_boleto': data_confirmada.strftime('%Y-%m-%d')}).eq('id', int(projeto_selecionado['id'])).execute()
+                                    
+                                    st.success(f"✅ Boleto salvo com sucesso!")
+                                    del st.session_state[f"dados_bol_{prefix_key}"]
+                                    st.rerun() 
+                                except Exception as e:
+                                    st.error(f"Erro no banco de dados. Detalhe: {e}")
+                            else:
+                                st.error(f"Erro ao fazer o upload para o Google Drive. Detalhes: {link_id}")
 
     st.markdown("<br>", unsafe_allow_html=True)
     
