@@ -52,11 +52,9 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         if novo_status in ["Concluído PIX", "Concluído CARTÃO"] and st.session_state[f"last_status_{prefix_key}"] not in ["Concluído PIX", "Concluído CARTÃO"]:
             hoje = datetime.date.today()
             st.session_state[f"data_edit_{prefix_key}"] = hoje
-            # Força a chave interna do calendário a atualizar também
             st.session_state[f"data_{prefix_key}"] = hoje
             
         st.session_state[f"last_status_{prefix_key}"] = novo_status
-        # Força o Streamlit a recarregar a tela instantaneamente para aplicar a data
         st.rerun()
 
     label_data = "Data de Término" if novo_status in ["Concluído PIX", "Concluído CARTÃO"] else "Data de Inclusão / Previsão"
@@ -269,8 +267,11 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             try: venc_boleto_inicial = pd.to_datetime(venc_boleto_banco).date()
             except: pass
 
+        # =====================================================================
+        # CONSULTA INTELIGENTE DE MÚLTIPLOS BOLETOS CADASTRADOS
+        # =====================================================================
         try:
-            res_bol_check = supabase.table('boletos_fornecedores').select('id, vencimento').eq('servico_id', int(projeto_selecionado['id'])).execute()
+            res_bol_check = supabase.table('boletos_fornecedores').select('id, vencimento, valor, link_drive_id').eq('servico_id', int(projeto_selecionado['id'])).execute()
             boletos_importados = res_bol_check.data
         except:
             boletos_importados = []
@@ -285,12 +286,35 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         novo_venc_boleto = c_venc.date_input("Vencimento Boleto (Cliente)", value=venc_boleto_inicial, format="DD/MM/YYYY", key=f"venc_bol_{prefix_key}")
 
         with st.container(border=True):
-            st.markdown("##### 📥 Importar Boleto de Fornecedor (PDF)")
+            st.markdown("##### 📥 Importar Boletos de Fornecedores (PDF)")
             
+            # --- ÁREA: EXIBIR LISTA DE BOLETOS JÁ CADASTRADOS ---
             if boletos_importados:
-                st.success("✅ O boleto do fornecedor já foi importado para este serviço.")
+                st.success(f"✅ {len(boletos_importados)} boleto(s) de fornecedor(es) já importado(s) para este projeto.")
+                for b_imp in boletos_importados:
+                    dt_str = "Sem data"
+                    try: dt_str = pd.to_datetime(b_imp['vencimento']).strftime('%d/%m/%Y')
+                    except: pass
+                    val_str = utils.to_br_currency(b_imp.get('valor', 0))
+                    link = b_imp.get('link_drive_id', '')
+                    
+                    c_bol1, c_bol2 = st.columns([4, 1])
+                    with c_bol1:
+                        if link:
+                            st.markdown(f"📄 **Venc:** {dt_str} | **Valor:** {val_str} | <a href='https://drive.google.com/file/d/{link}/view' target='_blank'>👁️ Ver PDF</a>", unsafe_allow_html=True)
+                        else:
+                            st.markdown(f"📄 **Venc:** {dt_str} | **Valor:** {val_str}")
+                    with c_bol2:
+                        # Botão prático para apagar se subiu o boleto errado
+                        if st.button("🗑️ Remover", key=f"del_bol_{b_imp['id']}_{prefix_key}"):
+                            supabase.table('boletos_fornecedores').delete().eq('id', b_imp['id']).execute()
+                            if link:
+                                utils.delete_drive_file(link)
+                            st.rerun()
+                st.markdown("---")
             
-            arquivo_boleto = st.file_uploader("Anexar PDF do Boleto para leitura de IA", type=["pdf"], key=f"up_bol_{prefix_key}")
+            # --- ÁREA: UPLOAD DE NOVOS BOLETOS (MÚLTIPLOS FORNECEDORES) ---
+            arquivo_boleto = st.file_uploader("Anexar PDF de um Novo Boleto para leitura de IA", type=["pdf"], key=f"up_bol_{prefix_key}")
             
             if arquivo_boleto:
                 if f"dados_bol_{prefix_key}" not in st.session_state:
@@ -317,7 +341,9 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                         nome_mes_pasta = utils.meses_pt[mes_idx - 1]
                         
                         nome_cliente_limpo = novo_nome_cliente.split()[0] if novo_nome_cliente else "Cliente"
-                        nome_arquivo_drive = f"FORNECEDOR_{nome_cliente_limpo}_{data_confirmada.strftime('%d%m%Y')}.pdf"
+                        # Carimbo de tempo adicionado para não substituir arquivos caso suba dois no mesmo dia!
+                        timestamp_str = datetime.datetime.now().strftime('%H%M%S')
+                        nome_arquivo_drive = f"FORNECEDOR_{nome_cliente_limpo}_{data_confirmada.strftime('%d%m%Y')}_{timestamp_str}.pdf"
                         
                         sucesso, link_id = utils.upload_to_drive(
                             file_buffer=arquivo_boleto, 
@@ -339,6 +365,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                                 supabase.table('boletos_fornecedores').insert(novo_boleto).execute()
                                 utils.sincronizar_boletos_com_calendar()
                                 
+                                # Se o serviço não tinha nenhum vencimento anotado lá em cima, ele preenche pra você
                                 if pd.isna(venc_boleto_banco) or str(venc_boleto_banco).lower() in ['none', 'nan', 'nat', '']:
                                     supabase.table('servicos_andamento').update({'vencimento_boleto': data_confirmada.strftime('%Y-%m-%d')}).eq('id', int(projeto_selecionado['id'])).execute()
                                 
