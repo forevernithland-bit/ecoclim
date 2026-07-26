@@ -1,13 +1,13 @@
 {
-  "atualizado_em": "2026-07-24T17:13:01Z",
+  "atualizado_em": "2026-07-26T23:41:19Z",
   "fonte": "Tabelas de precos Maggi (PDF)",
   "grupos": {
     "2014": {
-      "ref": "Julho 2026",
+      "ref": "Agosto 2026",
       "prazos": [
         {
-          "meses": 113,
-          "taxa": 22
+          "meses": 112,
+          "taxa": 25
         }
       ],
       "fundo": 3.0,
@@ -22,23 +22,15 @@
         446458,
         496064
       ],
-      "assembleia": "2026-07-15",
-      "vencimento": "2026-07-09"
+      "assembleia": "2026-08-12",
+      "vencimento": "2026-08-06"
     },
     "2016": {
-      "ref": "Julho 2026",
+      "ref": "Agosto 2026",
       "prazos": [
         {
-          "meses": 144,
-          "taxa": 22
-        },
-        {
-          "meses": 94,
-          "taxa": 19
-        },
-        {
-          "meses": 64,
-          "taxa": 16
+          "meses": 143,
+          "taxa": 25
         }
       ],
       "fundo": 2.0,
@@ -51,8 +43,8 @@
         348413,
         387126
       ],
-      "assembleia": "2026-07-22",
-      "vencimento": "2026-07-16"
+      "assembleia": "2026-08-19",
+      "vencimento": "2026-08-13"
     },
     "757": {
       "ref": "SETEMBRO 2026",
@@ -105,19 +97,11 @@
       "vencimento": null
     },
     "2019": {
-      "ref": "Julho 2026",
+      "ref": "Agosto 2026",
       "prazos": [
         {
-          "meses": 194,
-          "taxa": 23
-        },
-        {
-          "meses": 174,
-          "taxa": 21
-        },
-        {
-          "meses": 154,
-          "taxa": 21
+          "meses": 193,
+          "taxa": 25
         }
       ],
       "fundo": 1.0,
@@ -131,23 +115,15 @@
         314189,
         336631
       ],
-      "assembleia": "2026-07-22",
-      "vencimento": "2026-07-16"
+      "assembleia": "2026-08-19",
+      "vencimento": "2026-08-13"
     },
     "2015": {
-      "ref": "Julho 2026",
+      "ref": "Agosto 2026",
       "prazos": [
         {
-          "meses": 138,
-          "taxa": 22
-        },
-        {
-          "meses": 88,
-          "taxa": 19
-        },
-        {
-          "meses": 58,
-          "taxa": 16
+          "meses": 137,
+          "taxa": 25
         }
       ],
       "fundo": 2.0,
@@ -161,23 +137,15 @@
         513975,
         571083
       ],
-      "assembleia": "2026-07-14",
-      "vencimento": "2026-07-09"
+      "assembleia": "2026-08-11",
+      "vencimento": "2026-08-06"
     },
     "2018": {
-      "ref": "Julho 2026",
+      "ref": "Agosto 2026",
       "prazos": [
         {
-          "meses": 161,
-          "taxa": 23
-        },
-        {
-          "meses": 111,
-          "taxa": 20
-        },
-        {
-          "meses": 81,
-          "taxa": 17
+          "meses": 160,
+          "taxa": 25
         }
       ],
       "fundo": 1.0,
@@ -191,49 +159,41 @@
         416984,
         463316
       ],
-      "assembleia": "2026-07-22",
-      "vencimento": "2026-07-16"
+      "assembleia": "2026-08-19",
+      "vencimento": "2026-08-13"
     },
     "8000": {
-      "ref": "Julho 2026",
+      "ref": "Agosto 2026",
       "prazos": [
         {
-          "meses": 49,
-          "taxa": 15
+          "meses": 48,
+          "taxa": 10
         }
       ],
       "fundo": 1.0,
       "seguro": 0.05,
       "creditos": [
-        303706,
-        334076,
-        364447,
-        394818,
-        425188,
-        455559,
-        485929,
-        516300,
-        546671,
-        577041,
-        607412
+        313924,
+        345316,
+        376709,
+        408102,
+        439493,
+        470886,
+        502278,
+        533671,
+        565064,
+        596455,
+        627848
       ],
-      "assembleia": "2026-07-21",
-      "vencimento": "2026-07-16"
+      "assembleia": "2026-08-18",
+      "vencimento": "2026-08-13"
     },
     "2020": {
-      "ref": "Julho 2026",
+      "ref": "Agosto 2026",
       "prazos": [
         {
-          "meses": 205,
-          "taxa": 24
-        },
-        {
-          "meses": 185,
-          "taxa": 22
-        },
-        {
-          "meses": 165,
-          "taxa": 22
+          "meses": 204,
+          "taxa": 25
         }
       ],
       "fundo": 1.0,
@@ -248,8 +208,8 @@
         391093,
         422803
       ],
-      "assembleia": "2026-07-22",
-      "vencimento": "2026-07-16"
+      "assembleia": "2026-08-19",
+      "vencimento": "2026-08-13"
     },
     "2013": {
       "ref": "Julho 2026",
@@ -273,19 +233,11 @@
       "vencimento": "2026-07-09"
     },
     "2017": {
-      "ref": "Julho 2026",
+      "ref": "Agosto 2026",
       "prazos": [
         {
-          "meses": 152,
-          "taxa": 23
-        },
-        {
-          "meses": 102,
-          "taxa": 20
-        },
-        {
-          "meses": 72,
-          "taxa": 17
+          "meses": 151,
+          "taxa": 25
         }
       ],
       "fundo": 1.0,
@@ -299,14 +251,14 @@
         413952,
         451585
       ],
-      "assembleia": "2026-07-22",
-      "vencimento": "2026-07-16"
+      "assembleia": "2026-08-19",
+      "vencimento": "2026-08-13"
     },
     "644": {
-      "ref": "Julho 2026",
+      "ref": "Agosto 2026",
       "prazos": [
         {
-          "meses": 118,
+          "meses": 117,
           "taxa": 18
         }
       ],
@@ -322,8 +274,8 @@
         130000,
         140000
       ],
-      "assembleia": "2026-07-21",
-      "vencimento": "2026-07-16"
+      "assembleia": "2026-08-18",
+      "vencimento": "2026-08-13"
     },
     "636": {
       "ref": "Julho 2026",
@@ -349,10 +301,10 @@
       "vencimento": "2026-07-16"
     },
     "634": {
-      "ref": "Julho 2026",
+      "ref": "Agosto 2026",
       "prazos": [
         {
-          "meses": 93,
+          "meses": 92,
           "taxa": 18
         }
       ],
@@ -376,8 +328,8 @@
         316284,
         327189
       ],
-      "assembleia": "2026-07-20",
-      "vencimento": "2026-07-16"
+      "assembleia": "2026-08-17",
+      "vencimento": "2026-08-13"
     }
   }
 }
