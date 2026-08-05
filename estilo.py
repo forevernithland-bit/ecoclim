@@ -45,6 +45,8 @@ def _tokens(tema: str) -> str:
       --shadow-lg:0 18px 48px rgba(0,0,0,.66);
       --ring:rgba(231,184,74,.35);
       --kpi-glow:rgba(231,184,74,.20);
+      --primary-tint:rgba(231,184,74,.16);
+      --cta:#E7B84A; --cta-ink:#1a1610; --cta-hover:#f0c766;
         """
     # Claro "tech-luxe" (PADRÃO): base clara/clean, azul elétrico + dourado, grafite no hero.
     return """
@@ -60,6 +62,8 @@ def _tokens(tema: str) -> str:
       --shadow-lg:0 18px 48px rgba(21,80,200,.16);
       --ring:rgba(21,115,255,.28);
       --kpi-glow:rgba(6,182,212,.18);
+      --primary-tint:rgba(21,115,255,.12);
+      --cta:#141a26; --cta-ink:#ffffff; --cta-hover:#20293a;
         """
 
 
@@ -120,13 +124,12 @@ def aplicar_tema():
       font-family:var(--font-body); font-weight:600; border-radius:var(--r) !important;
       transition:var(--t) !important; letter-spacing:.2px;
     }
-    /* Primário = CTA da marca (verde) */
+    /* Primário = CTA refinado (grafite no claro, dourado no escuro; azul só acento) */
     div.stButton > button[kind="primary"]{
-      background:linear-gradient(135deg, var(--primary), var(--primary-d)) !important;
-      color:var(--primary-ink) !important; border:none !important;
-      box-shadow:0 6px 16px -6px var(--ring) !important; min-height:42px !important;
+      background:var(--cta) !important; color:var(--cta-ink) !important; border:1px solid transparent !important;
+      box-shadow:var(--shadow-sm) !important; min-height:40px !important; font-weight:600 !important;
     }
-    div.stButton > button[kind="primary"]:hover{ transform:translateY(-2px); box-shadow:0 12px 24px -8px var(--ring) !important; filter:saturate(1.05); }
+    div.stButton > button[kind="primary"]:hover{ background:var(--cta-hover) !important; transform:translateY(-1px); box-shadow:var(--shadow) !important; }
     div.stButton > button[kind="primary"]:active{ transform:translateY(0); }
     /* Secundário = superfície/card */
     div.stButton > button[kind="secondary"]{
@@ -166,7 +169,9 @@ def aplicar_tema():
     }
     div[data-testid="stMetric"]:hover{ transform:translateY(-2px); box-shadow:var(--shadow); border-color:var(--hair-2); }
     div[data-testid="stMetricLabel"] p{ color:var(--muted) !important; font-weight:600; letter-spacing:.04em; text-transform:uppercase; font-size:.72rem !important; }
-    div[data-testid="stMetricValue"]{ font-family:var(--font-head); font-weight:700; color:var(--ink) !important; }
+    div[data-testid="stMetricValue"]{ font-family:var(--font-head); font-weight:700; color:var(--ink) !important;
+      font-size:1.35rem !important; white-space:normal !important; overflow:visible !important; line-height:1.15 !important; }
+    div[data-testid="stMetricValue"] > div{ white-space:normal !important; overflow:visible !important; text-overflow:clip !important; }
 
     /* ---------- Tabs ---------- */
     button[data-baseweb="tab"]{ font-weight:600; color:var(--muted); }
@@ -190,22 +195,23 @@ def aplicar_tema():
 
     /* ---------- Componentes utilitários (HTML custom) ---------- */
     .eco-hero{
-      background:linear-gradient(135deg, var(--brandbar1), var(--brandbar2));
-      border-radius:var(--r-xl); padding:22px 26px; color:#fff; position:relative; overflow:hidden;
-      box-shadow:var(--shadow); margin-bottom:14px;
+      background:linear-gradient(135deg, var(--surface), var(--surface-2));
+      border:1px solid var(--hair); border-left:4px solid var(--primary);
+      border-radius:var(--r-lg); padding:16px 22px; color:var(--ink); position:relative; overflow:hidden;
+      box-shadow:var(--shadow-sm); margin-bottom:16px;
     }
-    .eco-hero::after{ content:""; position:absolute; right:-40px; top:-60px; width:220px; height:220px; border-radius:50%;
-      background:radial-gradient(circle at 40% 40%, rgba(228,161,0,.55), transparent 68%); }
-    .eco-hero h2{ color:#fff !important; margin:0; font-size:1.5rem; }
-    .eco-hero .sub{ color:#d7dee7; font-size:.92rem; margin-top:4px; }
-    .eco-hero .chip{ display:inline-block; background:rgba(255,255,255,.14); color:#fff; border:1px solid rgba(255,255,255,.22);
-      padding:4px 12px; border-radius:999px; font-size:.74rem; font-weight:600; letter-spacing:.08em; }
+    .eco-hero::after{ content:""; position:absolute; right:-30px; top:-46px; width:170px; height:170px; border-radius:50%;
+      background:radial-gradient(circle at 42% 42%, var(--kpi-glow), transparent 70%); }
+    .eco-hero .chip{ display:inline-block; background:var(--surface-3); color:var(--muted); border:1px solid var(--hair-2);
+      padding:3px 11px; border-radius:999px; font-size:.72rem; font-weight:700; letter-spacing:.06em; }
+    .eco-hero .htitle{ font-family:var(--font-head); font-weight:800; font-size:1.3rem; color:var(--ink); margin:9px 0 2px; }
+    .eco-hero .sub{ color:var(--muted); font-size:.9rem; }
 
     .eco-kpi{ background:var(--surface); border:1px solid var(--hair); border-radius:var(--r-lg); padding:16px 18px;
       box-shadow:var(--shadow-sm); transition:var(--t); position:relative; overflow:hidden; height:100%; }
     .eco-kpi:hover{ transform:translateY(-3px); box-shadow:var(--shadow); }
     .eco-kpi .ic{ width:40px; height:40px; border-radius:11px; display:flex; align-items:center; justify-content:center; font-size:19px;
-      background:linear-gradient(135deg, var(--primary), var(--primary-d)); color:var(--primary-ink); box-shadow:var(--shadow-sm); }
+      background:var(--primary-tint); color:var(--primary); }
     .eco-kpi .lbl{ color:var(--muted); font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; margin-top:10px; }
     .eco-kpi .val{ font-family:var(--font-head); font-weight:800; font-size:1.55rem; color:var(--ink); line-height:1.1; }
     .eco-kpi .foot{ color:var(--muted); font-size:.74rem; margin-top:2px; }
