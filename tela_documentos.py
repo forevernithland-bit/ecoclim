@@ -666,31 +666,127 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                 
             st.markdown("<br>", unsafe_allow_html=True)
             
-            total_pago = df[df['Status'] == 'Pago']['Valor'].sum()
-            total_pendente = df[df['Status'] == 'Pendente']['Valor'].sum()
+            total_pendente = df[df['Status'] != 'Pago']['Valor'].sum()
+
+            # Pagos do mês vêm do banco (o df da tela mostra só pendentes agora).
+            total_pago = 0.0
+            try:
+                mes_idx_resumo = utils.meses_pt.index(sub_sel) + 1 if sub_sel in utils.meses_pt else datetime.date.today().month
+                if not df_db.empty:
+                    for _, rb in df_db.iterrows():
+                        if str(rb.get('status')) == 'Pago':
+                            try:
+                                vdt = datetime.datetime.strptime(str(rb['vencimento']), "%Y-%m-%d").date()
+                            except Exception:
+                                continue
+                            if vdt.month == mes_idx_resumo:
+                                total_pago += float(rb.get('valor', 0.0) or 0.0)
+            except Exception:
+                pass
+
             total_geral = total_pago + total_pendente
-            
+
             c_res1, c_res2, c_res3 = st.columns(3)
             c_res1.metric("🔵 Pendentes a Pagar", utils.to_br_currency(total_pendente))
-            c_res2.metric("🟢 Boletos Pagos", utils.to_br_currency(total_pago))
+            c_res2.metric("🟢 Pagos no Mês", utils.to_br_currency(total_pago))
             c_res3.metric("💰 Total de Despesas do Mês", utils.to_br_currency(total_geral))
 
+def _render_historico_pagos():
+    """Parte 5: histórico de boletos pagos, agrupado mês a mês (oculto por padrão)."""
+    try:
+        res = st.session_state.supabase.table('boletos_fornecedores').select('*').eq('status', 'Pago').execute()
+        pagos = res.data or []
+    except Exception:
+        pagos = []
+
+    if not pagos:
+        st.info("Nenhum boleto pago registrado ainda.")
+        return
+
+    df = pd.DataFrame(pagos)
+    df['venc_dt'] = pd.to_datetime(df.get('vencimento'), errors='coerce')
+    df = df.dropna(subset=['venc_dt']).sort_values('venc_dt', ascending=False)
+    if df.empty:
+        st.info("Nenhum boleto pago com data de vencimento válida.")
+        return
+
+    df['ano'] = df['venc_dt'].dt.year
+    df['mes'] = df['venc_dt'].dt.month
+    df['valor_num'] = pd.to_numeric(df.get('valor'), errors='coerce').fillna(0.0)
+
+    total_geral = df['valor_num'].sum()
+    st.caption(f"Total pago (histórico): **{utils.to_br_currency(total_geral)}** em {len(df)} boleto(s).")
+
+    chaves = df[['ano', 'mes']].drop_duplicates().sort_values(['ano', 'mes'], ascending=False)
+    for _, k in chaves.iterrows():
+        ano, mes = int(k['ano']), int(k['mes'])
+        grupo = df[(df['ano'] == ano) & (df['mes'] == mes)].reset_index(drop=True)
+        total_mes = grupo['valor_num'].sum()
+        nome_mes = utils.meses_pt[mes - 1] if 1 <= mes <= 12 else str(mes)
+
+        with st.expander(f"🗓️ {nome_mes} / {ano}  —  {utils.to_br_currency(total_mes)}  ({len(grupo)} boleto(s))", expanded=False):
+            def _coluna(nome_col, padrao=''):
+                return grupo[nome_col] if nome_col in grupo.columns else pd.Series([padrao] * len(grupo))
+
+            def _link(x):
+                s = str(x).strip().lower()
+                if x is not None and s not in ['nan', 'none', '']:
+                    return f"https://drive.google.com/file/d/{x}/view"
+                return None
+
+            tabela = pd.DataFrame({
+                "Fornecedor / Cliente": _coluna('cliente', 'Despesa'),
+                "Categoria": _coluna('categoria', 'Outros'),
+                "Vencimento": grupo['venc_dt'].dt.strftime('%d/%m/%Y'),
+                "Valor": grupo['valor_num'].apply(utils.to_br_currency),
+                "Arquivo": _coluna('link_drive_id', None).apply(_link),
+            })
+            st.dataframe(
+                tabela, use_container_width=True, hide_index=True,
+                column_config={"Arquivo": st.column_config.LinkColumn("Arquivo", display_text="📄 Abrir")},
+            )
+
+
 def renderizar():
-    st.markdown("<br><br>", unsafe_allow_html=True)
-    abas = st.tabs(["📝 Orçamentos", "🤝 Contratos", "🧾 Boletos", "🖼️ Imagens", "📊 Notas Fiscais (NF)"])
-    
-    with abas[0]: 
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Seletor de categoria guiado por session_state (substitui st.tabs, que não
+    # permite selecionar aba por código). Assim o botão "Boletos" da Página
+    # Inicial consegue abrir direto na categoria certa (Parte 4).
+    categorias = [
+        ("📝 Orçamentos", "Orçamentos"),
+        ("🤝 Contratos", "Contratos"),
+        ("🧾 Boletos", "Boletos"),
+        ("🖼️ Imagens", "Imagens"),
+        ("📊 Notas Fiscais (NF)", "Notas Fiscais"),
+    ]
+    labels = [c[0] for c in categorias]
+    valores = [c[1] for c in categorias]
+
+    st.session_state.setdefault("doc_categoria_label", labels[0])
+    alvo = st.session_state.pop("doc_ir_para", None)  # navegação externa (Home)
+    if alvo in valores:
+        st.session_state.doc_categoria_label = labels[valores.index(alvo)]
+
+    escolha = st.radio(
+        "Categoria de Documentos", labels, horizontal=True,
+        key="doc_categoria_label", label_visibility="collapsed",
+    )
+    nome = valores[labels.index(escolha)]
+    st.markdown("<div style='margin-top:4px;'></div>", unsafe_allow_html=True)
+
+    if nome == "Orçamentos":
         renderizar_aba("Orçamentos")
-        
-    with abas[1]: 
+    elif nome == "Contratos":
         renderizar_aba("Contratos")
-        
-    with abas[2]: 
-        meses_boletos = utils.meses_pt + ["PAGOS"]
-        renderizar_aba("Boletos", subpastas=meses_boletos)
-        
-    with abas[3]: 
+    elif nome == "Boletos":
+        # "PAGOS" saiu do seletor de mês: pagos ficam ocultos por padrão e são
+        # exibidos no "Histórico de Pagos" (mês a mês) dentro da aba (Parte 5).
+        renderizar_aba("Boletos", subpastas=utils.meses_pt)
+        st.markdown("---")
+        if st.toggle("📗 Ver Histórico de Pagos (mês a mês)", value=False, key="ver_hist_pagos"):
+            _render_historico_pagos()
+    elif nome == "Imagens":
         renderizar_aba("Imagens", subpastas=utils.meses_pt, is_imagens=True)
-        
-    with abas[4]: 
+    elif nome == "Notas Fiscais":
         renderizar_aba("Notas Fiscais", subpastas=utils.meses_pt)
