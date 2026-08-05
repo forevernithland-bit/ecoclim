@@ -215,12 +215,21 @@ def _modal_calculo_custos(dados, limpar_func):
     t1, t2 = st.columns(2)
     emite_nf = t1.radio(f"Emitir Nota Fiscal? (imposto {taxa_nf_val:.1f}%)", ["Não", "Sim"], horizontal=True, key="cc_nf")
     sel_cartao = t2.selectbox("Pagamento no Cartão (maquininha)", opcoes_cartao, key="cc_cartao")
+    venda_bruta = venda_produtos + venda_instalacao + venda_outros
+
     t3, t4 = st.columns(2)
     comissao_pct = t3.number_input("Comissão (%)", min_value=0.0, format="%.2f", key="cc_comissao")
-    desconto = t4.number_input("Desconto concedido (R$)", min_value=0.0, format="%.2f", key="cc_desconto")
+    modo_desconto = t4.radio("Desconto em", ["R$", "%"], horizontal=True, key="cc_desconto_modo")
+    if modo_desconto == "%":
+        desconto_pct = t4.number_input("Desconto concedido (%)", min_value=0.0, max_value=100.0, format="%.2f", key="cc_desconto_pct")
+        desconto = venda_bruta * (desconto_pct / 100.0)
+        t4.caption(f"= {utils.to_br_currency(desconto)}")
+    else:
+        desconto = t4.number_input("Desconto concedido (R$)", min_value=0.0, format="%.2f", key="cc_desconto")
+        desconto_pct = (desconto / venda_bruta * 100.0) if venda_bruta > 0 else 0.0
+        t4.caption(f"= {desconto_pct:.2f}% da receita bruta")
 
     # ---------- 3. Cálculos ----------
-    venda_bruta = venda_produtos + venda_instalacao + venda_outros
     venda_liquida = max(venda_bruta - desconto, 0.0)
 
     taxa_cartao_pct = dict_taxas.get(sel_cartao, 0.0)
@@ -242,7 +251,7 @@ def _modal_calculo_custos(dados, limpar_func):
     linhas = [f"<div style='display:flex;justify-content:space-between;padding:2px 0;'>"
               f"<span><b>Receita Bruta</b></span><span><b>{utils.to_br_currency(venda_bruta)}</b></span></div>"]
     if desconto > 0:
-        linhas.append(_row("Desconto concedido", desconto))
+        linhas.append(_row(f"Desconto concedido ({desconto_pct:.1f}%)", desconto))
         linhas.append(f"<div style='display:flex;justify-content:space-between;padding:2px 0;border-top:1px dashed #999;'>"
                       f"<span><b>Receita Líquida</b></span><span><b>{utils.to_br_currency(venda_liquida)}</b></span></div>")
     linhas.append(_row("Custo dos Produtos", custo_produtos))
@@ -277,7 +286,8 @@ def _modal_calculo_custos(dados, limpar_func):
         "venda_outros": venda_outros, "custo_outros": custo_outros,
         "nf": emite_nf, "taxa_nf": taxa_nf_val,
         "cartao": sel_cartao, "taxa_cartao": taxa_cartao_pct,
-        "comissao_pct": comissao_pct, "desconto": desconto,
+        "comissao_pct": comissao_pct,
+        "desconto": desconto, "desconto_pct": desconto_pct, "desconto_modo": modo_desconto,
         "venda_bruta": venda_bruta, "venda_liquida": venda_liquida,
         "custo_fixo": custo_fixo, "custo_variavel": custo_variavel,
         "custo_total": custo_total, "lucro_liquido": lucro_liquido, "margem": margem,
@@ -719,7 +729,9 @@ def renderizar(lista_nomes_produtos, limpar_func):
         st.session_state.cc_nf = "Não"
         st.session_state.cc_cartao = "Nenhum / Dinheiro / PIX"
         st.session_state.cc_comissao = 0.0
+        st.session_state.cc_desconto_modo = "R$"
         st.session_state.cc_desconto = 0.0
+        st.session_state.cc_desconto_pct = 0.0
 
         _modal_calculo_custos(d, limpar_func)
 
