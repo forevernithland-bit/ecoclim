@@ -723,7 +723,7 @@ def renderizar(lista_nomes_produtos, limpar_func):
         st.session_state.cc_venda_prod = d["venda_produtos"]
         st.session_state.cc_custo_prod = d["custo_produtos"]
         st.session_state.cc_venda_serv = d["valor_servico"]
-        st.session_state.cc_custo_serv = 0.0
+        st.session_state.cc_custo_serv = d["valor_servico"]  # padrão: custo = venda da instalação
         st.session_state.cc_venda_outros = d["valor_outros"]
         st.session_state.cc_custo_outros = 0.0
         st.session_state.cc_nf = "Não"
