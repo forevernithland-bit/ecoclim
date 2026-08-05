@@ -16,6 +16,7 @@ st.set_page_config(
 # 2. IMPORTAÇÃO DOS MÓDULOS
 # =============================================================================
 import utils
+import estilo
 import tela_orcamentos
 import tela_servicos
 import tela_financeira
@@ -56,153 +57,10 @@ except Exception as e:
     st.error(f"Erro crítico na conexão com o banco de dados: {e}")
 
 # =============================================================================
-# 5. ESTILIZAÇÃO CSS GLOBAL (DESIGN CLEAN & MODERNO) + RESPONSIVIDADE
+# 5. TEMA / DESIGN SYSTEM GLOBAL (Parte 8) — claro/escuro, fontes, componentes
 # =============================================================================
-st.markdown("""
-    <style>
-    /* =====================================================================
-       💻 ESTILOS ORIGINAIS (PC) INTOCADOS
-       ===================================================================== */
-    [data-testid="stSidebar"] {
-        background-color: #ffffff !important;
-        border-right: 1px solid #e6ecf5;
-    }
-    
-    .block-container { 
-        padding-top: 3.5rem !important; 
-        padding-left: 2rem !important; 
-        padding-right: 2rem !important; 
-        max-width: 100% !important; 
-    }
-    
-    div.container-tabelas div[data-testid="stVerticalBlock"] { 
-        gap: 0px !important; 
-        padding: 0px !important; 
-    }
-    
-    .stDataFrame table, .stDataEditor table { 
-        table-layout: fixed !important; 
-        width: 100% !important; 
-    }
-    
-    .stDataFrame td, .stDataFrame th, .stDataEditor td, .stDataEditor th { 
-        text-align: center !important; 
-        font-size: 0.85rem !important; 
-    }
-    
-    .financeiro div[data-testid="stDataFrame"] thead { 
-        display: none !important; 
-    }
-    
-    h1, h2, h3, h4 {
-        color: #004488 !important;
-        font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-    }
-
-    div[data-testid="stHorizontalBlock"] {
-        align-items: center !important;
-    }
-
-    div[data-testid="stHorizontalBlock"]:has(.card-lembrete) {
-        align-items: center !important;
-    }
-    div[data-testid="stHorizontalBlock"]:has(.card-lembrete) p {
-        margin-bottom: 0px !important;
-    }
-    div[data-testid="stHorizontalBlock"]:has(.card-lembrete) div.stButton {
-        padding: 0px !important;
-        margin: 0px !important;
-    }
-
-    div.stButton > button[kind="primary"] {
-        background-color: #ffffff !important;
-        color: #1e293b !important;
-        border: 1px solid #d1d5db !important;
-        border-radius: 4px !important;
-        font-size: 0.85rem !important;
-        font-weight: 600 !important;
-        min-height: 38px !important;
-        height: 38px !important;
-        padding: 0 10px !important;
-        margin: 0 !important;
-        width: 100% !important;
-    }
-    div.stButton > button[kind="primary"]:hover {
-        border-color: #004488 !important;
-        color: #004488 !important;
-        background-color: #f8fafc !important;
-    }
-
-    div.stButton > button[kind="secondary"] {
-        background-color: #ffffff !important;
-        color: #1e293b !important;
-        border: 1px solid #e2e8f0 !important;
-        border-radius: 12px !important;
-        padding: 15px 10px !important;
-        font-size: 1rem !important;
-        font-weight: 600 !important;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05) !important;
-        min-height: 80px !important;
-        margin-bottom: 5px !important;
-        width: 100% !important;
-    }
-    div.stButton > button[kind="secondary"]:hover {
-        border-color: #004488 !important;
-        color: #004488 !important;
-        transform: translateY(-2px) !important;
-    }
-
-    /* =====================================================================
-       📱 RESPONSIVIDADE PARA CELULAR (CSS INJETADO EXCLUSIVAMENTE PARA MOBILE)
-       ===================================================================== */
-    @media screen and (max-width: 768px) {
-        .block-container { 
-            padding-top: 2rem !important; 
-            padding-left: 0.5rem !important; 
-            padding-right: 0.5rem !important; 
-        }
-
-        div[data-testid="stHorizontalBlock"]:has(.card-lembrete) {
-            display: flex !important;
-            flex-direction: column !important;
-            align-items: stretch !important;
-            gap: 8px !important;
-            margin-bottom: 25px !important;
-            border: 1px solid #d1d5db !important;
-            border-radius: 8px !important;
-            padding: 10px !important;
-            background-color: #f8fafc !important;
-        }
-
-        div[data-testid="stHorizontalBlock"]:has(.card-lembrete) > div[data-testid="column"] {
-            width: 100% !important;
-            min-width: 100% !important;
-        }
-
-        .card-lembrete {
-            border: none !important;
-            padding: 0 !important;
-            height: auto !important;
-            flex-direction: column !important;
-            align-items: flex-start !important;
-            background-color: transparent !important;
-            gap: 8px !important;
-        }
-
-        .card-lembrete > div {
-            flex-direction: column !important;
-            align-items: flex-start !important;
-            gap: 2px !important;
-        }
-
-        div.stButton > button[kind="primary"],
-        div.stButton > button[kind="secondary"] {
-            min-height: 48px !important;
-            font-size: 1rem !important;
-        }
-    }
-    </style>
-""", unsafe_allow_html=True)
+estilo.init_tema()
+estilo.aplicar_tema()
 
 # =============================================================================
 # 6. LÓGICA DE ACESSO (LOGIN NO SUPABASE)
@@ -348,34 +206,46 @@ else:
     # =============================================================================
     # 7. MENU DE NAVEGAÇÃO LATERAL (BARRA BRANCA LIMPA)
     # =============================================================================
+    # ----- Permissões por perfil (Parte 6): Admin vê tudo; perfis restritos limitados -----
+    perfil = st.session_state.get('perfil_logado', 'Admin')
+    TODAS_PAGINAS = [
+        "Página Inicial", "Controle Financeiro", "Orçamentos",
+        "Serviços em Andamento", "Documentos", "AirBnb e Locações",
+        "Relatórios", "Configurações",
+    ]
+    PAGINAS_POR_PERFIL = {
+        "Contador": ["Notas Fiscais"],
+    }
+    lista_paginas = PAGINAS_POR_PERFIL.get(perfil, TODAS_PAGINAS)
+    # Blindagem: se a página atual não é permitida ao perfil, volta para a 1ª permitida.
+    if st.session_state.menu_option not in lista_paginas:
+        st.session_state.menu_option = lista_paginas[0]
+
     with st.sidebar:
         st.markdown("<br>", unsafe_allow_html=True)
         if os.path.exists("logo.png"):
             st.image("logo.png", use_container_width=True)
-        
-        # MOSTRAR QUEM ESTÁ LOGADO
+
         nome_logado = st.session_state.get('usuario_logado', 'Usuário')
-        st.markdown(f"<div style='text-align: center; color: #004488; font-weight: 600; padding: 10px 0;'>👤 Olá, {nome_logado}</div>", unsafe_allow_html=True)
-        
+        st.markdown(
+            f"<div style='text-align:center; padding:8px 0 2px;'>"
+            f"<div style='font-family:var(--font-head); font-weight:700; color:var(--ink);'>👤 {nome_logado}</div>"
+            f"<div style='display:inline-block; margin-top:7px; font-size:.66rem; font-weight:700; letter-spacing:.09em;"
+            f" text-transform:uppercase; color:var(--primary-ink);"
+            f" background:linear-gradient(135deg,var(--primary),var(--primary-d)); padding:3px 11px; border-radius:999px;'>"
+            f"{perfil}</div></div>",
+            unsafe_allow_html=True,
+        )
         st.markdown("<br>", unsafe_allow_html=True)
-        
-        lista_paginas = [
-            "Página Inicial", 
-            "Controle Financeiro", 
-            "Orçamentos", 
-            "Serviços em Andamento", 
-            "Documentos",
-            "AirBnb e Locações",
-            "Relatórios",
-            "Configurações"
-        ]
-        
+
         index_atual = lista_paginas.index(st.session_state.menu_option) if st.session_state.menu_option in lista_paginas else 0
-        menu = st.radio("Navegação", lista_paginas, index=index_atual)
-        
+        menu = st.radio("Navegação", lista_paginas, index=index_atual, label_visibility="collapsed")
+
         if menu != st.session_state.menu_option:
             st.session_state.menu_option = menu
             st.rerun()
+
+        estilo.toggle_tema_sidebar()
         
         st.write("---")
         if st.button("🚪 Sair do Sistema", type="primary", use_container_width=True):
@@ -390,11 +260,52 @@ else:
     # 8. ROTEADOR DE TELAS (CHAMA OS MÓDULOS)
     # =============================================================================
     if st.session_state.menu_option == "Página Inicial":
-        
-        hoje_br = utils.obter_data_atual_br()
-        st.caption(f"📅 Calendário Operacional: {hoje_br.strftime('%d/%m/%Y')}")
 
-        st.markdown("<h4 style='font-weight: 600; margin-bottom: 10px;'>🔔 Lembretes de Pagamento</h4>", unsafe_allow_html=True)
+        hoje_br = utils.obter_data_atual_br()
+        _hora = datetime.datetime.now().hour
+        _saud = "Bom dia" if _hora < 12 else ("Boa tarde" if _hora < 18 else "Boa noite")
+        _primeiro = str(nome_logado).split()[0] if nome_logado else "bem-vindo"
+
+        # ---------- Hero ----------
+        st.markdown(
+            f"<div class='eco-hero'>"
+            f"<span class='chip'>ECOCLIM ERP · {hoje_br.strftime('%d/%m/%Y')}</span>"
+            f"<h2>{_saud}, {_primeiro}! 👋</h2>"
+            f"<div class='sub'>Painel operacional — mais conforto, mais economia, mais sustentabilidade.</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
+        # ---------- KPIs (somente leitura, sem alterar regras de negócio) ----------
+        try:
+            _sa = st.session_state.supabase.table('servicos_andamento').select(
+                'status_projeto, valor_venda_total, data_conclusao').execute().data or []
+        except Exception:
+            _sa = []
+        _mes = hoje_br.strftime('%Y-%m')
+        _em_and = sum(1 for r in _sa if str(r.get('status_projeto')) == 'Em Andamento')
+        _orc = sum(1 for r in _sa if str(r.get('status_projeto')) == 'Orçamento Enviado')
+        _fat = 0.0
+        for r in _sa:
+            if str(r.get('status_projeto', '')).startswith('Concluído') and str(r.get('data_conclusao', '')).startswith(_mes):
+                try:
+                    _fat += float(r.get('valor_venda_total') or 0)
+                except Exception:
+                    pass
+        try:
+            _bp = st.session_state.supabase.table('boletos_fornecedores').select('valor').eq('status', 'Pendente').execute().data or []
+            _pend = sum(float(x.get('valor') or 0) for x in _bp)
+        except Exception:
+            _pend = 0.0
+
+        k1, k2, k3, k4 = st.columns(4)
+        k1.markdown(estilo.kpi_html("🛠️", str(_em_and), "Serviços em andamento", "em execução"), unsafe_allow_html=True)
+        k2.markdown(estilo.kpi_html("📝", str(_orc), "Orçamentos enviados", "aguardando fechamento"), unsafe_allow_html=True)
+        k3.markdown(estilo.kpi_html("💰", utils.to_br_currency(_fat), "Faturamento do mês", "serviços concluídos"), unsafe_allow_html=True)
+        k4.markdown(estilo.kpi_html("📄", utils.to_br_currency(_pend), "Boletos a pagar", "pendentes"), unsafe_allow_html=True)
+
+        st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+        st.markdown("<div class='eco-sectiontitle'>🔔 Lembretes de Pagamento</div>", unsafe_allow_html=True)
         
         try:
             res_bol = st.session_state.supabase.table('boletos_fornecedores').select('*').eq('status', 'Pendente').order('vencimento').execute()
@@ -441,6 +352,7 @@ else:
                     with col_btn_doc:
                         if st.button("📂 Boletos", type="primary", key=f"ir_{b['id']}", use_container_width=True):
                             st.session_state.menu_option = "Documentos"
+                            st.session_state.doc_ir_para = "Boletos"
                             st.rerun()
                             
                     with col_btn_pagar:
@@ -476,27 +388,23 @@ else:
         except Exception as e:
             st.caption("Conectando base de lembretes...")
 
-        st.markdown("<hr style='margin-top: 20px; margin-bottom: 20px;'>", unsafe_allow_html=True)
-        
+        st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
+        st.markdown("<div class='eco-sectiontitle'>⚡ Acessos rápidos</div>", unsafe_allow_html=True)
+
         c1, c2 = st.columns(2)
         c3, c4 = st.columns(2)
-        
         with c1:
-            if st.button("📊\tControle Financeiro", use_container_width=True, key=f"btn_nav_financeiro"):
-                st.session_state.menu_option = "Controle Financeiro"
-                st.rerun()
+            if st.button("📊  Controle Financeiro", use_container_width=True, key="btn_nav_financeiro"):
+                st.session_state.menu_option = "Controle Financeiro"; st.rerun()
         with c2:
-            if st.button("📝\tFazer Novo Orçamento", use_container_width=True, key=f"btn_nav_orcamentos"):
-                st.session_state.menu_option = "Orçamentos"
-                st.rerun()
+            if st.button("📝  Fazer Novo Orçamento", use_container_width=True, key="btn_nav_orcamentos"):
+                st.session_state.menu_option = "Orçamentos"; st.rerun()
         with c3:
-            if st.button("🛠️\tServiços em Andamento", use_container_width=True, key=f"btn_nav_servicos"):
-                st.session_state.menu_option = "Serviços em Andamento"
-                st.rerun()
+            if st.button("🛠️  Serviços em Andamento", use_container_width=True, key="btn_nav_servicos"):
+                st.session_state.menu_option = "Serviços em Andamento"; st.rerun()
         with c4:
-            if st.button("📁\tCentral de Documentos", use_container_width=True, key=f"btn_nav_documentos"):
-                st.session_state.menu_option = "Documentos"
-                st.rerun()
+            if st.button("📁  Central de Documentos", use_container_width=True, key="btn_nav_documentos"):
+                st.session_state.menu_option = "Documentos"; st.rerun()
 
     elif st.session_state.menu_option == "Controle Financeiro":
         tela_financeira.renderizar()
@@ -518,3 +426,9 @@ else:
 
     elif st.session_state.menu_option == "Configurações":
         tela_configuracoes.renderizar()
+
+    elif st.session_state.menu_option == "Notas Fiscais":
+        # Acesso exclusivo do perfil Contador (Parte 6): somente Notas Fiscais,
+        # com mês atual + histórico via seletor de mês da própria aba.
+        st.markdown("<div class='eco-sectiontitle'>📊 Notas Fiscais</div>", unsafe_allow_html=True)
+        tela_documentos.renderizar_aba("Notas Fiscais", subpastas=utils.meses_pt)
