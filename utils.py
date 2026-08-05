@@ -304,7 +304,7 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
     buffer = BytesIO()
     doc = SimpleDocTemplate(
         buffer, pagesize=A4,
-        leftMargin=2*cm, rightMargin=2*cm, topMargin=3.3*cm, bottomMargin=2*cm,
+        leftMargin=2*cm, rightMargin=2*cm, topMargin=3.05*cm, bottomMargin=1.75*cm,
         title=f"Orçamento - {nome}",
     )
     LU = doc.width  # largura interna útil (frame)
@@ -372,13 +372,21 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
     if caminho_img:
         try:
             img = RLImage(caminho_img)
-            escala = LU / float(img.drawWidth)
-            img.drawWidth = LU
-            img.drawHeight = min(img.drawHeight * escala, 6.2*cm)
+            # Preserva o aspecto original (não estica): ajusta pela largura e,
+            # se passar da altura máxima, reduz a largura proporcionalmente.
+            ratio = float(img.drawHeight) / float(img.drawWidth) if float(img.drawWidth) else 0.5
+            larg_img = LU
+            alt_img = larg_img * ratio
+            if alt_img > 6.6 * cm:
+                alt_img = 6.6 * cm
+                larg_img = alt_img / ratio
+            img.drawWidth = larg_img
+            img.drawHeight = alt_img
             img.hAlign = 'CENTER'
             legenda = Table([[Paragraph(f"<b>{capa}</b>", _st('cap', fontName='Helvetica-Bold', fontSize=11, textColor=colors.white)),
                               Paragraph("MODELO SELECIONADO", _st('capr', fontName='Helvetica-Bold', fontSize=7.5, textColor=GRAFITE_DEEP, alignment=TA_RIGHT))]],
-                            colWidths=[LU*0.68, LU*0.32])
+                            colWidths=[larg_img*0.68, larg_img*0.32])
+            legenda.hAlign = 'CENTER'
             legenda.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (0, -1), GRAFITE),
                 ('BACKGROUND', (1, 0), (1, -1), GOLD),
