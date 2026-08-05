@@ -161,6 +161,85 @@ if not st.session_state.authenticated:
         </style>
     """, unsafe_allow_html=True)
 
+    # ===== LOGIN REDESENHADO (Parte 8) — visual solar premium (sobrepõe o CSS acima) =====
+    st.markdown("""
+        <style>
+        [data-testid="stSidebar"], [data-testid="stHeader"] { display:none !important; }
+
+        /* Fundo claro e clean, com brilho solar suave */
+        [data-testid="stAppViewContainer"]{
+            background:
+              radial-gradient(900px 640px at 86% -10%, rgba(240,180,0,.22), rgba(240,180,0,0) 60%),
+              radial-gradient(760px 540px at 4% 110%, rgba(21,115,255,.10), transparent 62%),
+              linear-gradient(160deg,#f8fbfe 0%,#eef3fa 55%,#e8f0f8 100%) !important;
+            overflow:hidden !important;
+        }
+        /* Brilho de sol suave (pulsando) no canto */
+        [data-testid="stAppViewContainer"]::after{
+            content:""; position:fixed; top:-12vh; right:-5vw; width:340px; height:340px; border-radius:50%; z-index:0; pointer-events:none;
+            background: radial-gradient(circle at 42% 42%, rgba(255,205,105,.55), rgba(240,180,0,0) 68%);
+            filter:blur(8px); animation:eco_sunpulse 7s ease-in-out infinite;
+        }
+        @keyframes eco_sunpulse{ 0%,100%{ opacity:.7; transform:scale(1);} 50%{ opacity:1; transform:scale(1.06);} }
+        @media (prefers-reduced-motion:reduce){
+            [data-testid="stAppViewContainer"]::before,[data-testid="stAppViewContainer"]::after{ animation:none !important; }
+        }
+
+        .block-container{ padding-top:7vh !important; padding-bottom:2rem !important; position:relative; z-index:2; }
+
+        /* Cartão branco limpo */
+        div[data-testid="stVerticalBlockBorderWrapper"]{
+            background:#ffffff !important;
+            border:1px solid #e6ebf3 !important; border-radius:22px !important;
+            box-shadow:0 24px 60px -26px rgba(21,80,200,.30), 0 2px 8px rgba(20,26,40,.06) !important;
+            padding:2.4rem 2.2rem 1.8rem !important; position:relative; overflow:hidden;
+            animation:eco_cardin .6s cubic-bezier(.2,.7,.3,1) both;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]::before{
+            content:""; position:absolute; left:0; right:0; top:0; height:4px;
+            background:linear-gradient(90deg,#1573FF,#06b6d4 42%,#F0B400);
+        }
+        @keyframes eco_cardin{ from{opacity:0; transform:translateY(16px) scale(.985);} to{opacity:1; transform:none;} }
+
+        .login-head{ text-align:center; margin:8px 0 16px; }
+        .login-head .wel{ font-family:'Poppins','Inter',sans-serif; font-weight:800; font-size:1.4rem; color:#141a24; letter-spacing:.2px; }
+        .login-head .sub{ color:#5a6577; font-size:.92rem; margin-top:3px; }
+
+        div[data-testid="stVerticalBlockBorderWrapper"] label{ color:#33414f !important; font-weight:600 !important; }
+        .stTextInput input{
+            background:#f4f7fb !important; border:1px solid #dbe3ef !important; color:#141a24 !important;
+            border-radius:11px !important; height:46px !important; transition:all .18s ease !important;
+        }
+        .stTextInput input:focus{
+            border-color:#E4A100 !important; box-shadow:0 0 0 3px rgba(228,161,0,.22) !important; background:#fff !important;
+        }
+
+        .login-btn-container div.stButton > button{
+            background:linear-gradient(135deg,#F5B301,#E4A100) !important; color:#241a00 !important; border:none !important;
+            border-radius:12px !important; font-weight:800 !important; font-size:1rem !important; letter-spacing:.3px !important;
+            min-height:48px !important; height:48px !important; margin-top:6px !important;
+            box-shadow:0 14px 28px -10px rgba(228,161,0,.9) !important; transition:all .2s ease !important;
+        }
+        .login-btn-container div.stButton > button:hover{
+            transform:translateY(-2px); filter:brightness(1.05);
+            box-shadow:0 20px 38px -12px rgba(228,161,0,1) !important;
+        }
+
+        .login-chips{ display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-top:18px; }
+        .login-chips span{ font-size:.72rem; font-weight:700; color:#5a6577; background:#eef2f7;
+            border:1px solid #e0e6ef; padding:5px 11px; border-radius:999px; }
+        .login-foot{ text-align:center; color:#8a93a3; font-size:.74rem; margin-top:12px; }
+
+        @media screen and (max-width:768px){
+            .block-container{ padding-left:1rem !important; padding-right:1rem !important; padding-top:5vh !important; }
+            div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(1),
+            div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(3){ display:none !important; }
+            div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(2){ width:100% !important; min-width:100% !important; }
+            [data-testid="stAppViewContainer"]::after{ width:150px; height:150px; top:-5vh; }
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
     col1, col2, col3 = st.columns([1.2, 1, 1.2]) 
     
     with col2:
@@ -170,7 +249,13 @@ if not st.session_state.authenticated:
                 if os.path.exists("logo.png"):
                     st.image("logo.png", use_container_width=True)
             
-            st.markdown("<h4 style='text-align: center; color: #004488; font-weight: 600; margin-top: 0px; margin-bottom: 15px;'>Login Ecoclim ERP</h4>", unsafe_allow_html=True)
+            st.markdown(
+                "<div class='login-head'>"
+                "<div class='wel'>Acesse sua conta</div>"
+                "<div class='sub'>Painel <b>Ecoclim ERP</b></div>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
             
             usuario = st.text_input("Usuário", value="breno.lima")
             senha = st.text_input("Senha", type="password")
@@ -201,6 +286,14 @@ if not st.session_state.authenticated:
                             except Exception as e:
                                 st.error(f"Erro ao conectar com o banco de dados: {e}")
             st.markdown('</div>', unsafe_allow_html=True)
+
+            st.markdown(
+                "<div class='login-chips'>"
+                "<span>☀️ 10+ anos</span><span>🤝 +4 mil clientes</span><span>💡 Até 60% de economia</span>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown("<div class='login-foot'>Especialistas em energia solar e sustentabilidade</div>", unsafe_allow_html=True)
 
 else:
     # =============================================================================
@@ -262,16 +355,13 @@ else:
     if st.session_state.menu_option == "Página Inicial":
 
         hoje_br = utils.obter_data_atual_br()
-        _hora = datetime.datetime.now().hour
-        _saud = "Bom dia" if _hora < 12 else ("Boa tarde" if _hora < 18 else "Boa noite")
-        _primeiro = str(nome_logado).split()[0] if nome_logado else "bem-vindo"
 
-        # ---------- Hero ----------
+        # ---------- Cabeçalho do painel (claro e clean) ----------
         st.markdown(
             f"<div class='eco-hero'>"
-            f"<span class='chip'>ECOCLIM ERP · {hoje_br.strftime('%d/%m/%Y')}</span>"
-            f"<h2>{_saud}, {_primeiro}! 👋</h2>"
-            f"<div class='sub'>Painel operacional — mais conforto, mais economia, mais sustentabilidade.</div>"
+            f"<span class='chip'>📅 {hoje_br.strftime('%d/%m/%Y')}</span>"
+            f"<div class='htitle'>Painel operacional</div>"
+            f"<div class='sub'>Mais conforto, mais economia, mais sustentabilidade.</div>"
             f"</div>",
             unsafe_allow_html=True,
         )
