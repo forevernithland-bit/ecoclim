@@ -49,10 +49,15 @@ def limpar_tela_orcamento():
         'outros_selecionado_anterior',
         'rapido_rascunho_id', 'rapido_input_nome_cliente', 'rapido_df_orc', 'editor_rapido',
         'rapido_custo_servico', 'rapido_venda_servico', 'rapido_custo_outros', 'rapido_venda_outros',
-        'rapido_nf', 'rapido_taxa_cartao', 'rapido_comissao'
+        'rapido_nf', 'rapido_taxa_cartao', 'rapido_comissao',
+        # Automações do Orçamento Personalizado (Partes 1, 2 e 3)
+        'input_modelo_capa', 'sel_servico_base', 'auto_equip_assinatura',
+        'servico_auto_aviso', 'calc_custos_dados',
     ]
+    # Campos do modal de Cálculo de Custos (Parte 3)
+    chaves += [k for k in list(st.session_state.keys()) if str(k).startswith('cc_')]
     for k in chaves:
-        if k in st.session_state: 
+        if k in st.session_state:
             del st.session_state[k]
 
 def renderizar():
