@@ -6,9 +6,9 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import cm
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image as RLImage, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image as RLImage, Table, TableStyle, KeepTogether
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.enums import TA_JUSTIFY, TA_CENTER
+from reportlab.lib.enums import TA_JUSTIFY, TA_CENTER, TA_RIGHT, TA_LEFT
 import urllib.request
 import json
 import re
@@ -261,119 +261,325 @@ def buscar_cep(cep):
     return None
 
 # ==========================================
-# GERAÇÃO DE PDF (ORÇAMENTO)
+# GERAÇÃO DE PDF (ORÇAMENTO) — layout profissional "bulletproof" via Platypus
 # ==========================================
+class _CanvasNumerado(canvas.Canvas):
+    """Canvas que imprime 'Página X de Y' (conta o total no fechamento)."""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._estados = []
+
+    def showPage(self):
+        self._estados.append(dict(self.__dict__))
+        self._startPage()
+
+    def save(self):
+        total = len(self._estados)
+        for estado in self._estados:
+            self.__dict__.update(estado)
+            self.setFont("Helvetica", 7.5)
+            self.setFillColor(colors.HexColor("#6a7180"))
+            self.drawRightString(A4[0] - 2*cm, 1.15*cm, f"Página {self._pageNumber} de {total}")
+            super().showPage()
+        super().save()
+
+
 def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, obs, mostrar_un):
+    # Paleta aprovada no mockup: grafite + dourado (sol), verde como detalhe.
+    GRAFITE = colors.HexColor("#2b3440")
+    GRAFITE_DEEP = colors.HexColor("#171c24")
+    GOLD = colors.HexColor("#E4A100")
+    GOLD_SOFT = colors.HexColor("#fbf1d6")
+    GOLD_DEEP = colors.HexColor("#a9760a")
+    GREEN = colors.HexColor("#7FB01E")
+    INK = colors.HexColor("#1e2530")
+    MUTED = colors.HexColor("#6a7180")
+    HAIR = colors.HexColor("#e6e8ec")
+    PANEL = colors.HexColor("#f6f7f9")
+    ZEBRA = colors.HexColor("#fafbfc")
+
+    numero = f"ORC-{datetime.datetime.now().strftime('%y%m%d-%H%M')}"
+    data_str = obter_data_atual_br().strftime('%d/%m/%Y')
+
     buffer = BytesIO()
-    p = canvas.Canvas(buffer, pagesize=A4)
-    largura, altura = A4
-    
-    try: p.drawImage("logo.png", 2*cm, altura - 3.5*cm, width=4*cm, preserveAspectRatio=True, mask='auto')
-    except: p.setFont("Helvetica-Bold", 16); p.drawString(2*cm, altura - 2.5*cm, "ECOCLIM")
-    
-    p.setFont("Helvetica-Bold", 14); p.drawString(largura - 9*cm, altura - 1.5*cm, "PROPOSTA COMERCIAL")
-    p.setFont("Helvetica", 8); p.setFillColor(colors.grey)
-    p.drawString(largura - 9*cm, altura - 2.1*cm, "WWW.ECOCLIM.COM.BR"); p.drawString(largura - 9*cm, altura - 2.5*cm, "COMERCIAL@ECOCLIM.COM.BR")
-    
-    p.setFillColor(colors.black); p.setFont("Helvetica", 9)
-    p.drawString(largura - 9*cm, altura - 3.5*cm, f"Data: {obter_data_atual_br().strftime('%d/%m/%Y')}")
-    p.drawString(largura - 9*cm, altura - 4.0*cm, "Validade da Proposta: 15 dias")
-    
-    y = altura - 5.5*cm
-    p.setFillColor(colors.HexColor("#f0f0f0")); p.rect(2*cm, y - 1.5*cm, largura - 4*cm, 2*cm, fill=1, stroke=0)
-    p.setFillColor(colors.black); p.setFont("Helvetica-Bold", 10); p.drawString(2.3*cm, y, "DADOS DO CLIENTE")
-    p.setFont("Helvetica", 10); p.drawString(2.3*cm, y - 0.5*cm, f"Nome: {nome}"); p.drawString(2.3*cm, y - 1*cm, f"WhatsApp: {tel}")
-    
-    y -= 2.2*cm
+    doc = SimpleDocTemplate(
+        buffer, pagesize=A4,
+        leftMargin=2*cm, rightMargin=2*cm, topMargin=3.3*cm, bottomMargin=2*cm,
+        title=f"Orçamento - {nome}",
+    )
+    LU = doc.width  # largura interna útil (frame)
+
+    styles = getSampleStyleSheet()
+    def _st(name, **kw):
+        return ParagraphStyle(name, parent=styles['Normal'], **kw)
+
+    s_item   = _st('it', fontName='Helvetica-Bold', fontSize=10, leading=12.5, textColor=INK)
+    s_desc   = _st('de', fontName='Helvetica', fontSize=8.5, leading=11, textColor=MUTED)
+    s_body   = _st('bo', fontName='Helvetica', fontSize=9.5, leading=13.5, textColor=INK)
+    s_val    = _st('va', fontName='Helvetica-Bold', fontSize=11, leading=13, textColor=GRAFITE, alignment=TA_RIGHT)
+    s_num    = _st('nu', fontName='Helvetica', fontSize=9.5, leading=12, textColor=INK, alignment=TA_CENTER)
+    s_numr   = _st('nr', fontName='Helvetica', fontSize=9.5, leading=12, textColor=INK, alignment=TA_RIGHT)
+    s_tag    = _st('tg', fontName='Helvetica-Bold', fontSize=9.5, leading=13, textColor=MUTED, alignment=TA_CENTER)
+    s_obs_t  = _st('obt', fontName='Helvetica-Bold', fontSize=9, leading=12, textColor=GOLD_DEEP)
+    s_obs    = _st('ob', fontName='Helvetica', fontSize=9, leading=13, textColor=colors.HexColor("#5a4212"))
+    s_cli_k  = _st('ck', fontName='Helvetica', fontSize=7.5, leading=9, textColor=MUTED)
+    s_cli_v  = _st('cv', fontName='Helvetica-Bold', fontSize=10, leading=12, textColor=INK)
+    s_stat_n = _st('sn', fontName='Helvetica-Bold', fontSize=15, leading=17, textColor=GOLD, alignment=TA_CENTER)
+    s_stat_l = _st('sl', fontName='Helvetica', fontSize=7, leading=8.5, textColor=colors.white, alignment=TA_CENTER)
+    s_secbar = _st('sb', fontName='Helvetica-Bold', fontSize=10.5, leading=13, textColor=colors.white)
+    s_secbarR= _st('sbr', fontName='Helvetica', fontSize=8.5, leading=12, textColor=colors.HexColor("#c9cdd4"), alignment=TA_RIGHT)
+    s_th     = _st('th', fontName='Helvetica-Bold', fontSize=8, leading=10, textColor=MUTED)
+    s_thc    = _st('thc', fontName='Helvetica-Bold', fontSize=8, leading=10, textColor=MUTED, alignment=TA_CENTER)
+    s_thr    = _st('thr', fontName='Helvetica-Bold', fontSize=8, leading=10, textColor=MUTED, alignment=TA_RIGHT)
+    s_sub    = _st('su', fontName='Helvetica-Bold', fontSize=9.5, leading=12, textColor=GRAFITE_DEEP)
+    s_subr   = _st('sur', fontName='Helvetica-Bold', fontSize=9.5, leading=12, textColor=GRAFITE_DEEP, alignment=TA_RIGHT)
+    s_cond_k = _st('cok', fontName='Helvetica-Bold', fontSize=8, leading=10, textColor=MUTED)
+    s_cond_v = _st('cov', fontName='Helvetica', fontSize=9, leading=12, textColor=INK)
+
+    def _limpo(txt):
+        s = str(txt or "").strip()
+        return s if s.lower() != 'nan' else ""
+
+    story = []
+
+    # ---------- Faixa de impacto ----------
+    def _stat(n, l):
+        return [Paragraph(n, s_stat_n), Paragraph(l, s_stat_l)]
+    impacto = Table([[_stat("10+", "ANOS DE EXPERIÊNCIA"), _stat("+4 mil", "CLIENTES SATISFEITOS"),
+                      _stat("Até 60%", "DE ECONOMIA"), _stat("100%", "SATISFAÇÃO")]],
+                    colWidths=[LU / 4.0] * 4)
+    impacto.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), GRAFITE),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING', (0, 0), (-1, -1), 7), ('BOTTOMPADDING', (0, 0), (-1, -1), 7),
+        ('LINEAFTER', (0, 0), (-2, -1), 0.5, colors.HexColor("#454e5b")),
+    ]))
+    story.append(impacto)
+    story.append(Spacer(1, 0.32*cm))
+    story.append(Paragraph("Mais conforto, mais economia, <b>mais sustentabilidade</b>", s_tag))
+    story.append(Spacer(1, 0.4*cm))
+
+    # ---------- Imagem do produto (conforme a capa) ----------
     img_map = {
-        "Aquecedor Solar Tradicional": "aquecedor_tradicional.jpg", "Aquecedor Solar a Vácuo Acoplado": "vacuo_acoplado.jpg",
-        "Aquecedor Solar Modular": "modular.jpg", "Aquecedor de Piscina - Tradicional": "piscina_tradicional.jpg",
-        "Aquecedor de Piscina - Trocador de Calor": "piscina_trocador.jpg", "Sistema de Pressurização": "pressurizacao.jpg"
+        "Aquecedor Solar Tradicional": "aquecedor_tradicional.jpg",
+        "Aquecedor Solar a Vácuo Acoplado": "vacuo_acoplado.jpg",
+        "Aquecedor Solar Modular": "modular.jpg",
+        "Aquecedor de Piscina - Tradicional": "piscina_tradicional.jpg",
+        "Aquecedor de Piscina - Trocador de Calor": "piscina_trocador.jpg",
+        "Sistema de Pressurização": "pressurizacao.jpg",
     }
-    try: p.drawImage(img_map.get(capa, ""), 2*cm, y - 5.5*cm, width=largura-4*cm, height=5.5*cm, preserveAspectRatio=True)
-    except: pass
-    
-    y -= 6.5*cm
-    p.setFillColor(colors.HexColor("#004488")); p.rect(2*cm, y, largura - 4*cm, 0.7*cm, fill=1, stroke=0)
-    p.setFillColor(colors.white); p.setFont("Helvetica-Bold", 11); p.drawString(2.3*cm, y + 0.2*cm, "1. EQUIPAMENTOS")
-    
-    y -= 0.6*cm; p.setFillColor(colors.black); p.setFont("Helvetica-Bold", 9)
-    p.drawString(2.3*cm, y - 0.3*cm, "Item")
-    p.drawString(12.5*cm, y - 0.3*cm, "Qtd")
-    
+    caminho_img = img_map.get(capa, "")
+    if caminho_img:
+        try:
+            img = RLImage(caminho_img)
+            escala = LU / float(img.drawWidth)
+            img.drawWidth = LU
+            img.drawHeight = min(img.drawHeight * escala, 6.2*cm)
+            img.hAlign = 'CENTER'
+            legenda = Table([[Paragraph(f"<b>{capa}</b>", _st('cap', fontName='Helvetica-Bold', fontSize=11, textColor=colors.white)),
+                              Paragraph("MODELO SELECIONADO", _st('capr', fontName='Helvetica-Bold', fontSize=7.5, textColor=GRAFITE_DEEP, alignment=TA_RIGHT))]],
+                            colWidths=[LU*0.68, LU*0.32])
+            legenda.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (0, -1), GRAFITE),
+                ('BACKGROUND', (1, 0), (1, -1), GOLD),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 10), ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+                ('TOPPADDING', (0, 0), (-1, -1), 5), ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+            ]))
+            story.append(KeepTogether([img, legenda]))
+            story.append(Spacer(1, 0.4*cm))
+        except Exception:
+            pass
+
+    # ---------- Dados do cliente ----------
+    def _cli(k, v):
+        return [Paragraph(k, s_cli_k), Paragraph(_limpo(v) or "—", s_cli_v)]
+    cliente = Table([[_cli("CLIENTE", nome), _cli("WHATSAPP", tel), _cli("DATA", data_str), _cli("Nº PROPOSTA", numero)]],
+                    colWidths=[LU*0.34, LU*0.22, LU*0.17, LU*0.27])
+    cliente.setStyle(TableStyle([
+        ('BOX', (0, 0), (-1, -1), 0.6, HAIR),
+        ('LINEAFTER', (0, 0), (-2, -1), 0.6, HAIR),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 10), ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+        ('TOPPADDING', (0, 0), (-1, -1), 7), ('BOTTOMPADDING', (0, 0), (-1, -1), 7),
+    ]))
+    story.append(cliente)
+    story.append(Spacer(1, 0.5*cm))
+
+    # ---------- barra de seção ----------
+    def barra(titulo, direita=""):
+        t = Table([[Paragraph(titulo, s_secbar), Paragraph(direita, s_secbarR)]], colWidths=[LU*0.6, LU*0.4])
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), GRAFITE),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('LEFTPADDING', (0, 0), (-1, -1), 10), ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+            ('TOPPADDING', (0, 0), (-1, -1), 6), ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ]))
+        return t
+
+    # ---------- 1. Equipamentos ----------
     if mostrar_un:
-        p.drawRightString(largura - 4.5*cm, y - 0.3*cm, "V. Un.")
-        p.drawRightString(largura - 2.3*cm, y - 0.3*cm, "Subtotal")
-        
-    y -= 0.8*cm
-    
-    total_equipamentos = 0.0
-    
+        cab = [Paragraph("Item", s_th), Paragraph("Qtd", s_thc), Paragraph("V. Unit.", s_thr), Paragraph("Subtotal", s_thr)]
+        col_w = [LU*0.55, LU*0.10, LU*0.16, LU*0.19]
+    else:
+        cab = [Paragraph("Item", s_th), Paragraph("Qtd", s_thc), Paragraph("Subtotal", s_thr)]
+        col_w = [LU*0.66, LU*0.14, LU*0.20]
+    linhas = [cab]
+
+    subtotal_eq = 0.0
     for _, row in df_items.iterrows():
-        if row.get('Quantidade', 0) > 0:
-            p_base = str(row.get('Produto da Base', '')).strip()
-            if p_base.upper() in ['', 'NONE', 'NAN', 'OUTRO']:
-                item = str(row.get('Produto Manual', '')).strip()
-            else:
-                item = p_base
-                
-            if not item: 
-                item = str(row.get('Item', '')).strip()
-            
-            p.setFont("Helvetica-Bold", 9); p.drawString(2.3*cm, y, str(item)[:60])
-            p.setFont("Helvetica", 9); p.drawString(12.8*cm, y, str(int(row.get('Quantidade', 0))))
-            
-            v_total_item = safe_float(row.get('Venda Total', 0))
-            total_equipamentos += v_total_item
-            
-            if mostrar_un:
-                v_un = row.get('Venda (R$)', row.get('Venda Un.', 0))
-                p.drawRightString(largura - 4.5*cm, y, to_br_currency(v_un))
-                p.drawRightString(largura - 2.3*cm, y, to_br_currency(v_total_item))
-                
-            y -= 0.4*cm
-            desc = str(row.get('Descrição', ""))
-            if desc and desc.lower() != "nan":
-                p.setFont("Helvetica", 8); p.setFillColor(colors.grey)
-                for l in desc.split('\n'): p.drawString(2.3*cm, y, l.strip()); y -= 0.35*cm
-                p.setFillColor(colors.black)
-            y -= 0.2*cm
-            
-    y -= 0.2*cm
-    p.setFont("Helvetica-Bold", 10)
-    p.drawRightString(largura - 6.0*cm, y, "Subtotal de Equipamentos:")
-    p.drawRightString(largura - 2.3*cm, y, to_br_currency(total_equipamentos))
-    
-    y -= 1.0*cm 
-    p.setFillColor(colors.HexColor("#004488")); p.rect(2*cm, y, largura - 4*cm, 0.7*cm, fill=1, stroke=0)
-    p.setFillColor(colors.white); p.setFont("Helvetica-Bold", 11); p.drawString(2.3*cm, y + 0.2*cm, "2. SERVIÇOS")
-    y -= 0.8*cm; p.setFillColor(colors.black); p.setFont("Helvetica", 10)
-    
-    if d_s:
-        p.drawRightString(largura - 2.3*cm, y, to_br_currency(v_s))
-            
-        for l in d_s.split('\n'): p.drawString(2.3*cm, y, l); y -= 0.45*cm
+        qtd = safe_float(row.get('Quantidade', row.get('Qtd', 0)))
+        if qtd <= 0:
+            continue
+        p_base = str(row.get('Produto da Base', '')).strip()
+        if p_base.upper() in ['', 'NONE', 'NAN', 'OUTRO']:
+            item_nome = _limpo(row.get('Produto Manual', '')) or _limpo(row.get('Item', ''))
+        else:
+            item_nome = p_base
+        v_un = safe_float(row.get('Venda (R$)', row.get('Venda Un.', 0)))
+        v_tot = safe_float(row.get('Venda Total', qtd * v_un))
+        subtotal_eq += v_tot
+        cel = [Paragraph(item_nome or "Item", s_item)]
+        desc = _limpo(row.get('Descrição', ''))
+        if desc:
+            cel.append(Paragraph(desc.replace('\n', '<br/>'), s_desc))
+        if mostrar_un:
+            linhas.append([cel, Paragraph(str(int(qtd)), s_num), Paragraph(to_br_currency(v_un), s_numr), Paragraph(to_br_currency(v_tot), s_numr)])
+        else:
+            linhas.append([cel, Paragraph(str(int(qtd)), s_num), Paragraph(to_br_currency(v_tot), s_numr)])
+
+    if len(linhas) == 1:  # nenhum equipamento
+        vazio = ["", "", ""] if not mostrar_un else ["", "", "", ""]
+        vazio[0] = Paragraph("Nenhum equipamento nesta proposta.", s_body)
+        linhas.append(vazio)
+
+    # linha de subtotal
+    if mostrar_un:
+        linhas.append([Paragraph("Subtotal de Equipamentos", s_sub), "", "", Paragraph(to_br_currency(subtotal_eq), s_subr)])
     else:
-        p.drawString(2.3*cm, y, "Nenhum serviço selecionado."); y -= 0.45*cm
-        
-    y -= 0.5*cm 
-    p.setFillColor(colors.HexColor("#004488")); p.rect(2*cm, y, largura - 4*cm, 0.7*cm, fill=1, stroke=0)
-    p.setFillColor(colors.white); p.setFont("Helvetica-Bold", 11); p.drawString(2.3*cm, y + 0.2*cm, "3. OUTROS / TERCEIROS")
-    y -= 0.8*cm; p.setFillColor(colors.black); p.setFont("Helvetica", 10)
-    
-    if d_o:
-        p.drawRightString(largura - 2.3*cm, y, to_br_currency(v_o))
-            
-        for l in d_o.split('\n'): p.drawString(2.3*cm, y, l); y -= 0.45*cm
-    else:
-        p.drawString(2.3*cm, y, "Nenhum item adicional selecionado."); y -= 0.45*cm
-        
-    y -= 1.0*cm; p.setFillColor(colors.HexColor("#f0f0f0")); p.rect(2*cm, y - 0.2*cm, largura - 4*cm, 1.2*cm, fill=1, stroke=0)
-    p.setFillColor(colors.black); p.setFont("Helvetica-Bold", 12); p.drawString(2.3*cm, y + 0.2*cm, "INVESTIMENTO TOTAL"); p.drawRightString(largura - 2.3*cm, y + 0.2*cm, to_br_currency(total))
-    
-    y -= 1.8*cm; p.setFillColor(colors.red); p.setFont("Helvetica-Bold", 10); p.drawString(2*cm, y, "OBSERVAÇÕES:"); p.setFont("Helvetica", 9); p.setFillColor(colors.black); p.drawString(2*cm, y - 0.5*cm, str(obs)[:100])
-    
-    p.save()
+        linhas.append([Paragraph("Subtotal de Equipamentos", s_sub), "", Paragraph(to_br_currency(subtotal_eq), s_subr)])
+
+    n_last = len(linhas) - 1
+    tbl = Table(linhas, colWidths=col_w, repeatRows=1)
+    tbl.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), PANEL),
+        ('LINEBELOW', (0, 0), (-1, -1), 0.5, HAIR),
+        ('BOX', (0, 0), (-1, -1), 0.6, HAIR),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 10), ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+        ('TOPPADDING', (0, 0), (-1, -1), 7), ('BOTTOMPADDING', (0, 0), (-1, -1), 7),
+        ('ROWBACKGROUNDS', (0, 1), (-1, n_last - 1), [colors.white, ZEBRA]),
+        ('BACKGROUND', (0, n_last), (-1, n_last), colors.HexColor("#eef1f5")),
+        ('SPAN', (0, n_last), (-2, n_last)),
+    ]))
+    story.append(barra("1.  EQUIPAMENTOS", "Qtd · Valor"))
+    story.append(tbl)
+    story.append(Spacer(1, 0.5*cm))
+
+    # ---------- bloco descritivo (Serviços / Outros) ----------
+    estilo_bloco = TableStyle([
+        ('BOX', (0, 0), (-1, -1), 0.6, HAIR),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 10), ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+        ('TOPPADDING', (0, 0), (-1, -1), 9), ('BOTTOMPADDING', (0, 0), (-1, -1), 9),
+    ])
+
+    def bloco_desc(texto, valor, vazio_msg):
+        t = _limpo(texto)
+        conteudo = Paragraph(t.replace('\n', '<br/>'), s_body) if t else Paragraph(vazio_msg, s_body)
+        tab = Table([[conteudo, Paragraph(to_br_currency(valor or 0), s_val)]], colWidths=[LU*0.78, LU*0.22])
+        tab.setStyle(estilo_bloco)
+        return tab
+
+    # ---------- 2. Serviços ----------
+    story.append(barra("2.  SERVIÇOS", "Instalação"))
+    story.append(bloco_desc(d_s, v_s, "Nenhum serviço incluído nesta proposta."))
+    story.append(Spacer(1, 0.5*cm))
+
+    # ---------- 3. Outros / Terceiros ----------
+    story.append(barra("3.  OUTROS / TERCEIROS", "Adicionais"))
+    story.append(bloco_desc(d_o, v_o, "Nenhum item adicional nesta proposta."))
+    story.append(Spacer(1, 0.55*cm))
+
+    # ---------- Investimento total ----------
+    total_tbl = Table([[Paragraph("INVESTIMENTO TOTAL", _st('tl', fontName='Helvetica-Bold', fontSize=12, textColor=colors.white)),
+                        Paragraph(to_br_currency(total), _st('tv', fontName='Helvetica-Bold', fontSize=17, textColor=colors.white, alignment=TA_RIGHT))]],
+                      colWidths=[LU*0.5, LU*0.5])
+    total_tbl.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), GRAFITE_DEEP),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 14), ('RIGHTPADDING', (0, 0), (-1, -1), 14),
+        ('TOPPADDING', (0, 0), (-1, -1), 12), ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+        ('LINEBEFORE', (1, 0), (1, 0), 3, GOLD),
+    ]))
+    story.append(total_tbl)
+
+    # ---------- Observações ----------
+    obs_txt = _limpo(obs)
+    if obs_txt:
+        story.append(Spacer(1, 0.5*cm))
+        obs_tbl = Table([[[Paragraph("OBSERVAÇÕES", s_obs_t), Spacer(1, 0.15*cm), Paragraph(obs_txt.replace('\n', '<br/>'), s_obs)]]],
+                        colWidths=[LU])
+        obs_tbl.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), GOLD_SOFT),
+            ('LINEBEFORE', (0, 0), (0, -1), 3, GOLD),
+            ('LEFTPADDING', (0, 0), (-1, -1), 12), ('RIGHTPADDING', (0, 0), (-1, -1), 12),
+            ('TOPPADDING', (0, 0), (-1, -1), 10), ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+        ]))
+        story.append(obs_tbl)
+
+    # ---------- Condições ----------
+    story.append(Spacer(1, 0.5*cm))
+    def _cond(k, v):
+        return [Paragraph(k, s_cond_k), Spacer(1, 0.08*cm), Paragraph(v, s_cond_v)]
+    cond = Table([[_cond("PRAZO DE EXECUÇÃO", "A combinar."),
+                   _cond("VALIDADE DA PROPOSTA", "15 dias corridos."),
+                   _cond("GARANTIA", "Conforme certificado do fabricante.")]],
+                 colWidths=[LU/3.0]*3)
+    cond.setStyle(TableStyle([
+        ('BOX', (0, 0), (-1, -1), 0.6, HAIR), ('INNERGRID', (0, 0), (-1, -1), 0.6, HAIR),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 10), ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+        ('TOPPADDING', (0, 0), (-1, -1), 8), ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+    ]))
+    story.append(cond)
+
+    # ---------- Barra de contato ----------
+    story.append(Spacer(1, 0.5*cm))
+    contato = Table([[Paragraph("<b>ECOCLIM</b>  ·  Especialistas em energia solar e sustentabilidade",
+                                _st('c1', fontName='Helvetica', fontSize=9, textColor=colors.white)),
+                      Paragraph("(31) 99867-7808  ·  WWW.ECOCLIM.COM.BR",
+                                _st('c2', fontName='Helvetica-Bold', fontSize=9, textColor=colors.white, alignment=TA_RIGHT))]],
+                    colWidths=[LU*0.6, LU*0.4])
+    contato.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), GRAFITE_DEEP),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 14), ('RIGHTPADDING', (0, 0), (-1, -1), 14),
+        ('TOPPADDING', (0, 0), (-1, -1), 9), ('BOTTOMPADDING', (0, 0), (-1, -1), 9),
+    ]))
+    story.append(contato)
+
+    # ---------- Cabeçalho/rodapé repetidos em cada página ----------
+    def _moldura(canv, _doc):
+        w, h = A4
+        try:
+            canv.drawImage("logo.png", 2*cm, h - 2.55*cm, width=4.3*cm, height=1.7*cm, preserveAspectRatio=True, mask='auto')
+        except Exception:
+            canv.setFillColor(GRAFITE); canv.setFont("Helvetica-Bold", 18); canv.drawString(2*cm, h - 2.1*cm, "ECOCLIM")
+        canv.setFillColor(GRAFITE); canv.setFont("Helvetica-Bold", 13)
+        canv.drawRightString(w - 2*cm, h - 1.55*cm, "PROPOSTA COMERCIAL")
+        canv.setFillColor(MUTED); canv.setFont("Helvetica", 8.5)
+        canv.drawRightString(w - 2*cm, h - 2.0*cm, f"Nº {numero}")
+        canv.drawRightString(w - 2*cm, h - 2.4*cm, f"Data: {data_str}    Validade: 15 dias")
+        rw = w - 4*cm; ry = h - 2.78*cm
+        canv.setFillColor(GRAFITE); canv.rect(2*cm, ry, rw*0.55, 0.09*cm, fill=1, stroke=0)
+        canv.setFillColor(GREEN);  canv.rect(2*cm + rw*0.55, ry, rw*0.15, 0.09*cm, fill=1, stroke=0)
+        canv.setFillColor(GOLD);   canv.rect(2*cm + rw*0.70, ry, rw*0.30, 0.09*cm, fill=1, stroke=0)
+        canv.setStrokeColor(HAIR); canv.setLineWidth(0.5); canv.line(2*cm, 1.5*cm, w - 2*cm, 1.5*cm)
+        canv.setFillColor(MUTED); canv.setFont("Helvetica", 7.5)
+        canv.drawString(2*cm, 1.15*cm, "Ecoclim · Aquecimento Solar · (31) 99867-7808 · comercial@ecoclim.com.br")
+
+    doc.build(story, onFirstPage=_moldura, onLaterPages=_moldura, canvasmaker=_CanvasNumerado)
     buffer.seek(0)
     return buffer
 
