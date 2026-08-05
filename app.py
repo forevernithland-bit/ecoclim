@@ -322,10 +322,10 @@ else:
         nome_logado = st.session_state.get('usuario_logado', 'Usuário')
         st.markdown(
             f"<div style='text-align:center; padding:8px 0 2px;'>"
-            f"<div style='font-family:var(--font-head); font-weight:700; color:var(--ink);'>👤 {nome_logado}</div>"
+            f"<div style=\"font-family:'Plus Jakarta Sans',sans-serif; font-weight:800; color:var(--ink);\">👤 {nome_logado}</div>"
             f"<div style='display:inline-block; margin-top:7px; font-size:.66rem; font-weight:700; letter-spacing:.09em;"
-            f" text-transform:uppercase; color:var(--primary-ink);"
-            f" background:linear-gradient(135deg,var(--primary),var(--primary-d)); padding:3px 11px; border-radius:999px;'>"
+            f" text-transform:uppercase; color:#ffffff;"
+            f" background:linear-gradient(135deg,var(--brand),var(--brand-dark)); padding:3px 11px; border-radius:999px;'>"
             f"{perfil}</div></div>",
             unsafe_allow_html=True,
         )
@@ -338,7 +338,7 @@ else:
             st.session_state.menu_option = menu
             st.rerun()
 
-        estilo.toggle_tema_sidebar()
+        estilo.render_seletor_tema_sidebar()
         
         st.write("---")
         if st.button("🚪 Sair do Sistema", type="primary", use_container_width=True):
@@ -377,7 +377,10 @@ else:
         _orc = sum(1 for r in _sa if str(r.get('status_projeto')) == 'Orçamento Enviado')
         _fat = 0.0
         for r in _sa:
-            if str(r.get('status_projeto', '')).startswith('Concluído') and str(r.get('data_conclusao', '')).startswith(_mes):
+            stt = str(r.get('status_projeto', ''))
+            # Faturamento do mês = concluído no mês atual + tudo que está em andamento agora.
+            eh_concluido_mes = stt.startswith('Concluído') and str(r.get('data_conclusao', '')).startswith(_mes)
+            if eh_concluido_mes or stt == 'Em Andamento':
                 try:
                     _fat += float(r.get('valor_venda_total') or 0)
                 except Exception:
@@ -389,10 +392,10 @@ else:
             _pend = 0.0
 
         k1, k2, k3, k4 = st.columns(4)
-        k1.markdown(estilo.kpi_html("🛠️", str(_em_and), "Serviços em andamento", "em execução"), unsafe_allow_html=True)
-        k2.markdown(estilo.kpi_html("📝", str(_orc), "Orçamentos enviados", "aguardando fechamento"), unsafe_allow_html=True)
-        k3.markdown(estilo.kpi_html("💰", utils.to_br_currency(_fat), "Faturamento do mês", "serviços concluídos"), unsafe_allow_html=True)
-        k4.markdown(estilo.kpi_html("📄", utils.to_br_currency(_pend), "Boletos a pagar", "pendentes"), unsafe_allow_html=True)
+        k1.metric("🛠️ Serviços em andamento", str(_em_and))
+        k2.metric("📝 Orçamentos enviados", str(_orc))
+        k3.metric("💰 Faturamento do mês", utils.to_br_currency(_fat))
+        k4.metric("📄 Boletos a pagar", utils.to_br_currency(_pend))
 
         st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
         st.markdown("<div class='eco-sectiontitle'>🔔 Lembretes de Pagamento</div>", unsafe_allow_html=True)
