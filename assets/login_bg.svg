@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 330" preserveAspectRatio="xMidYMax meet">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#d7ede2"/>
+      <stop offset="1" stop-color="#c2e3d3"/>
+    </linearGradient>
+  </defs>
+  <!-- colinas -->
+  <path d="M0 250 Q 360 200 720 240 T 1440 235 V330 H0 Z" fill="#d9efe4"/>
+  <path d="M0 275 Q 400 235 820 268 T 1440 262 V330 H0 Z" fill="#cbe8d9"/>
+
+  <!-- sol -->
+  <g opacity="0.85" stroke="#bfe0cf" stroke-width="4" fill="none" stroke-linecap="round">
+    <circle cx="1200" cy="86" r="30" fill="#d6efdf" stroke="none"/>
+    <line x1="1200" y1="30" x2="1200" y2="48"/><line x1="1200" y1="124" x2="1200" y2="142"/>
+    <line x1="1144" y1="86" x2="1162" y2="86"/><line x1="1238" y1="86" x2="1256" y2="86"/>
+    <line x1="1160" y1="46" x2="1173" y2="59"/><line x1="1227" y1="113" x2="1240" y2="126"/>
+    <line x1="1240" y1="46" x2="1227" y2="59"/><line x1="1173" y1="113" x2="1160" y2="126"/>
+  </g>
+
+  <!-- árvores -->
+  <g fill="#b7ddc8">
+    <rect x="120" y="235" width="7" height="30" fill="#a9d4bd"/><circle cx="123" cy="222" r="24"/>
+    <rect x="300" y="240" width="6" height="26" fill="#a9d4bd"/><circle cx="303" cy="230" r="19"/>
+    <rect x="1010" y="238" width="7" height="28" fill="#a9d4bd"/><circle cx="1013" cy="226" r="21"/>
+  </g>
+
+  <!-- casa 1 (com placas solares) -->
+  <g>
+    <rect x="180" y="205" width="150" height="70" fill="#c2e3d3"/>
+    <path d="M170 205 L255 158 L340 205 Z" fill="#b0dac6"/>
+    <!-- coletor solar no telhado -->
+    <g transform="translate(214,176) rotate(-29)" fill="#93cbb2" stroke="#7bbfa1" stroke-width="1.5">
+      <rect x="0" y="0" width="66" height="26" rx="2"/>
+      <line x1="11" y1="0" x2="11" y2="26"/><line x1="22" y1="0" x2="22" y2="26"/>
+      <line x1="33" y1="0" x2="33" y2="26"/><line x1="44" y1="0" x2="44" y2="26"/><line x1="55" y1="0" x2="55" y2="26"/>
+    </g>
+    <rect x="238" y="235" width="34" height="40" fill="#a9d4bd"/>
+  </g>
+
+  <!-- casa 2 (boiler + coletor a vácuo - produto Ecoclim) -->
+  <g>
+    <rect x="560" y="195" width="180" height="80" fill="#bfe0cf"/>
+    <rect x="560" y="188" width="180" height="12" fill="#a9d4bd"/>
+    <!-- reservatório (boiler) -->
+    <rect x="590" y="150" width="86" height="20" rx="10" fill="#9ecbb4" stroke="#7bbfa1" stroke-width="1.5"/>
+    <!-- coletor a vácuo inclinado -->
+    <g transform="translate(600,170) rotate(-24)" stroke="#7bbfa1" stroke-width="2">
+      <rect x="0" y="0" width="96" height="30" rx="2" fill="#93cbb2"/>
+      <line x1="12" y1="0" x2="12" y2="30"/><line x1="24" y1="0" x2="24" y2="30"/><line x1="36" y1="0" x2="36" y2="30"/>
+      <line x1="48" y1="0" x2="48" y2="30"/><line x1="60" y1="0" x2="60" y2="30"/><line x1="72" y1="0" x2="72" y2="30"/><line x1="84" y1="0" x2="84" y2="30"/>
+    </g>
+    <rect x="640" y="225" width="40" height="50" fill="#a9d4bd"/>
+  </g>
+
+  <!-- prédios ao fundo (direita) -->
+  <g fill="#cbe8d9">
+    <rect x="1250" y="150" width="70" height="125"/><rect x="1335" y="185" width="55" height="90"/>
+    <g fill="#bcdecc"><rect x="1262" y="165" width="12" height="12"/><rect x="1284" y="165" width="12" height="12"/><rect x="1262" y="190" width="12" height="12"/><rect x="1284" y="190" width="12" height="12"/><rect x="1262" y="215" width="12" height="12"/><rect x="1284" y="215" width="12" height="12"/></g>
+  </g>
+
+  <!-- gráfico de crescimento -->
+  <g stroke="#8fc9b1" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.9">
+    <polyline points="1080,255 1120,235 1150,245 1190,205 1225,175"/>
+    <polyline points="1210,175 1225,175 1225,190"/>
+  </g>
+  <g fill="#a9d4bd"><rect x="1078" y="250" width="12" height="24"/><rect x="1100" y="238" width="12" height="36"/><rect x="1122" y="244" width="12" height="30"/></g>
+
+  <!-- carrinho -->
+  <g fill="#b7ddc8">
+    <path d="M430 262 q4 -22 26 -22 h44 q16 0 24 16 l8 6 h10 q10 0 10 10 v12 h-132 z"/>
+    <circle cx="458" cy="272" r="10" fill="#8fc9b1"/><circle cx="520" cy="272" r="10" fill="#8fc9b1"/>
+  </g>
+  <!-- bicicleta -->
+  <g stroke="#9ecbb4" stroke-width="3.5" fill="none">
+    <circle cx="360" cy="266" r="14"/><circle cx="410" cy="266" r="14"/>
+    <path d="M360 266 L385 246 L410 266 M385 246 L392 266"/>
+  </g>
+</svg>
