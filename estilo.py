@@ -8,6 +8,8 @@ Somente front-end — nenhuma regra de negócio aqui.
 
 app.py usa: estilo.init_tema(), estilo.aplicar_tema(), estilo.render_seletor_tema_sidebar()
 """
+import os
+import base64
 import streamlit as st
 
 # ==========================================================
@@ -63,7 +65,7 @@ def montar_css(chave_tema=None):
         --brand-soft: rgba({glow}, 0.10);
         --brand-mid: rgba({glow}, 0.22);
         --brand-glow: rgba({glow}, 0.30);
-        --green: #22a559; --green-dark: #178a47;
+        --green: #1fc17a; --green-dark: #14a866;
         --ink: #0f172a; --muted: #64748b; --line: #e9eef5;
         --field-line: #aeb9c9;
         --field-line: color-mix(in srgb, var(--brand) 22%, #94a3b8);
@@ -116,12 +118,16 @@ def montar_css(chave_tema=None):
         border-color: var(--brand) !important; color: var(--brand) !important;
     }}
     .stButton > button:active {{ transform: translateY(0) scale(0.98); }}
+    /* Primário = pílula branca com borda (outline) na cor do tema */
     button[kind="primary"], .stFormSubmitButton > button[kind="primary"] {{
-        background: linear-gradient(135deg, var(--green), var(--green-dark)) !important;
-        border: none !important; color: #fff !important; font-weight: 700 !important;
-        box-shadow: 0 4px 14px rgba(34,165,89,0.30) !important;
+        background: #ffffff !important; color: var(--brand) !important;
+        border: 1.6px solid var(--brand) !important; font-weight: 700 !important;
+        border-radius: 999px !important; box-shadow: var(--shadow-sm) !important;
     }}
-    button[kind="primary"]:hover {{ transform: translateY(-2px) !important; box-shadow: 0 10px 26px rgba(34,165,89,0.45) !important; color: #fff !important; }}
+    button[kind="primary"]:hover {{
+        transform: translateY(-2px) !important; background: var(--brand-soft) !important;
+        color: var(--brand) !important; border-color: var(--brand-dark) !important; box-shadow: var(--shadow-md) !important;
+    }}
 
     /* ---- Inputs ---- */
     .stTextInput div[data-baseweb="input"], .stNumberInput div[data-baseweb="input"],
@@ -222,6 +228,66 @@ def montar_css(chave_tema=None):
         .stButton > button {{ min-height: 48px !important; font-size: 1rem !important; width: 100% !important; }}
         [data-testid="stDataFrame"], [data-testid="stDataEditor"] {{ overflow-x: auto !important; }}
         [data-testid="stMetricValue"] {{ font-size: 1.3rem !important; }}
+    }}
+</style>
+"""
+
+
+def _login_svg_b64():
+    caminho = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "login_bg.svg")
+    try:
+        with open(caminho, "rb") as f:
+            return base64.b64encode(f.read()).decode("ascii")
+    except Exception:
+        return ""
+
+
+def css_fundo_login():
+    """CSS da tela de login: fundo claro da marca + cena ilustrada no rodapé
+    (estilo ERP Consorbens). Vem DEPOIS de aplicar_tema(), então usa var(--brand)."""
+    b64 = _login_svg_b64()
+    camada = f'url("data:image/svg+xml;base64,{b64}"), ' if b64 else ""
+    return f"""
+<style>
+    [data-testid="stSidebar"], header[data-testid="stHeader"] {{ display:none !important; }}
+    [data-testid="stAppViewContainer"] {{
+        background-color:#e9f4ee !important;
+        background-image: {camada}
+            radial-gradient(1100px 460px at 85% -12%, var(--brand-soft), transparent 60%),
+            linear-gradient(180deg, #f5faf7 0%, #e3efe9 100%) !important;
+        background-position: bottom center, center, center !important;
+        background-size: 100% auto, cover, cover !important;
+        background-repeat: no-repeat, no-repeat, no-repeat !important;
+        background-attachment: fixed, fixed, fixed !important;
+    }}
+    [data-testid="stAppViewContainer"]::after {{ content: none !important; }}
+    .block-container {{ padding-top: 6vh !important; }}
+    /* Cartão do login */
+    div[data-testid="stVerticalBlockBorderWrapper"] {{
+        background:#ffffff !important; border:1px solid #e6ebf3 !important; border-radius:20px !important;
+        box-shadow:0 24px 55px rgba(15,23,42,0.16) !important; padding:2.3rem 2.1rem !important;
+    }}
+    div[data-testid="stVerticalBlockBorderWrapper"]::before {{ content:none !important; }}
+    .login-head {{ text-align:center; margin:6px 0 16px; }}
+    .login-head .wel {{ font-family:'Plus Jakarta Sans',sans-serif; font-weight:800; font-size:1.5rem; color:var(--ink); letter-spacing:-.02em; }}
+    .login-head .sub {{ color:var(--muted); font-size:.95rem; margin-top:2px; }}
+    div[data-testid="stVerticalBlockBorderWrapper"] label {{ color:#33414f !important; font-weight:600 !important; }}
+    /* Botão ENTRAR — cor da marca */
+    .login-btn-container div.stButton > button {{
+        background: linear-gradient(135deg, var(--brand), var(--brand-dark)) !important; color:#fff !important;
+        border:none !important; border-radius:11px !important; font-weight:700 !important; min-height:46px !important;
+        letter-spacing:.3px !important; box-shadow: 0 8px 20px var(--brand-glow) !important; transition: all .2s ease !important;
+    }}
+    .login-btn-container div.stButton > button:hover {{ transform:translateY(-2px); filter:brightness(1.05); color:#fff !important; }}
+    .login-chips {{ display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-top:18px; }}
+    .login-chips span {{ font-size:.72rem; font-weight:700; color:var(--muted); background:var(--brand-soft);
+        border:1px solid var(--brand-mid); padding:5px 11px; border-radius:999px; }}
+    .login-foot {{ text-align:center; color:#94a3b8; font-size:.74rem; margin-top:12px; }}
+    @media screen and (max-width:768px) {{
+        .block-container {{ padding-left:1rem !important; padding-right:1rem !important; }}
+        div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(1),
+        div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(3) {{ display:none !important; }}
+        div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(2) {{ width:100% !important; min-width:100% !important; }}
     }}
 </style>
 """
