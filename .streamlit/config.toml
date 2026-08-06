@@ -1,3 +1,10 @@
+# Tema base do Streamlit — Ecoclim ERP
+# As cores da marca, sombras e animações vêm do CSS em estilo.py.
 [theme]
-base="light"
-primaryColor="#004488"
+base = "light"
+primaryColor = "#0f9d58"
+secondaryBackgroundColor = "#ffffff"
+textColor = "#0f172a"
+showWidgetBorder = true
+borderColor = "#aeb9c9"
+baseRadius = "large"
