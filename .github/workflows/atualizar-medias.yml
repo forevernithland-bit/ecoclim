@@ -30,11 +30,17 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          # medias.json e 100% gerado pelo robo: guardamos o arquivo gerado,
+          # pegamos a versao mais nova do servidor e aplicamos por cima.
+          # Assim nunca ha conflito de merge (mesmo em re-run de commit antigo).
+          cp Maggi/medias.json /tmp/medias.json
+          git fetch origin main
+          git reset --hard origin/main
+          cp /tmp/medias.json Maggi/medias.json
           git add Maggi/medias.json
           if git diff --staged --quiet; then
             echo "Sem mudancas para commitar."
             exit 0
           fi
           git commit -m "Atualiza Maggi/medias.json [automatico]"
-          git pull --rebase --autostash
           git push

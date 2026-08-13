@@ -33,11 +33,17 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          # tabelas.json e 100% gerado pelo robo: guardamos o arquivo gerado,
+          # pegamos a versao mais nova do servidor e aplicamos por cima.
+          # Assim nunca ha conflito de merge (mesmo em re-run de commit antigo).
+          cp Maggi/tabelas.json /tmp/tabelas.json
+          git fetch origin main
+          git reset --hard origin/main
+          cp /tmp/tabelas.json Maggi/tabelas.json
           git add Maggi/tabelas.json
           if git diff --staged --quiet; then
             echo "Sem mudancas."
             exit 0
           fi
           git commit -m "Atualiza Maggi/tabelas.json [automatico]"
-          git pull --rebase --autostash
           git push
