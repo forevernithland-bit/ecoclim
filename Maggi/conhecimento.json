@@ -233,6 +233,13 @@
       "palavras_chave": ["aditamento 757", "termo de aditamento 757", "adit 757", "grupo 757", "regras do grupo 757", "taxa 757", "taxa do grupo 757", "prazo 757", "credito 757", "media de lance 757", "fundo 757", "seguro 757", "assembleia 757", "vencimento 757", "documento grupo 757"],
       "resposta": "Grupo 757 — Caminhões (VW). 2.000 participantes. Taxa de administração 15%. Prazo de 150 meses. Fundo de reserva 1%, seguro de vida 0,050%. Créditos de R$ 400.000 a R$ 800.000. Lance embutido de até 20%. Lance Fixo de 25% e 35%, além de sorteio e lance livre. Grupo aberto em Setembro/2026, com mega assembleias em Fevereiro e Agosto (até 60 contemplações). Assembleia de abertura: 24/09/2026. Termo de aditamento completo no documento abaixo.",
       "documento": { "nome": "Termo de Aditamento - Grupo 757.pdf", "arquivo": "aditamento-757.pdf" }
+    },
+    {
+      "id": "aditamento-645",
+      "titulo": "Grupo 645 (Automóveis BYD) — dados e termo de aditamento",
+      "palavras_chave": ["aditamento 645", "termo de aditamento 645", "adit 645", "grupo 645", "regras do grupo 645", "taxa 645", "taxa do grupo 645", "prazo 645", "credito 645", "media de lance 645", "fundo 645", "seguro 645", "assembleia 645", "vencimento 645", "documento grupo 645", "byd"],
+      "resposta": "Grupo 645 — Automóveis (BYD). 3.000 participantes. Taxa de administração 20%. Prazo de 150 meses. Fundo de reserva 1%, seguro de vida 0,050%. Créditos de R$ 110.000 a R$ 220.000. Lance embutido de até 10%. Lance Fixo de 25% e 35%, além de sorteio e lance livre. Grupo aberto em Outubro/2026, com mega assembleias em Março e Setembro (até 120 contemplações). Assembleia de abertura: 20/10/2026. Termo de aditamento completo no documento abaixo.",
+      "documento": { "nome": "Termo de Aditamento - Grupo 645.pdf", "arquivo": "aditamento-645.pdf" }
     }
   ]
 }
