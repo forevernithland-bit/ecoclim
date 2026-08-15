@@ -195,6 +195,39 @@ def carregar_ecoclim_mensal(ano):
         serie[m] = fin_mes + (total_andamento if eh_mes_atual else 0.0)
     return serie
 
+def carregar_manual_legado_mensal(ano, conta):
+    """Lê o valor antigo digitado à mão em fin_entradas para uma conta que
+    deixou de ser editável (ECOCLIM/CONS INVESTIMENTOS). Usado só como
+    fallback nos meses em que o cálculo automático ainda não tem dado (0) —
+    ex.: meses passados que o ERP Consorbens ainda não publicou, ou que não
+    têm registro em servicos_andamento. Some sozinho assim que o valor
+    calculado deixar de ser 0 para aquele mês."""
+    serie = pd.Series(0.0, index=utils.meses_pt)
+    supabase = st.session_state.supabase
+    try:
+        res = supabase.table('fin_entradas').select("*").eq("ano", ano).eq("meses", conta).limit(1).execute()
+        if res.data:
+            linha = res.data[0]
+            mapeamento = {"marco": "MARÇO"}
+            for m in utils.meses_pt:
+                if m != "MARÇO": mapeamento[m.lower()] = m
+            for col_db, col_pt in mapeamento.items():
+                serie[col_pt] = utils.safe_float(linha.get(col_db))
+    except Exception:
+        pass
+    return serie
+
+def aplicar_fallback_legado(serie_calculada, serie_legado, ano):
+    """Nos meses (passados/atual) em que o valor calculado ainda é 0, usa o
+    valor antigo digitado à mão em vez de mostrar zero. Nunca mexe em meses
+    futuros (continuam 0, como o resto da tela)."""
+    for i, m in enumerate(utils.meses_pt):
+        if _eh_mes_futuro(ano, i + 1):
+            continue
+        if serie_calculada[m] == 0 and serie_legado[m] != 0:
+            serie_calculada[m] = serie_legado[m]
+    return serie_calculada
+
 # =============================================================================
 # MOTORES DE EXPORTAÇÃO E IMPORTAÇÃO GLOBAL BLINDADA CONTRA NAN
 # =============================================================================
@@ -473,9 +506,15 @@ def renderizar():
     # CONS INVESTIMENTOS (resultado do Breno, publicado pelo ERP Consorbens) ----
     serie_ecoclim = carregar_ecoclim_mensal(ano_selecionado)
     serie_breno = carregar_breno_mensal(ano_selecionado)
+    # Fallback: em meses onde o cálculo automático ainda não tem dado (0), usa
+    # o valor antigo digitado à mão (continua guardado em fin_entradas) — some
+    # sozinho assim que a fonte de verdade publicar aquele mês.
+    serie_ecoclim = aplicar_fallback_legado(serie_ecoclim, carregar_manual_legado_mensal(ano_selecionado, 'ECOCLIM'), ano_selecionado)
+    serie_breno = aplicar_fallback_legado(serie_breno, carregar_manual_legado_mensal(ano_selecionado, 'CONS INVESTIMENTOS'), ano_selecionado)
 
     st.caption("🔄 Calculadas automaticamente: **ECOCLIM** (Gestão de Serviços — Em Andamento + Finalizados do mês) "
-               "e **CONS INVESTIMENTOS** (resultado do Breno, publicado pelo ERP Consorbens).")
+               "e **CONS INVESTIMENTOS** (resultado do Breno, publicado pelo ERP Consorbens). "
+               "Meses sem dado calculado ainda mostram o último valor digitado à mão, até a fonte publicar aquele mês.")
     dict_auto_e = {'MESES': ['ECOCLIM', 'CONS INVESTIMENTOS']}
     for m in utils.meses_pt:
         dict_auto_e[m] = [utils.to_br_currency(serie_ecoclim[m]), utils.to_br_currency(serie_breno[m])]
