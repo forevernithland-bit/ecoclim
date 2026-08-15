@@ -83,8 +83,15 @@ def salvar_dados_fin(nome_tabela, df, ano):
         }
         dados_finais.append(registro)
     try:
-        supabase.table(nome_tabela).delete().eq("ano", ano).execute()
-        supabase.table(nome_tabela).insert(dados_finais).execute()
+        # Apaga só as contas que estão sendo salvas (não o ano inteiro) — evita
+        # apagar outras contas do mesmo ano que não fazem parte deste df (ex.:
+        # linhas antigas de ECOCLIM/CONS INVESTIMENTOS, hoje calculadas ao vivo
+        # e não mais gravadas aqui).
+        contas_no_df = [linha["MESES"] for _, linha in df.iterrows()]
+        if contas_no_df:
+            supabase.table(nome_tabela).delete().eq("ano", ano).in_("meses", contas_no_df).execute()
+        if dados_finais:
+            supabase.table(nome_tabela).insert(dados_finais).execute()
     except Exception as e:
         st.error(f"Erro ao salvar tabela {nome_tabela}: {e}")
 
@@ -122,6 +129,71 @@ def limpar_e_garantir_linhas(df, lista_contas):
     df = df[df['MESES'].isin(lista_contas)]
     df['MESES'] = pd.Categorical(df['MESES'], categories=lista_contas, ordered=True)
     return df.sort_values('MESES').reset_index(drop=True)
+
+# =============================================================================
+# LINHAS AUTOMÁTICAS DE "RECEBIMENTOS E PRÓ-LABORE"
+# (CONS INVESTIMENTOS = Breno via ERP Consorbens; ECOCLIM = Gestão de Serviços)
+# =============================================================================
+def _eh_mes_futuro(ano, mes_idx):
+    return (ano > utils.ano_atual) or (ano == utils.ano_atual and mes_idx > utils.mes_hoje_idx)
+
+def carregar_breno_mensal(ano):
+    """Lê resultado_socios_mensal (publicado pelo ERP Consorbens toda vez que
+    a tela Financeiro de lá é aberta) e devolve uma Series por mês com o
+    resultado do Breno. Sempre ao vivo (sem cache). Meses futuros e meses
+    ainda não publicados ficam em 0 — nunca quebra a tela se a conexão/
+    migração não estiver pronta."""
+    serie = pd.Series(0.0, index=utils.meses_pt)
+    sb = utils.iniciar_conexao_consorbens()
+    if sb is None:
+        return serie
+    try:
+        res = sb.table("resultado_socios_mensal").select("mes, breno").eq("ano", ano).execute()
+        for r in (res.data or []):
+            mes_idx = int(r.get("mes") or 0)
+            if 1 <= mes_idx <= 12 and not _eh_mes_futuro(ano, mes_idx):
+                serie[utils.meses_pt[mes_idx - 1]] = utils.safe_float(r.get("breno"))
+    except Exception:
+        pass
+    return serie
+
+def carregar_ecoclim_mensal(ano):
+    """Calcula a linha ECOCLIM a partir de servicos_andamento (mesmo banco do
+    Ecoclim, tela Gestão de Serviços): no mês ATUAL = Lucro Líquido Estimado
+    (Em Andamento/Aguardando Pagamento/Aguardando Peças) + Lucro Líquido dos
+    Finalizados daquele mês. Em meses já fechados, só o Realizado daquele
+    mês (o que estava 'em andamento' virou, ou não, um Finalizado — não soma
+    mais junto). Meses futuros = 0."""
+    serie = pd.Series(0.0, index=utils.meses_pt)
+    supabase = st.session_state.supabase
+    try:
+        res = supabase.table('servicos_andamento').select("status_projeto, lucro_estimado, data_conclusao").execute()
+        df = pd.DataFrame(res.data)
+    except Exception:
+        return serie
+    if df.empty:
+        return serie
+
+    df['lucro_estimado'] = pd.to_numeric(df['lucro_estimado'], errors='coerce').fillna(0.0)
+    df['data_conclusao'] = pd.to_datetime(df['data_conclusao'], errors='coerce')
+
+    status_andamento = ["Em Andamento", "Aguardando Pagamento", "Aguardando Peças"]
+    status_finalizado = ["Concluído PIX", "Concluído CARTÃO"]
+
+    total_andamento = df.loc[df['status_projeto'].isin(status_andamento), 'lucro_estimado'].sum()
+
+    df_fin = df[df['status_projeto'].isin(status_finalizado) & df['data_conclusao'].notna()].copy()
+    df_fin['Ano'] = df_fin['data_conclusao'].dt.year
+    df_fin['Mes_idx'] = df_fin['data_conclusao'].dt.month
+
+    for i, m in enumerate(utils.meses_pt):
+        mes_idx = i + 1
+        if _eh_mes_futuro(ano, mes_idx):
+            continue
+        fin_mes = df_fin.loc[(df_fin['Ano'] == ano) & (df_fin['Mes_idx'] == mes_idx), 'lucro_estimado'].sum()
+        eh_mes_atual = (ano == utils.ano_atual) and (mes_idx == utils.mes_hoje_idx)
+        serie[m] = fin_mes + (total_andamento if eh_mes_atual else 0.0)
+    return serie
 
 # =============================================================================
 # MOTORES DE EXPORTAÇÃO E IMPORTAÇÃO GLOBAL BLINDADA CONTRA NAN
@@ -295,7 +367,10 @@ def renderizar():
             st.rerun()
 
     contas_p = ['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'INVESTIMENTO INTER', 'INVESTIMENTO ITAU', 'INVESTIMENTO XP', 'FGTS', 'IMÓVEIS', 'VEÍCULOS']
-    contas_e = ['ECOCLIM', 'AIRNB', 'CONS INVESTIMENTOS', 'MAGGI CONSORCIOS']
+    # ECOCLIM e CONS INVESTIMENTOS deixaram de ser digitadas à mão — são
+    # calculadas ao vivo (ver carregar_ecoclim_mensal/carregar_breno_mensal).
+    # Só AIRNB e MAGGI CONSORCIOS continuam manuais/gravadas em fin_entradas.
+    contas_e = ['AIRNB', 'MAGGI CONSORCIOS']
     
     if ('db_df_p' not in st.session_state or 
         'db_df_e' not in st.session_state or 
@@ -393,26 +468,39 @@ def renderizar():
     st.markdown("---")
     
     st.markdown(f"#### 💰 Recebimentos e Pró-labore ({ano_selecionado})")
-    
+
+    # ---- Linhas automáticas (não editáveis): ECOCLIM (Gestão de Serviços) e
+    # CONS INVESTIMENTOS (resultado do Breno, publicado pelo ERP Consorbens) ----
+    serie_ecoclim = carregar_ecoclim_mensal(ano_selecionado)
+    serie_breno = carregar_breno_mensal(ano_selecionado)
+
+    st.caption("🔄 Calculadas automaticamente: **ECOCLIM** (Gestão de Serviços — Em Andamento + Finalizados do mês) "
+               "e **CONS INVESTIMENTOS** (resultado do Breno, publicado pelo ERP Consorbens).")
+    dict_auto_e = {'MESES': ['ECOCLIM', 'CONS INVESTIMENTOS']}
+    for m in utils.meses_pt:
+        dict_auto_e[m] = [utils.to_br_currency(serie_ecoclim[m]), utils.to_br_currency(serie_breno[m])]
+    st.dataframe(pd.DataFrame(dict_auto_e)[colunas_visiveis].style.set_properties(**{'background-color': '#E2F0D9', 'color': 'black', 'font-weight': 'bold'}), hide_index=True, column_config=cfg_text, use_container_width=True)
+
+    st.caption("✏️ Editáveis (gravadas manualmente):")
     df_e_view = st.session_state.db_df_e[colunas_visiveis].copy()
     for m in colunas_visiveis:
         if m != "MESES":
             df_e_view[m] = df_e_view[m].apply(lambda x: utils.to_br_currency(x))
 
     df_e_ed = st.data_editor(
-        df_e_view, 
-        hide_index=True, 
-        column_config=cfg_edit, 
-        use_container_width=True, 
-        height=190, 
-        key=f"ed_e_fin_estavel_v12_{ano_selecionado}"
+        df_e_view,
+        hide_index=True,
+        column_config=cfg_edit,
+        use_container_width=True,
+        height=115,
+        key=f"ed_e_fin_estavel_v13_{ano_selecionado}"
     )
-    
+
     df_e_trabalho = st.session_state.db_df_e.copy()
-    for c in colunas_visiveis: 
+    for c in colunas_visiveis:
         if c != "MESES": df_e_trabalho[c] = df_e_ed[c].apply(parse_br_currency)
 
-    tot_e = df_e_trabalho.set_index('MESES').sum()
+    tot_e = df_e_trabalho.set_index('MESES').sum() + serie_ecoclim + serie_breno
     dict_res_e = {'MESES': ['TOTAL RECEBIMENTOS']}
     for i, m in enumerate(utils.meses_pt):
         is_futuro = (ano_selecionado > utils.ano_atual) or (ano_selecionado == utils.ano_atual and i > (utils.mes_hoje_idx - 1))
@@ -492,4 +580,4 @@ def renderizar():
         st.subheader("Salário + Rendimento")
         st.area_chart(tot_e[utils.meses_pt] + rend_tot_full[utils.meses_pt])
         st.subheader("Faturamento Ecoclim")
-        st.line_chart(df_e_trabalho.set_index('MESES').loc['ECOCLIM', utils.meses_pt])
+        st.line_chart(serie_ecoclim[utils.meses_pt])

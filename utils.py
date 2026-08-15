@@ -58,6 +58,23 @@ def get_supabase_client():
     except Exception:
         return init_connection()
 
+def iniciar_conexao_consorbens():
+    """Conexão de LEITURA com o Supabase do ERP CONSORBENS (projeto/banco
+    diferente do Ecoclim) — usada para ler resultado_socios_mensal (linha
+    'CONS INVESTIMENTOS' do Controle Financeiro). Usa os mesmos secrets já
+    usados pelo próprio ERP Consorbens para ler/gravar suas tabelas
+    (CONSORBENS_SUPABASE_URL / CONSORBENS_SUPABASE_KEY). Retorna None se não
+    configurado — a integração fica desligada sem quebrar a tela."""
+    try:
+        from supabase import create_client
+        url = st.secrets["CONSORBENS_SUPABASE_URL"]
+        key = st.secrets["CONSORBENS_SUPABASE_KEY"]
+        if not url or not key:
+            return None
+        return create_client(url, key)
+    except Exception:
+        return None
+
 # ==========================================
 # INTEGRAÇÃO GOOGLE DRIVE E CALENDAR (MOTOR VITALÍCIO)
 # ==========================================
@@ -351,11 +368,11 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
     impacto.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, -1), GRAFITE),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('TOPPADDING', (0, 0), (-1, -1), 7), ('BOTTOMPADDING', (0, 0), (-1, -1), 7),
+        ('TOPPADDING', (0, 0), (-1, -1), 5), ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
         ('LINEAFTER', (0, 0), (-2, -1), 0.5, colors.HexColor("#454e5b")),
     ]))
     story.append(impacto)
-    story.append(Spacer(1, 0.32*cm))
+    story.append(Spacer(1, 0.2*cm))
     story.append(Paragraph("Mais conforto, mais economia, <b>mais sustentabilidade</b>", s_tag))
     story.append(Spacer(1, 0.4*cm))
 
@@ -377,14 +394,14 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
             ratio = float(img.drawHeight) / float(img.drawWidth) if float(img.drawWidth) else 0.5
             larg_img = LU
             alt_img = larg_img * ratio
-            if alt_img > 6.6 * cm:
-                alt_img = 6.6 * cm
+            if alt_img > 4.0 * cm:
+                alt_img = 4.0 * cm
                 larg_img = alt_img / ratio
             img.drawWidth = larg_img
             img.drawHeight = alt_img
             img.hAlign = 'CENTER'
             legenda = Table([[Paragraph(f"<b>{capa}</b>", _st('cap', fontName='Helvetica-Bold', fontSize=11, textColor=colors.white)),
-                              Paragraph("MODELO SELECIONADO", _st('capr', fontName='Helvetica-Bold', fontSize=7.5, textColor=GRAFITE_DEEP, alignment=TA_RIGHT))]],
+                              Paragraph("SELECIONADO", _st('capr', fontName='Helvetica-Bold', fontSize=7.5, textColor=GRAFITE_DEEP, alignment=TA_RIGHT))]],
                             colWidths=[larg_img*0.68, larg_img*0.32])
             legenda.hAlign = 'CENTER'
             legenda.setStyle(TableStyle([
@@ -395,7 +412,7 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
                 ('TOPPADDING', (0, 0), (-1, -1), 5), ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
             ]))
             story.append(KeepTogether([img, legenda]))
-            story.append(Spacer(1, 0.4*cm))
+            story.append(Spacer(1, 0.2*cm))
         except Exception:
             pass
 
@@ -409,10 +426,10 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
         ('LINEAFTER', (0, 0), (-2, -1), 0.6, HAIR),
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
         ('LEFTPADDING', (0, 0), (-1, -1), 10), ('RIGHTPADDING', (0, 0), (-1, -1), 10),
-        ('TOPPADDING', (0, 0), (-1, -1), 7), ('BOTTOMPADDING', (0, 0), (-1, -1), 7),
+        ('TOPPADDING', (0, 0), (-1, -1), 5), ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
     ]))
     story.append(cliente)
-    story.append(Spacer(1, 0.5*cm))
+    story.append(Spacer(1, 0.22*cm))
 
     # ---------- barra de seção ----------
     def barra(titulo, direita=""):
@@ -475,21 +492,21 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
         ('BOX', (0, 0), (-1, -1), 0.6, HAIR),
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
         ('LEFTPADDING', (0, 0), (-1, -1), 10), ('RIGHTPADDING', (0, 0), (-1, -1), 10),
-        ('TOPPADDING', (0, 0), (-1, -1), 7), ('BOTTOMPADDING', (0, 0), (-1, -1), 7),
+        ('TOPPADDING', (0, 0), (-1, -1), 5), ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
         ('ROWBACKGROUNDS', (0, 1), (-1, n_last - 1), [colors.white, ZEBRA]),
         ('BACKGROUND', (0, n_last), (-1, n_last), colors.HexColor("#eef1f5")),
         ('SPAN', (0, n_last), (-2, n_last)),
     ]))
     story.append(barra("1.  EQUIPAMENTOS", "Qtd · Valor"))
     story.append(tbl)
-    story.append(Spacer(1, 0.5*cm))
+    story.append(Spacer(1, 0.22*cm))
 
     # ---------- bloco descritivo (Serviços / Outros) ----------
     estilo_bloco = TableStyle([
         ('BOX', (0, 0), (-1, -1), 0.6, HAIR),
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
         ('LEFTPADDING', (0, 0), (-1, -1), 10), ('RIGHTPADDING', (0, 0), (-1, -1), 10),
-        ('TOPPADDING', (0, 0), (-1, -1), 9), ('BOTTOMPADDING', (0, 0), (-1, -1), 9),
+        ('TOPPADDING', (0, 0), (-1, -1), 7), ('BOTTOMPADDING', (0, 0), (-1, -1), 7),
     ])
 
     def bloco_desc(texto, valor, vazio_msg):
@@ -502,12 +519,12 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
     # ---------- 2. Serviços ----------
     story.append(barra("2.  SERVIÇOS", "Instalação"))
     story.append(bloco_desc(d_s, v_s, "Nenhum serviço incluído nesta proposta."))
-    story.append(Spacer(1, 0.5*cm))
+    story.append(Spacer(1, 0.22*cm))
 
     # ---------- 3. Outros / Terceiros ----------
     story.append(barra("3.  OUTROS / TERCEIROS", "Adicionais"))
     story.append(bloco_desc(d_o, v_o, "Nenhum item adicional nesta proposta."))
-    story.append(Spacer(1, 0.55*cm))
+    story.append(Spacer(1, 0.22*cm))
 
     # ---------- Investimento total ----------
     total_tbl = Table([[Paragraph("INVESTIMENTO TOTAL", _st('tl', fontName='Helvetica-Bold', fontSize=12, textColor=colors.white)),
@@ -517,7 +534,7 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
         ('BACKGROUND', (0, 0), (-1, -1), GRAFITE_DEEP),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ('LEFTPADDING', (0, 0), (-1, -1), 14), ('RIGHTPADDING', (0, 0), (-1, -1), 14),
-        ('TOPPADDING', (0, 0), (-1, -1), 12), ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+        ('TOPPADDING', (0, 0), (-1, -1), 10), ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
         ('LINEBEFORE', (1, 0), (1, 0), 3, GOLD),
     ]))
     story.append(total_tbl)
@@ -525,7 +542,7 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
     # ---------- Observações ----------
     obs_txt = _limpo(obs)
     if obs_txt:
-        story.append(Spacer(1, 0.5*cm))
+        story.append(Spacer(1, 0.22*cm))
         obs_tbl = Table([[[Paragraph("OBSERVAÇÕES", s_obs_t), Spacer(1, 0.15*cm), Paragraph(obs_txt.replace('\n', '<br/>'), s_obs)]]],
                         colWidths=[LU])
         obs_tbl.setStyle(TableStyle([
@@ -537,7 +554,7 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
         story.append(obs_tbl)
 
     # ---------- Condições ----------
-    story.append(Spacer(1, 0.5*cm))
+    story.append(Spacer(1, 0.22*cm))
     def _cond(k, v):
         return [Paragraph(k, s_cond_k), Spacer(1, 0.08*cm), Paragraph(v, s_cond_v)]
     cond = Table([[_cond("PRAZO DE EXECUÇÃO", "A combinar."),
@@ -553,7 +570,7 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
     story.append(cond)
 
     # ---------- Barra de contato ----------
-    story.append(Spacer(1, 0.5*cm))
+    story.append(Spacer(1, 0.22*cm))
     contato = Table([[Paragraph("<b>ECOCLIM</b>  ·  Especialistas em energia solar e sustentabilidade",
                                 _st('c1', fontName='Helvetica', fontSize=9, textColor=colors.white)),
                       Paragraph("(31) 99867-7808  ·  WWW.ECOCLIM.COM.BR",
@@ -563,7 +580,7 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
         ('BACKGROUND', (0, 0), (-1, -1), GRAFITE_DEEP),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ('LEFTPADDING', (0, 0), (-1, -1), 14), ('RIGHTPADDING', (0, 0), (-1, -1), 14),
-        ('TOPPADDING', (0, 0), (-1, -1), 9), ('BOTTOMPADDING', (0, 0), (-1, -1), 9),
+        ('TOPPADDING', (0, 0), (-1, -1), 7), ('BOTTOMPADDING', (0, 0), (-1, -1), 7),
     ]))
     story.append(contato)
 
@@ -610,7 +627,7 @@ def gerar_pdf_contrato(nome, doc, tipo_cliente, endereco, objeto, df_items, mat_
         img = RLImage("logo.png", width=4.5*cm, height=2.2*cm)
         img.hAlign = 'CENTER'
         story.append(img)
-        story.append(Spacer(1, 0.5*cm))
+        story.append(Spacer(1, 0.22*cm))
     except: 
         story.append(Paragraph("<b>ECOCLIM</b>", style_title))
 
