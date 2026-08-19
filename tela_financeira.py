@@ -95,6 +95,106 @@ def salvar_dados_fin(nome_tabela, df, ano):
     except Exception as e:
         st.error(f"Erro ao salvar tabela {nome_tabela}: {e}")
 
+# =============================================================================
+# APORTES DE CAPITAL — lista de lançamentos (vários por mês) na fin_aportes_itens
+# =============================================================================
+def carregar_aportes_itens(ano):
+    """Lê os lançamentos de aporte do ano. Retorna DataFrame [Mês, Conta, Valor, Obs].
+    Nunca quebra a tela (se a tabela não existir ainda, devolve vazio)."""
+    cols = ["Mês", "Conta", "Valor", "Obs"]
+    try:
+        res = st.session_state.supabase.table('fin_aportes_itens').select("*").eq("ano", ano).order("mes").execute()
+        linhas = []
+        for r in (res.data or []):
+            mes_idx = int(r.get("mes") or 0)
+            linhas.append({
+                "Mês": utils.meses_pt[mes_idx - 1] if 1 <= mes_idx <= 12 else "",
+                "Conta": str(r.get("conta") or "").upper(),
+                "Valor": utils.safe_float(r.get("valor")),
+                "Obs": str(r.get("obs") or ""),
+            })
+        return pd.DataFrame(linhas, columns=cols)
+    except Exception:
+        return pd.DataFrame(columns=cols)
+
+def salvar_aportes_itens(ano, df_itens):
+    """Regrava os lançamentos do ano (apaga os do ano e reinsere os válidos)."""
+    supabase = st.session_state.supabase
+    registros = []
+    if df_itens is not None and not df_itens.empty:
+        for _, r in df_itens.iterrows():
+            mes_nome = str(r.get("Mês", "")).strip().upper()
+            conta = str(r.get("Conta", "")).strip().upper()
+            valor = utils.safe_float(r.get("Valor", 0))
+            if mes_nome in utils.meses_pt and conta in ("XP", "INTER", "ITAU") and valor != 0:
+                registros.append({
+                    "ano": ano,
+                    "mes": utils.meses_pt.index(mes_nome) + 1,
+                    "conta": conta,
+                    "valor": valor,
+                    "obs": str(r.get("Obs", "") or ""),
+                })
+    try:
+        supabase.table('fin_aportes_itens').delete().eq("ano", ano).execute()
+        if registros:
+            supabase.table('fin_aportes_itens').insert(registros).execute()
+    except Exception as e:
+        st.error(f"Erro ao salvar aportes: {e}")
+
+def agregar_aportes(df_itens):
+    """Soma os lançamentos por mês para cada conta → (ap_xp, ap_it, ap_itau)
+    como Series indexadas por utils.meses_pt (mesmo formato usado no cálculo)."""
+    ap_xp = pd.Series(0.0, index=utils.meses_pt)
+    ap_it = pd.Series(0.0, index=utils.meses_pt)
+    ap_itau = pd.Series(0.0, index=utils.meses_pt)
+    if df_itens is None or df_itens.empty:
+        return ap_xp, ap_it, ap_itau
+    for _, r in df_itens.iterrows():
+        mes = str(r.get("Mês", "")).strip().upper()
+        conta = str(r.get("Conta", "")).strip().upper()
+        val = utils.safe_float(r.get("Valor", 0))
+        if mes not in utils.meses_pt:
+            continue
+        if conta == "XP":
+            ap_xp[mes] += val
+        elif conta == "INTER":
+            ap_it[mes] += val
+        elif conta == "ITAU":
+            ap_itau[mes] += val
+    return ap_xp, ap_it, ap_itau
+
+def carregar_meta_patrimonio():
+    try:
+        res = st.session_state.supabase.table('fin_configuracoes').select('*').eq('chave', 'meta_patrimonio').execute()
+        if res.data:
+            return utils.safe_float(res.data[0].get('valor1'))
+    except Exception:
+        pass
+    return 0.0
+
+def salvar_meta_patrimonio(valor):
+    try:
+        st.session_state.supabase.table('fin_configuracoes').delete().eq('chave', 'meta_patrimonio').execute()
+        st.session_state.supabase.table('fin_configuracoes').insert({'chave': 'meta_patrimonio', 'valor1': str(valor)}).execute()
+    except Exception:
+        pass
+
+def total_juros_ano(ano, meses):
+    """Soma o rendimento (juros = variação − aportes) das 3 contas de investimento
+    nos meses informados, para um ano qualquer. Usado no comparativo ano a ano."""
+    contas = ['INVESTIMENTO XP', 'INVESTIMENTO INTER', 'INVESTIMENTO ITAU']
+    dfp = carregar_dados_fin('fin_patrimonio', contas, ano).set_index('MESES')
+    dfp_prev = carregar_dados_fin('fin_patrimonio', contas, ano - 1).set_index('MESES')
+    ax, ai, at = agregar_aportes(carregar_aportes_itens(ano))
+    total = 0.0
+    for conta, apser in [('INVESTIMENTO XP', ax), ('INVESTIMENTO INTER', ai), ('INVESTIMENTO ITAU', at)]:
+        v = dfp.loc[conta] if conta in dfp.index else pd.Series(0.0, index=utils.meses_pt)
+        pdec = dfp_prev.loc[conta, 'DEZEMBRO'] if conta in dfp_prev.index else 0.0
+        var = v - v.shift(1).fillna(pdec)
+        juros = var - apser
+        total += float(juros[meses].sum())
+    return total
+
 def carregar_periodo_visivel():
     if 'periodo_visivel_financeiro' in st.session_state:
         return st.session_state.periodo_visivel_financeiro
@@ -397,6 +497,7 @@ def renderizar():
             st.session_state.pop('ano_dados_atual', None)
             st.session_state.pop('db_df_p', None)
             st.session_state.pop('db_df_e', None)
+            st.session_state.pop('db_df_ap_itens', None)
             st.rerun()
 
     contas_p = ['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'INVESTIMENTO INTER', 'INVESTIMENTO ITAU', 'INVESTIMENTO XP', 'FGTS', 'IMÓVEIS', 'VEÍCULOS']
@@ -404,15 +505,17 @@ def renderizar():
     # calculadas ao vivo (ver carregar_ecoclim_mensal/carregar_breno_mensal).
     # Só AIRNB e MAGGI CONSORCIOS continuam manuais/gravadas em fin_entradas.
     contas_e = ['AIRNB', 'MAGGI CONSORCIOS']
-    
-    if ('db_df_p' not in st.session_state or 
-        'db_df_e' not in st.session_state or 
-        'ano_dados_atual' not in st.session_state or 
-        st.session_state.ano_dados_atual != ano_selecionado or 
+
+    if ('db_df_p' not in st.session_state or
+        'db_df_e' not in st.session_state or
+        'db_df_ap_itens' not in st.session_state or
+        'ano_dados_atual' not in st.session_state or
+        st.session_state.ano_dados_atual != ano_selecionado or
         st.session_state.get('forcar_reload_fin', False)):
-        
+
         st.session_state.db_df_p = limpar_e_garantir_linhas(carregar_dados_fin('fin_patrimonio', contas_p, ano_selecionado), contas_p)
         st.session_state.db_df_e = limpar_e_garantir_linhas(carregar_dados_fin('fin_entradas', contas_e, ano_selecionado), contas_e)
+        st.session_state.db_df_ap_itens = carregar_aportes_itens(ano_selecionado)
         st.session_state.ano_dados_atual = ano_selecionado
         st.session_state.forcar_reload_fin = False
 
@@ -429,194 +532,255 @@ def renderizar():
         cfg_edit[m] = st.column_config.TextColumn(m, width=100)
         cfg_text[m] = st.column_config.TextColumn(m, width=100)
 
-    st.markdown('<div class="container-tabelas">', unsafe_allow_html=True)
-    
-    c_titulo, c_exp, c_imp = st.columns([1.6, 1.1, 1.3])
-    
-    with c_titulo:
-        st.markdown(f"<h4>🏛️ Patrimônio e Investimentos ({ano_selecionado})</h4>", unsafe_allow_html=True)
-        
-    with c_exp:
-        arquivo_completo_excel = exportar_base_completa_excel()
-        if arquivo_completo_excel:
-            st.download_button(
-                label="📤 EXPORTAR TODA BASE",
-                data=arquivo_completo_excel,
-                file_name="ERP_ECOCLIM_FINANCEIRO.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
-                key="btn_exportar_total_global"
-            )
-            
-    with c_imp:
-        excel_subido_global = st.file_uploader("Importar base completa", type=["xlsx"], label_visibility="collapsed", key="file_uploader_global_fin")
-        if excel_subido_global is not None:
-            if st.button("🚀 CONFIRMAR IMPORTAÇÃO", use_container_width=True, type="secondary", key="btn_executar_importacao_global"):
-                with st.spinner("Substituindo dados..."):
-                    if importar_base_completa_excel(excel_subido_global):
-                        st.success("✅ Importação com sucesso!")
-                        st.session_state.forcar_reload_fin = True
-                        st.rerun()
+    tabs = st.tabs(["📊 Resumo", "📝 Lançamentos", "📈 Gráficos"])
 
-    df_p_view = st.session_state.db_df_p[colunas_visiveis].copy()
-    for m in colunas_visiveis:
-        if m != "MESES":
-            df_p_view[m] = df_p_view[m].apply(lambda x: utils.to_br_currency(x))
+    # =====================================================================
+    # ABA LANÇAMENTOS — renderiza os editores primeiro (produz os dados)
+    # =====================================================================
+    with tabs[1]:
+        c_exp, c_imp = st.columns([1, 1.4])
+        with c_exp:
+            arquivo_completo_excel = exportar_base_completa_excel()
+            if arquivo_completo_excel:
+                st.download_button(
+                    label="📤 Exportar toda a base", data=arquivo_completo_excel,
+                    file_name="ERP_ECOCLIM_FINANCEIRO.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True, key="btn_exportar_total_global")
+        with c_imp:
+            excel_subido_global = st.file_uploader("Importar base completa", type=["xlsx"], label_visibility="collapsed", key="file_uploader_global_fin")
+            if excel_subido_global is not None:
+                if st.button("🚀 Confirmar importação", use_container_width=True, type="secondary", key="btn_executar_importacao_global"):
+                    with st.spinner("Substituindo dados..."):
+                        if importar_base_completa_excel(excel_subido_global):
+                            st.success("✅ Importação com sucesso!")
+                            st.session_state.forcar_reload_fin = True
+                            st.rerun()
 
-    df_p_ed = st.data_editor(
-        df_p_view, 
-        hide_index=True, 
-        column_config=cfg_edit, 
-        use_container_width=True, 
-        height=320, 
-        key=f"ed_p_fin_estavel_v12_{ano_selecionado}"
-    )
+        st.markdown(f"##### 🏛️ Patrimônio e Investimentos ({ano_selecionado})")
+        df_p_view = st.session_state.db_df_p[colunas_visiveis].copy()
+        for m in colunas_visiveis:
+            if m != "MESES":
+                df_p_view[m] = df_p_view[m].apply(lambda x: utils.to_br_currency(x))
+        df_p_ed = st.data_editor(df_p_view, hide_index=True, column_config=cfg_edit, use_container_width=True, height=320, key=f"ed_p_fin_estavel_v12_{ano_selecionado}")
+        df_p_trabalho = st.session_state.db_df_p.copy()
+        for c in colunas_visiveis:
+            if c != "MESES": df_p_trabalho[c] = df_p_ed[c].apply(parse_br_currency)
 
-    df_p_trabalho = st.session_state.db_df_p.copy()
-    for c in colunas_visiveis: 
-        if c != "MESES": df_p_trabalho[c] = df_p_ed[c].apply(parse_br_currency)
+        st.markdown("##### 💵 Aportes de Capital (Investimentos)")
+        with st.expander("Registrar depósitos (pode haver vários no mesmo mês)", expanded=False):
+            st.caption("Lance cada DEPÓSITO feito. O sistema soma por mês/conta e desconta do rendimento e do Limite de Gasto — não é juros. Registre só no mês em que o dinheiro entrou.")
+            cfg_ap = {
+                "Mês": st.column_config.SelectboxColumn("Mês", options=utils.meses_pt, width="medium", required=True),
+                "Conta": st.column_config.SelectboxColumn("Conta", options=["XP", "INTER", "ITAU"], width="small", required=True),
+                "Valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f", min_value=0.0, width="small"),
+                "Obs": st.column_config.TextColumn("Obs (opcional)"),
+            }
+            df_ap_itens_ed = st.data_editor(
+                st.session_state.db_df_ap_itens, column_config=cfg_ap, num_rows="dynamic",
+                hide_index=True, use_container_width=True, key=f"ed_ap_itens_{ano_selecionado}")
+            _tot_ap = utils.safe_float(pd.to_numeric(df_ap_itens_ed.get("Valor"), errors="coerce").fillna(0).sum()) if not df_ap_itens_ed.empty else 0.0
+            if _tot_ap > 0:
+                st.caption(f"Total aportado no ano: **{utils.to_br_currency(_tot_ap)}**")
+        ap_xp, ap_it, ap_itau = agregar_aportes(df_ap_itens_ed)
 
+        st.markdown(f"##### 💰 Recebimentos e Pró-labore ({ano_selecionado})")
+        serie_ecoclim = carregar_ecoclim_mensal(ano_selecionado)
+        serie_breno = carregar_breno_mensal(ano_selecionado)
+        serie_ecoclim = aplicar_fallback_legado(serie_ecoclim, carregar_manual_legado_mensal(ano_selecionado, 'ECOCLIM'), ano_selecionado)
+        serie_breno = aplicar_fallback_legado(serie_breno, carregar_manual_legado_mensal(ano_selecionado, 'CONS INVESTIMENTOS'), ano_selecionado)
+        st.caption("🔄 Calculadas automaticamente: **ECOCLIM** (Gestão de Serviços) e **CONS INVESTIMENTOS** (resultado do Breno, via ERP Consorbens). Meses sem dado ainda mostram o último valor digitado à mão.")
+        dict_auto_e = {'MESES': ['ECOCLIM', 'CONS INVESTIMENTOS']}
+        for m in utils.meses_pt:
+            dict_auto_e[m] = [utils.to_br_currency(serie_ecoclim[m]), utils.to_br_currency(serie_breno[m])]
+        st.dataframe(pd.DataFrame(dict_auto_e)[colunas_visiveis].style.set_properties(**{'background-color': '#E2F0D9', 'color': 'black', 'font-weight': 'bold'}), hide_index=True, column_config=cfg_text, use_container_width=True)
+        st.caption("✏️ Editáveis (gravadas manualmente):")
+        df_e_view = st.session_state.db_df_e[colunas_visiveis].copy()
+        for m in colunas_visiveis:
+            if m != "MESES":
+                df_e_view[m] = df_e_view[m].apply(lambda x: utils.to_br_currency(x))
+        df_e_ed = st.data_editor(df_e_view, hide_index=True, column_config=cfg_edit, use_container_width=True, height=115, key=f"ed_e_fin_estavel_v13_{ano_selecionado}")
+        df_e_trabalho = st.session_state.db_df_e.copy()
+        for c in colunas_visiveis:
+            if c != "MESES": df_e_trabalho[c] = df_e_ed[c].apply(parse_br_currency)
+        tot_e = df_e_trabalho.set_index('MESES').sum() + serie_ecoclim + serie_breno
+        dict_res_e = {'MESES': ['TOTAL RECEBIMENTOS']}
+        for i, m in enumerate(utils.meses_pt):
+            is_futuro = (ano_selecionado > utils.ano_atual) or (ano_selecionado == utils.ano_atual and i > (utils.mes_hoje_idx - 1))
+            dict_res_e[m] = [utils.to_br_currency(0 if is_futuro else tot_e[m])]
+        st.dataframe(pd.DataFrame(dict_res_e)[colunas_visiveis].style.set_properties(**{'background-color': '#9BC2E6', 'color': 'black', 'font-weight': 'bold'}), hide_index=True, column_config=cfg_text, use_container_width=True)
+
+        st.divider()
+        _cesp, _cbtn = st.columns([3, 1])
+        if _cbtn.button("💾 GRAVAR ALTERAÇÕES", type="primary", use_container_width=True, key="btn_gravar_rodape"):
+            st.session_state.salvar_fin_clicado = True
+        if st.session_state.salvar_fin_clicado:
+            with st.spinner("Gravando no Supabase..."):
+                st.session_state.db_df_p = df_p_trabalho
+                st.session_state.db_df_e = df_e_trabalho
+                st.session_state.db_df_ap_itens = df_ap_itens_ed
+                salvar_dados_fin('fin_patrimonio', st.session_state.db_df_p, ano_selecionado)
+                salvar_dados_fin('fin_entradas', st.session_state.db_df_e, ano_selecionado)
+                salvar_aportes_itens(ano_selecionado, df_ap_itens_ed)
+            st.session_state.salvar_fin_clicado = False
+            st.success("✅ Alterações gravadas!")
+
+    # =====================================================================
+    # CÁLCULOS (usam os DataFrames produzidos na aba Lançamentos)
+    # =====================================================================
     df_n = df_p_trabalho.set_index('MESES')
     pat_liq = df_n.loc[df_n.index.isin(['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'INVESTIMENTO INTER', 'INVESTIMENTO ITAU', 'INVESTIMENTO XP', 'FGTS'])].sum()
     pat_tot = pat_liq + df_n.loc[df_n.index.isin(['IMÓVEIS', 'VEÍCULOS'])].sum()
-    
+
     var_abs = pat_tot.copy()
     var_pct = pat_tot.copy()
     for i, m in enumerate(utils.meses_pt):
-        val_atual = pat_tot[m]
         val_prev = pat_tot[utils.meses_pt[i-1]] if i > 0 else pat_tot_prev_dec
-        var_abs[m] = val_atual - val_prev
+        var_abs[m] = pat_tot[m] - val_prev
         var_pct[m] = (var_abs[m] / val_prev * 100) if val_prev != 0 else 0.0
+    var_liq = pat_liq - pat_liq.shift(1).fillna(pat_liq_prev_dec)
 
+    xp_v = df_n.loc['INVESTIMENTO XP'] if 'INVESTIMENTO XP' in df_n.index else pd.Series(0.0, index=utils.meses_pt)
+    it_v = df_n.loc['INVESTIMENTO INTER'] if 'INVESTIMENTO INTER' in df_n.index else pd.Series(0.0, index=utils.meses_pt)
+    itau_v = df_n.loc['INVESTIMENTO ITAU'] if 'INVESTIMENTO ITAU' in df_n.index else pd.Series(0.0, index=utils.meses_pt)
+
+    meses_calc = utils.meses_pt[:utils.mes_hoje_idx] if ano_selecionado == utils.ano_atual else utils.meses_pt
+    media_ent = tot_e[meses_calc].mean() if not tot_e.empty else 0
+
+    xp_var_full = xp_v - xp_v.shift(1).fillna(xp_prev_dec)
+    it_var_full = it_v - it_v.shift(1).fillna(inter_prev_dec)
+    itau_var_full = itau_v - itau_v.shift(1).fillna(itau_prev_dec)
+    rend_tot_full = (xp_var_full - ap_xp) + (it_var_full - ap_it) + (itau_var_full - ap_itau)
+    var_total_full = xp_var_full + it_var_full + itau_var_full
+    media_rend_r = rend_tot_full[meses_calc].mean()
+
+    prev_bal_full = (xp_v + it_v + itau_v).shift(1).fillna(xp_prev_dec + inter_prev_dec + itau_prev_dec)
+    pb_safe = prev_bal_full[meses_calc].replace(0, np.nan)
+    media_rend_p = (rend_tot_full[meses_calc] / pb_safe).mean() * 100
+    pat_atual = pat_tot[utils.mes_atual_nome] if ano_selecionado == utils.ano_atual else pat_tot['DEZEMBRO']
+
+    # Tabela de rendimento (juros = variação − aporte)
+    dict_rend = {'MESES': ['RESULTADO XP (juros)', 'RESULTADO INTER (juros)', 'RESULTADO ITAU (juros)',
+                           'APORTES DO MÊS', 'RENDIMENTO (JUROS)', 'VARIAÇÃO TOTAL (juros+aportes)',
+                           '% RETORNO MÊS', 'SALÁRIO + RENDIMENTO MÊS']}
+    for i, m in enumerate(utils.meses_pt):
+        is_futuro = (ano_selecionado > utils.ano_atual) or (ano_selecionado == utils.ano_atual and i > (utils.mes_hoje_idx - 1))
+        if is_futuro:
+            dict_rend[m] = ["R$ 0,00", "R$ 0,00", "R$ 0,00", "R$ 0,00", "R$ 0,00", "R$ 0,00", "0,00%", "R$ 0,00"]
+        else:
+            d_xp = xp_v[m] - (xp_v[utils.meses_pt[i-1]] if i > 0 else xp_prev_dec)
+            d_it = it_v[m] - (it_v[utils.meses_pt[i-1]] if i > 0 else inter_prev_dec)
+            d_itau = itau_v[m] - (itau_v[utils.meses_pt[i-1]] if i > 0 else itau_prev_dec)
+            j_xp = d_xp - ap_xp[m]; j_it = d_it - ap_it[m]; j_itau = d_itau - ap_itau[m]
+            j_tot = j_xp + j_it + j_itau
+            a_tot = ap_xp[m] + ap_it[m] + ap_itau[m]
+            var_tot = j_tot + a_tot
+            p_bal = (xp_v[utils.meses_pt[i-1]] + it_v[utils.meses_pt[i-1]] + itau_v[utils.meses_pt[i-1]]) if i > 0 else (xp_prev_dec + inter_prev_dec + itau_prev_dec)
+            pct = (j_tot / p_bal * 100) if p_bal > 0 else 0.0
+            dict_rend[m] = [utils.to_br_currency(j_xp), utils.to_br_currency(j_it), utils.to_br_currency(j_itau),
+                            utils.to_br_currency(a_tot), utils.to_br_currency(j_tot), utils.to_br_currency(var_tot),
+                            f"{pct:.2f}%".replace('.', ','), utils.to_br_currency(tot_e[m] + j_tot)]
+
+    # Tabela de patrimônio detalhado
     dict_res_p = {'MESES': ['PATRIMÔNIO LÍQUIDO', 'PATRIMÔNIO TOTAL', 'VAR. MENSAL (R$)', 'VAR. MENSAL (%)']}
     for i, m in enumerate(utils.meses_pt):
         is_futuro = (ano_selecionado > utils.ano_atual) or (ano_selecionado == utils.ano_atual and i > (utils.mes_hoje_idx - 1))
         if is_futuro:
             dict_res_p[m] = ["R$ 0,00", "R$ 0,00", "R$ 0,00", "0,00%"]
         else:
-            dict_res_p[m] = [utils.to_br_currency(pat_liq[m]), utils.to_br_currency(pat_tot[m]), utils.to_br_currency(var_abs[m]), f"{var_pct[m]:.2f}%".replace('.',',')]
+            dict_res_p[m] = [utils.to_br_currency(pat_liq[m]), utils.to_br_currency(pat_tot[m]), utils.to_br_currency(var_abs[m]), f"{var_pct[m]:.2f}%".replace('.', ',')]
 
-    st.dataframe(pd.DataFrame(dict_res_p)[colunas_visiveis].style.apply(lambda r: [f'background-color: {"#FF9900" if r["MESES"] == "PATRIMÔNIO TOTAL" else "#FFF2CC" if "LÍQUIDO" in r["MESES"] else "white"}; color: black; font-weight: bold' for _ in colunas_visiveis], axis=1), hide_index=True, column_config=cfg_text, use_container_width=True)
+    meta = carregar_meta_patrimonio()
+    rend_acum = float(rend_tot_full[meses_calc].sum())
+    try:
+        rend_acum_prev = total_juros_ano(ano_selecionado - 1, meses_calc)
+    except Exception:
+        rend_acum_prev = 0.0
 
-    st.markdown("---")
-    
-    st.markdown(f"#### 💰 Recebimentos e Pró-labore ({ano_selecionado})")
+    # =====================================================================
+    # ABA RESUMO
+    # =====================================================================
+    with tabs[0]:
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("🏛️ Patrimônio Atual", utils.to_br_currency(pat_atual))
+        k2.metric("🎯 Limite de Gasto", utils.to_br_currency(media_rend_r), help="Média dos juros mensais (sem aportes) — quanto dá para gastar sem encolher o patrimônio.")
+        k3.metric("💰 Média de Entradas", utils.to_br_currency(media_ent))
+        k4.metric("📈 Retorno Médio", f"{media_rend_p:.2f}%".replace(".", ","))
 
-    # ---- Linhas automáticas (não editáveis): ECOCLIM (Gestão de Serviços) e
-    # CONS INVESTIMENTOS (resultado do Breno, publicado pelo ERP Consorbens) ----
-    serie_ecoclim = carregar_ecoclim_mensal(ano_selecionado)
-    serie_breno = carregar_breno_mensal(ano_selecionado)
-    # Fallback: em meses onde o cálculo automático ainda não tem dado (0), usa
-    # o valor antigo digitado à mão (continua guardado em fin_entradas) — some
-    # sozinho assim que a fonte de verdade publicar aquele mês.
-    serie_ecoclim = aplicar_fallback_legado(serie_ecoclim, carregar_manual_legado_mensal(ano_selecionado, 'ECOCLIM'), ano_selecionado)
-    serie_breno = aplicar_fallback_legado(serie_breno, carregar_manual_legado_mensal(ano_selecionado, 'CONS INVESTIMENTOS'), ano_selecionado)
+        st.markdown("##### 🎯 Meta de Patrimônio")
+        cm1, cm2 = st.columns([3, 1])
+        with cm2:
+            nova_meta = st.number_input("Definir meta (R$)", min_value=0.0, value=float(meta), step=10000.0, format="%.2f", key="in_meta_patrimonio")
+            if abs(nova_meta - meta) > 0.001:
+                salvar_meta_patrimonio(nova_meta)
+                meta = nova_meta
+        with cm1:
+            if meta > 0:
+                prog = max(min(pat_atual / meta, 1.0), 0.0) if meta > 0 else 0.0
+                st.progress(prog, text=f"{utils.to_br_currency(pat_atual)} de {utils.to_br_currency(meta)}  ({prog*100:.1f}%)")
+                falta = max(meta - pat_atual, 0.0)
+                if falta <= 0:
+                    st.success("🎉 Meta atingida!")
+                elif media_rend_r > 0:
+                    st.caption(f"Faltam {utils.to_br_currency(falta)} — no ritmo atual de juros (~{utils.to_br_currency(media_rend_r)}/mês), cerca de **{falta/media_rend_r:.0f} meses** para a meta.")
+                else:
+                    st.caption(f"Faltam {utils.to_br_currency(falta)} para a meta.")
+            else:
+                st.caption("Defina uma meta ao lado para acompanhar o progresso. ➡️")
 
-    st.caption("🔄 Calculadas automaticamente: **ECOCLIM** (Gestão de Serviços — Em Andamento + Finalizados do mês) "
-               "e **CONS INVESTIMENTOS** (resultado do Breno, publicado pelo ERP Consorbens). "
-               "Meses sem dado calculado ainda mostram o último valor digitado à mão, até a fonte publicar aquele mês.")
-    dict_auto_e = {'MESES': ['ECOCLIM', 'CONS INVESTIMENTOS']}
-    for m in utils.meses_pt:
-        dict_auto_e[m] = [utils.to_br_currency(serie_ecoclim[m]), utils.to_br_currency(serie_breno[m])]
-    st.dataframe(pd.DataFrame(dict_auto_e)[colunas_visiveis].style.set_properties(**{'background-color': '#E2F0D9', 'color': 'black', 'font-weight': 'bold'}), hide_index=True, column_config=cfg_text, use_container_width=True)
-
-    st.caption("✏️ Editáveis (gravadas manualmente):")
-    df_e_view = st.session_state.db_df_e[colunas_visiveis].copy()
-    for m in colunas_visiveis:
-        if m != "MESES":
-            df_e_view[m] = df_e_view[m].apply(lambda x: utils.to_br_currency(x))
-
-    df_e_ed = st.data_editor(
-        df_e_view,
-        hide_index=True,
-        column_config=cfg_edit,
-        use_container_width=True,
-        height=115,
-        key=f"ed_e_fin_estavel_v13_{ano_selecionado}"
-    )
-
-    df_e_trabalho = st.session_state.db_df_e.copy()
-    for c in colunas_visiveis:
-        if c != "MESES": df_e_trabalho[c] = df_e_ed[c].apply(parse_br_currency)
-
-    tot_e = df_e_trabalho.set_index('MESES').sum() + serie_ecoclim + serie_breno
-    dict_res_e = {'MESES': ['TOTAL RECEBIMENTOS']}
-    for i, m in enumerate(utils.meses_pt):
-        is_futuro = (ano_selecionado > utils.ano_atual) or (ano_selecionado == utils.ano_atual and i > (utils.mes_hoje_idx - 1))
-        dict_res_e[m] = [utils.to_br_currency(0 if is_futuro else tot_e[m])]
-        
-    st.dataframe(pd.DataFrame(dict_res_e)[colunas_visiveis].style.set_properties(**{'background-color': '#9BC2E6', 'color': 'black', 'font-weight': 'bold'}), hide_index=True, column_config=cfg_text, use_container_width=True)
-
-    st.markdown("---")
-    
-    col_espaco, col_btn = st.columns([3, 1])
-    if col_btn.button("💾 GRAVAR ALTERAÇÕES", type="primary", use_container_width=True, key="btn_gravar_rodape"):
-        st.session_state.salvar_fin_clicado = True
-
-    if st.session_state.salvar_fin_clicado:
-        with st.spinner("Gravando no Supabase..."):
-            st.session_state.db_df_p = df_p_trabalho
-            st.session_state.db_df_e = df_e_trabalho
-            salvar_dados_fin('fin_patrimonio', st.session_state.db_df_p, ano_selecionado)
-            salvar_dados_fin('fin_entradas', st.session_state.db_df_e, ano_selecionado)
-        st.session_state.salvar_fin_clicado = False
-        st.success("✅ Alterações gravadas!")
-
-    st.markdown("#### 📈 Rendimento Mensal (Investimentos)")
-    xp_v = df_n.loc['INVESTIMENTO XP'] if 'INVESTIMENTO XP' in df_n.index else pd.Series(0.0, index=utils.meses_pt)
-    it_v = df_n.loc['INVESTIMENTO INTER'] if 'INVESTIMENTO INTER' in df_n.index else pd.Series(0.0, index=utils.meses_pt)
-    itau_v = df_n.loc['INVESTIMENTO ITAU'] if 'INVESTIMENTO ITAU' in df_n.index else pd.Series(0.0, index=utils.meses_pt)
-    
-    dict_rend = {'MESES': ['RESULTADO XP', 'RESULTADO INTER', 'RESULTADO ITAU', 'RENDIMENTO TOTAL', '% RETORNO MÊS', 'SALÁRIO + RENDIMENTO MÊS']}
-    for i, m in enumerate(utils.meses_pt):
-        is_futuro = (ano_selecionado > utils.ano_atual) or (ano_selecionado == utils.ano_atual and i > (utils.mes_hoje_idx - 1))
-        if is_futuro:
-            dict_rend[m] = ["R$ 0,00", "R$ 0,00", "R$ 0,00", "R$ 0,00", "0,00%", "R$ 0,00"]
+        if ano_selecionado <= utils.ano_atual:
+            _meses_fech = meses_calc[:-1] if ano_selecionado == utils.ano_atual else meses_calc
+            _quedas = [(m, var_liq[m]) for m in _meses_fech if var_liq[m] < 0]
         else:
-            v_xp = xp_v[m] - (xp_v[utils.meses_pt[i-1]] if i > 0 else xp_prev_dec)
-            v_it = it_v[m] - (it_v[utils.meses_pt[i-1]] if i > 0 else inter_prev_dec)
-            v_itau = itau_v[m] - (itau_v[utils.meses_pt[i-1]] if i > 0 else itau_prev_dec)
-            r_tot = v_xp + v_it + v_itau
-            p_bal = (xp_v[utils.meses_pt[i-1]] + it_v[utils.meses_pt[i-1]] + itau_v[utils.meses_pt[i-1]]) if i > 0 else (xp_prev_dec + inter_prev_dec + itau_prev_dec)
-            pct = (r_tot / p_bal * 100) if p_bal > 0 else 0.0
-            dict_rend[m] = [utils.to_br_currency(v_xp), utils.to_br_currency(v_it), utils.to_br_currency(v_itau), utils.to_br_currency(r_tot), f"{pct:.2f}%".replace('.',','), utils.to_br_currency(tot_e[m] + r_tot)]
-            
-    st.dataframe(pd.DataFrame(dict_rend)[colunas_visiveis].style.apply(lambda r: [f'background-color: {"#FF9900" if r["MESES"] == "RENDIMENTO TOTAL" else "#FFF2CC" if "%" in r["MESES"] else "#9BC2E6" if "SALÁRIO" in r["MESES"] else "white"}; color: black; font-weight: bold' for _ in colunas_visiveis], axis=1), hide_index=True, column_config=cfg_text, use_container_width=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+            _quedas = []
+        if _quedas:
+            _um, _uv = _quedas[-1]
+            _outros = ", ".join(mm.title() for mm, _ in _quedas[:-1])
+            st.warning(f"⚠️ **Alerta de gasto:** em **{_um.title()}** seu patrimônio líquido caiu **{utils.to_br_currency(abs(_uv))}** — você gastou mais do que entrou/rendeu." + (f" (também caiu em: {_outros})" if _outros else ""))
+        else:
+            st.success("✅ Patrimônio líquido crescendo no período — gastos dentro do limite.")
 
-    st.markdown("<br>", unsafe_allow_html=True)
-    c1, c2, c3, c4 = st.columns(4)
-    meses_calc = utils.meses_pt[:utils.mes_hoje_idx] if ano_selecionado == utils.ano_atual else utils.meses_pt
-    
-    media_ent = tot_e[meses_calc].mean() if not tot_e.empty else 0
-    
-    xp_var_full = xp_v - xp_v.shift(1).fillna(xp_prev_dec)
-    it_var_full = it_v - it_v.shift(1).fillna(inter_prev_dec)
-    itau_var_full = itau_v - itau_v.shift(1).fillna(itau_prev_dec)
-    
-    rend_tot_full = xp_var_full + it_var_full + itau_var_full
-    media_rend_r = rend_tot_full[meses_calc].mean()
-    
-    prev_bal_full = (xp_v + it_v + itau_v).shift(1).fillna(xp_prev_dec + inter_prev_dec + itau_prev_dec)
-    pb_safe = prev_bal_full[meses_calc].replace(0, np.nan)
-    media_rend_p = (rend_tot_full[meses_calc] / pb_safe).mean() * 100
-    
-    pat_atual = pat_tot[utils.mes_atual_nome] if ano_selecionado == utils.ano_atual else pat_tot['DEZEMBRO']
+        _md = utils.mes_atual_nome if ano_selecionado == utils.ano_atual else 'DEZEMBRO'
+        st.markdown(f"##### 🗓️ Destaque de {_md.title()}")
+        d1, d2, d3, d4 = st.columns(4)
+        d1.metric("Rendimento (juros)", utils.to_br_currency(rend_tot_full[_md]))
+        d2.metric("Aportes do mês", utils.to_br_currency(ap_xp[_md] + ap_it[_md] + ap_itau[_md]))
+        _pb = prev_bal_full[_md]
+        d3.metric("% Retorno", f"{(rend_tot_full[_md] / _pb * 100) if _pb > 0 else 0:.2f}%".replace(".", ","))
+        d4.metric("Var. patrimônio", utils.to_br_currency(var_abs[_md]))
 
-    c1.metric("💰 MÉDIA ENTRADAS", utils.to_br_currency(media_ent))
-    c2.metric("🎯 LIMITE DE GASTO", utils.to_br_currency(media_rend_r))
-    c3.metric("📈 MÉDIA RETORNO (%)", f"{media_rend_p:.2f}%".replace(".", ","))
-    c4.metric("🏛️ PATRIMÔNIO ATUAL", utils.to_br_currency(pat_atual))
+        st.markdown("##### 📈 Rendimento Mensal (Investimentos)")
+        st.dataframe(pd.DataFrame(dict_rend)[colunas_visiveis].style.apply(lambda r: [f'background-color: {"#FF9900" if r["MESES"] == "RENDIMENTO (JUROS)" else "#FCE4D6" if "VARIAÇÃO" in r["MESES"] else "#E2EFDA" if "APORTES" in r["MESES"] else "#FFF2CC" if "%" in r["MESES"] else "#9BC2E6" if "SALÁRIO" in r["MESES"] else "white"}; color: black; font-weight: bold' for _ in colunas_visiveis], axis=1), hide_index=True, column_config=cfg_text, use_container_width=True)
+        with st.expander("🏛️ Ver patrimônio detalhado por mês"):
+            st.dataframe(pd.DataFrame(dict_res_p)[colunas_visiveis].style.apply(lambda r: [f'background-color: {"#FF9900" if r["MESES"] == "PATRIMÔNIO TOTAL" else "#FFF2CC" if "LÍQUIDO" in r["MESES"] else "white"}; color: black; font-weight: bold' for _ in colunas_visiveis], axis=1), hide_index=True, column_config=cfg_text, use_container_width=True)
 
-    st.write("---")
-    g1, g2 = st.columns(2)
-    with g1:
-        st.subheader("Evolução Patrimonial Total")
-        st.line_chart(pat_tot[utils.meses_pt])
-        st.subheader("Rendimento Mensal (R$)")
-        st.bar_chart(rend_tot_full[utils.meses_pt])
-    with g2:
-        st.subheader("Salário + Rendimento")
-        st.area_chart(tot_e[utils.meses_pt] + rend_tot_full[utils.meses_pt])
-        st.subheader("Faturamento Ecoclim")
-        st.line_chart(serie_ecoclim[utils.meses_pt])
+        st.markdown("##### 🔮 Projeção (no ritmo atual de juros)")
+        pr1, pr2, pr3 = st.columns(3)
+        pr1.metric("Em 6 meses", utils.to_br_currency(pat_atual + media_rend_r * 6))
+        pr2.metric("Em 12 meses", utils.to_br_currency(pat_atual + media_rend_r * 12))
+        pr3.metric("Em 24 meses", utils.to_br_currency(pat_atual + media_rend_r * 24))
+        st.caption(f"Projeção somando ~{utils.to_br_currency(media_rend_r)}/mês de juros ao patrimônio atual (não inclui novos aportes).")
+
+        st.markdown("##### 📅 Comparativo Ano a Ano")
+        ca1, ca2 = st.columns(2)
+        _cresc_pat = pat_atual - pat_tot_prev_dec
+        _pct_pat = (_cresc_pat / pat_tot_prev_dec * 100) if pat_tot_prev_dec else 0.0
+        ca1.metric(f"Patrimônio (vs Dez/{ano_selecionado-1})", utils.to_br_currency(pat_atual), delta=f"{utils.to_br_currency(_cresc_pat)}  ({_pct_pat:.1f}%)")
+        ca2.metric(f"Rendimento acum. {ano_selecionado}", utils.to_br_currency(rend_acum), delta=f"{utils.to_br_currency(rend_acum - rend_acum_prev)} vs {ano_selecionado-1}")
+        st.caption(f"Juros acumulados no mesmo período — {ano_selecionado}: {utils.to_br_currency(rend_acum)} · {ano_selecionado-1}: {utils.to_br_currency(rend_acum_prev)}.")
+
+    # =====================================================================
+    # ABA GRÁFICOS
+    # =====================================================================
+    with tabs[2]:
+        g1, g2 = st.columns(2)
+        with g1:
+            st.subheader("Evolução Patrimonial Total")
+            st.line_chart(pat_tot[utils.meses_pt])
+            st.subheader("Rendimento (juros) Mensal (R$)")
+            st.bar_chart(rend_tot_full[utils.meses_pt])
+        with g2:
+            st.subheader("Salário + Rendimento")
+            st.area_chart(tot_e[utils.meses_pt] + rend_tot_full[utils.meses_pt])
+            st.subheader("Faturamento Ecoclim")
+            st.line_chart(serie_ecoclim[utils.meses_pt])

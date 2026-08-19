@@ -96,32 +96,29 @@ if not st.session_state.authenticated:
             usuario = st.text_input("Usuário", value="breno.lima")
             senha = st.text_input("Senha", type="password")
             
-            st.markdown('<div class="login-btn-container">', unsafe_allow_html=True)
-            c_btn1, c_btn2, c_btn3 = st.columns([1, 1.5, 1])
-            with c_btn2:
-                if st.button("Acessar Sistema", use_container_width=True):
-                    if not usuario or not senha:
-                        st.warning("Preencha usuário e senha.")
-                    else:
-                        with st.spinner("Autenticando..."):
-                            try:
-                                usuario_tratado = usuario.strip().lower()
-                                res = st.session_state.supabase.table('usuarios_erp').select('*').eq('usuario', usuario_tratado).execute()
-                                
-                                if res.data and len(res.data) > 0:
-                                    dados_bd = res.data[0]
-                                    if dados_bd['senha'] == senha and dados_bd.get('ativo', True):
-                                        st.session_state.authenticated = True
-                                        st.session_state.usuario_logado = dados_bd.get('nome_completo', 'Usuário')
-                                        st.session_state.perfil_logado = dados_bd.get('perfil', 'Admin')
-                                        st.rerun()
-                                    else:
-                                        st.error("Usuário ou senha incorretos.")
+            st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+            if st.button("Acessar Sistema", use_container_width=True, key="btn_acessar"):
+                if not usuario or not senha:
+                    st.warning("Preencha usuário e senha.")
+                else:
+                    with st.spinner("Autenticando..."):
+                        try:
+                            usuario_tratado = usuario.strip().lower()
+                            res = st.session_state.supabase.table('usuarios_erp').select('*').eq('usuario', usuario_tratado).execute()
+
+                            if res.data and len(res.data) > 0:
+                                dados_bd = res.data[0]
+                                if dados_bd['senha'] == senha and dados_bd.get('ativo', True):
+                                    st.session_state.authenticated = True
+                                    st.session_state.usuario_logado = dados_bd.get('nome_completo', 'Usuário')
+                                    st.session_state.perfil_logado = dados_bd.get('perfil', 'Admin')
+                                    st.rerun()
                                 else:
                                     st.error("Usuário ou senha incorretos.")
-                            except Exception as e:
-                                st.error(f"Erro ao conectar com o banco de dados: {e}")
-            st.markdown('</div>', unsafe_allow_html=True)
+                            else:
+                                st.error("Usuário ou senha incorretos.")
+                        except Exception as e:
+                            st.error(f"Erro ao conectar com o banco de dados: {e}")
 
             st.markdown(
                 "<div class='login-chips'>"

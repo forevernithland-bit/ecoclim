@@ -272,13 +272,14 @@ def css_fundo_login():
     .login-head .wel {{ font-family:'Plus Jakarta Sans',sans-serif; font-weight:800; font-size:1.5rem; color:var(--ink); letter-spacing:-.02em; }}
     .login-head .sub {{ color:var(--muted); font-size:.95rem; margin-top:2px; }}
     div[data-testid="stVerticalBlockBorderWrapper"] label {{ color:#33414f !important; font-weight:600 !important; }}
-    /* Botão ENTRAR — cor da marca */
-    .login-btn-container div.stButton > button {{
+    /* Botão ACESSAR — verde sólido, largura cheia (mira na key do botão) */
+    [class*="st-key-btn_acessar"] button {{
         background: linear-gradient(135deg, var(--brand), var(--brand-dark)) !important; color:#fff !important;
-        border:none !important; border-radius:11px !important; font-weight:700 !important; min-height:46px !important;
-        letter-spacing:.3px !important; box-shadow: 0 8px 20px var(--brand-glow) !important; transition: all .2s ease !important;
+        border:none !important; border-radius:12px !important; font-weight:700 !important; min-height:48px !important;
+        width:100% !important; letter-spacing:.3px !important; box-shadow: 0 8px 20px var(--brand-glow) !important; transition: all .2s ease !important;
     }}
-    .login-btn-container div.stButton > button:hover {{ transform:translateY(-2px); filter:brightness(1.05); color:#fff !important; }}
+    [class*="st-key-btn_acessar"] button:hover {{ transform:translateY(-2px); filter:brightness(1.06); color:#fff !important; border:none !important; }}
+    [class*="st-key-btn_acessar"] button p {{ color:#fff !important; }}
     .login-chips {{ display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-top:18px; }}
     .login-chips span {{ font-size:.72rem; font-weight:700; color:var(--muted); background:var(--brand-soft);
         border:1px solid var(--brand-mid); padding:5px 11px; border-radius:999px; }}
