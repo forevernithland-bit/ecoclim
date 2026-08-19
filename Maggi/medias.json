@@ -1,5 +1,5 @@
 {
-  "atualizado_em": "2026-08-13T11:55:40Z",
+  "atualizado_em": "2026-08-17T09:44:49Z",
   "fonte": "https://www.consorciomaggi.com.br/assembleia",
   "grupos": {
     "2013": {
@@ -271,12 +271,11 @@
       "obs": "Sem contemplacao por lance livre nos ultimos resultados disponiveis."
     },
     "8000": {
-      "media": 55.07,
-      "n": 47,
+      "media": 55.15,
+      "n": 38,
       "datas": [
         "2026-07-21",
-        "2026-06-23",
-        "2026-05-19"
+        "2026-06-23"
       ],
       "por_mes": [
         {
@@ -287,11 +286,6 @@
         {
           "data": "2026-06-23",
           "media": 60.21,
-          "n": 9
-        },
-        {
-          "data": "2026-05-19",
-          "media": 54.71,
           "n": 9
         }
       ]
