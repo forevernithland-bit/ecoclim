@@ -615,7 +615,7 @@ def renderizar():
         if st.button("🔄 Recarregar Banco", use_container_width=True):
             st.session_state.pop('ano_dados_atual', None)
             st.session_state.pop('db_df_p', None)
-            st.session_state.pop('db_df_rec_itens', None)
+            st.session_state.pop('db_df_e', None)
             st.session_state.pop('db_df_ap_itens', None)
             st.rerun()
 
@@ -626,18 +626,15 @@ def renderizar():
     contas_e = ['AIRNB', 'MAGGI CONSORCIOS']
 
     if ('db_df_p' not in st.session_state or
-        'db_df_rec_itens' not in st.session_state or
+        'db_df_e' not in st.session_state or
         'db_df_ap_itens' not in st.session_state or
         'ano_dados_atual' not in st.session_state or
         st.session_state.ano_dados_atual != ano_selecionado or
         st.session_state.get('forcar_reload_fin', False)):
 
         st.session_state.db_df_p = limpar_e_garantir_linhas(carregar_dados_fin('fin_patrimonio', contas_p, ano_selecionado), contas_p)
+        st.session_state.db_df_e = limpar_e_garantir_linhas(carregar_dados_fin('fin_entradas', contas_e, ano_selecionado), contas_e)
         st.session_state.db_df_ap_itens = carregar_aportes_itens(ano_selecionado)
-        _rec = carregar_recebimentos_itens(ano_selecionado)
-        if _rec.empty and not _receb_ja_migrado(ano_selecionado):
-            _rec = migrar_entradas_para_itens(ano_selecionado)  # não perde a matriz antiga
-        st.session_state.db_df_rec_itens = _rec
         st.session_state.ano_dados_atual = ano_selecionado
         st.session_state.forcar_reload_fin = False
 
@@ -722,18 +719,38 @@ def renderizar():
         for m in utils.meses_pt:
             dict_auto_e[m] = [utils.to_br_currency(serie_ecoclim[m]), utils.to_br_currency(serie_breno[m])]
         st.dataframe(pd.DataFrame(dict_auto_e)[colunas_visiveis].style.set_properties(**{'background-color': '#E2F0D9', 'color': 'black', 'font-weight': 'bold'}), hide_index=True, column_config=cfg_text, use_container_width=True)
-        st.caption("✏️ Editáveis — lance cada recebimento (a **MAGGI** pode ter vários no mesmo mês). O sistema soma por mês.")
-        cfg_rec = {
-            "Mês": st.column_config.SelectboxColumn("Mês", options=utils.meses_pt, width="small", required=True),
-            "Conta": st.column_config.SelectboxColumn("Conta", options=["MAGGI", "AIRNB"], width="small", required=True),
-            "Valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f", min_value=0.0, width="small"),
-            "Obs": st.column_config.TextColumn("Obs (opcional)"),
-        }
-        df_rec_ed = st.data_editor(
-            st.session_state.db_df_rec_itens, column_config=cfg_rec, num_rows="dynamic",
-            hide_index=True, use_container_width=True, key=f"ed_rec_itens_{ano_selecionado}")
-        rec_editaveis = agregar_recebimentos(df_rec_ed)
-        tot_e = rec_editaveis + serie_ecoclim + serie_breno
+        _default_mes_idx = (utils.mes_hoje_idx - 1) if ano_selecionado == utils.ano_atual else 0
+        st.caption("✏️ Editáveis — uma linha por conta. Para vários pagamentos no mês (ex.: **Maggi**), use o **➕ Adicionar recebimento** abaixo (ele SOMA ao mês).")
+        df_e_view = st.session_state.db_df_e[colunas_visiveis].copy()
+        for m in colunas_visiveis:
+            if m != "MESES":
+                df_e_view[m] = df_e_view[m].apply(lambda x: utils.to_br_currency(x))
+        df_e_ed = st.data_editor(df_e_view, hide_index=True, column_config=cfg_edit, use_container_width=True, height=115, key=f"ed_e_fin_v14_{ano_selecionado}")
+        df_e_trabalho = st.session_state.db_df_e.copy()
+        for c in colunas_visiveis:
+            if c != "MESES": df_e_trabalho[c] = df_e_ed[c].apply(parse_br_currency)
+        st.session_state.db_df_e = df_e_trabalho  # sincroniza p/ o somador operar no valor atual
+
+        with st.expander("➕ Adicionar recebimento (soma ao mês selecionado)"):
+            qa1, qa2, qa3 = st.columns(3)
+            _conta_add = qa1.selectbox("Conta", ['MAGGI CONSORCIOS', 'AIRNB'], key=f"add_rec_conta_{ano_selecionado}")
+            _mes_add = qa2.selectbox("Mês", utils.meses_pt, index=_default_mes_idx, key=f"add_rec_mes_{ano_selecionado}")
+            _val_add = qa3.number_input("Valor (R$)", min_value=0.0, step=100.0, format="%.2f", key=f"add_rec_val_{ano_selecionado}")
+            if st.button("➕ Adicionar ao mês", use_container_width=True, key=f"add_rec_btn_{ano_selecionado}"):
+                if _val_add and _val_add > 0:
+                    _dfx = st.session_state.db_df_e.copy().set_index('MESES')
+                    if _conta_add in _dfx.index:
+                        _dfx.loc[_conta_add, _mes_add] = utils.safe_float(_dfx.loc[_conta_add, _mes_add]) + _val_add
+                        st.session_state.db_df_e = _dfx.reset_index()
+                        _ek = f"ed_e_fin_v14_{ano_selecionado}"
+                        if _ek in st.session_state:
+                            del st.session_state[_ek]
+                        st.success(f"+{utils.to_br_currency(_val_add)} em {_conta_add} · {_mes_add.title()}. Clique em GRAVAR para salvar.")
+                        st.rerun()
+                else:
+                    st.warning("Informe um valor maior que zero.")
+
+        tot_e = df_e_trabalho.set_index('MESES').sum() + serie_ecoclim + serie_breno
         dict_res_e = {'MESES': ['TOTAL RECEBIMENTOS']}
         for i, m in enumerate(utils.meses_pt):
             is_futuro = (ano_selecionado > utils.ano_atual) or (ano_selecionado == utils.ano_atual and i > (utils.mes_hoje_idx - 1))
@@ -748,11 +765,10 @@ def renderizar():
             with st.spinner("Gravando no Supabase..."):
                 st.session_state.db_df_p = df_p_trabalho
                 st.session_state.db_df_ap_itens = df_ap_itens_ed
-                st.session_state.db_df_rec_itens = df_rec_ed
+                st.session_state.db_df_e = df_e_trabalho
                 salvar_dados_fin('fin_patrimonio', st.session_state.db_df_p, ano_selecionado)
                 salvar_aportes_itens(ano_selecionado, df_ap_itens_ed)
-                salvar_recebimentos_itens(ano_selecionado, df_rec_ed)
-                _marcar_receb_migrado(ano_selecionado)
+                salvar_dados_fin('fin_entradas', st.session_state.db_df_e, ano_selecionado)
             st.session_state.salvar_fin_clicado = False
             st.success("✅ Alterações gravadas!")
 
