@@ -35,39 +35,26 @@ def _ts_registro(row):
 
 
 def barra_busca_servicos(df, key_prefix):
-    """Filtro por Telefone/Nome/Código (deduplicado, p/ aparecer menos nomes) +
-    ordenação por Data/Nome. Retorna o df filtrado e ordenado."""
+    """Campo único de busca ao vivo (filtra a cada letra digitada, por nome,
+    telefone OU código) + ordenação por Data/Nome. Retorna o df filtrado."""
     if df is None or df.empty:
         return df
 
-    c1, c2, c3 = st.columns([1, 2, 1.4])
-    modo = c1.selectbox("Buscar por", ["Nome", "Telefone", "Código"], key=f"busca_modo_{key_prefix}")
-    col_map = {"Nome": "nome_cliente", "Telefone": "telefone_cliente", "Código": "numero_orcamento"}
-    col = col_map[modo]
-    serie = df[col].fillna("").astype(str) if col in df.columns else pd.Series([""] * len(df))
-
-    # Opções deduplicadas: agrupa os vários orçamentos do mesmo cliente num rótulo só.
-    if modo == "Telefone":
-        opcoes = sorted({v.strip() for v in serie if v.strip()})
-    else:
-        vistos = {}
-        for v in serie:
-            k = _norm_txt(v)
-            if k and k not in vistos:
-                vistos[k] = v.strip()
-        opcoes = sorted(vistos.values(), key=_norm_txt)
-
-    escolha = c2.selectbox(modo, ["(todos)"] + opcoes, key=f"busca_val_{key_prefix}")
-    ordenar = c3.selectbox("Ordenar por", ["Data (recente)", "Data (antiga)", "Nome (A-Z)", "Nome (Z-A)"],
+    c1, c2 = st.columns([3, 1.4])
+    termo = c1.text_input("🔍 Buscar por nome, telefone ou código", key=f"busca_termo_{key_prefix}",
+                          placeholder="Digite para filtrar...")
+    ordenar = c2.selectbox("Ordenar por", ["Data (recente)", "Data (antiga)", "Nome (A-Z)", "Nome (Z-A)"],
                            key=f"busca_ord_{key_prefix}")
 
     out = df.copy()
-    if escolha != "(todos)":
-        if modo == "Telefone":
-            out = out[out[col].fillna("").astype(str).str.strip() == escolha.strip()]
-        else:
-            alvo = _norm_txt(escolha)
-            out = out[out[col].fillna("").astype(str).map(_norm_txt) == alvo]
+    termo = str(termo or "").strip()
+    if termo:
+        alvo = _norm_txt(termo)
+        cols_busca = [c for c in ['nome_cliente', 'telefone_cliente', 'numero_orcamento'] if c in out.columns]
+        mask = pd.Series(False, index=out.index)
+        for c in cols_busca:
+            mask = mask | out[c].fillna("").astype(str).map(_norm_txt).str.contains(alvo, regex=False)
+        out = out[mask]
 
     out = out.copy()
     out['_ts'] = out.apply(_ts_registro, axis=1)
@@ -89,6 +76,7 @@ def _modal_cadastrar_venda(supabase, lista_instaladores):
     st.caption("Cria um serviço já em andamento (sem passar por orçamento). Você pode detalhar depois clicando no cliente na lista.")
     nome = st.text_input("Cliente *", key="cv_nome")
     tel = st.text_input("WhatsApp", key="cv_tel", placeholder="(31) 99999-9999")
+    end = st.text_input("Endereço (opcional)", key="cv_end", placeholder="Rua, número, bairro, cidade - UF")
     c1, c2 = st.columns(2)
     valor = c1.number_input("Valor Total da venda (R$)", min_value=0.0, format="%.2f", key="cv_valor")
     lucro = c2.number_input("Lucro Líquido estimado (R$)", min_value=0.0, format="%.2f", key="cv_lucro")
@@ -105,6 +93,7 @@ def _modal_cadastrar_venda(supabase, lista_instaladores):
             "numero_orcamento": f"VENDA-{datetime.datetime.now().strftime('%y%m%d-%H%M')}",
             "nome_cliente": str(nome).strip(),
             "telefone_cliente": str(tel).strip(),
+            "endereco_cliente": str(end).strip(),
             "produtos_adquiridos": str(prod).strip(),
             "valor_venda_total": float(valor),
             "lucro_estimado": float(lucro),
@@ -187,6 +176,8 @@ def renderizar():
     df['Data de término'] = df.apply(descobrir_data_termino, axis=1)
 
     def descobrir_venc_fornecedor(row):
+        if bool(row.get('pago_avista_fornecedor', False)):
+            return "✅ PAGO À VISTA"
         venc = row.get('vencimento_boleto')
         if pd.notna(venc) and str(venc).strip().lower() not in ['none', 'nan', 'nat', '']:
             try: return pd.to_datetime(venc).strftime('%d/%m/%Y')

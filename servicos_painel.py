@@ -27,6 +27,9 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         c_cad1, c_cad2 = st.columns(2)
         novo_nome_cliente = c_cad1.text_input("Nome do Cliente", value=str(projeto_selecionado.get('nome_cliente', 'Sem Nome')), key=f"edit_nome_{prefix_key}")
         novo_tel_cliente = c_cad2.text_input("Telefone / WhatsApp", value=str(projeto_selecionado.get('telefone_cliente', '')), key=f"edit_tel_{prefix_key}")
+        _end_banco = str(projeto_selecionado.get('endereco_cliente', '') or '')
+        novo_endereco_cliente = st.text_input("Endereço (opcional)", value='' if _end_banco.lower() in ('nan', 'none') else _end_banco,
+                                              placeholder="Rua, número, bairro, cidade - UF", key=f"edit_end_{prefix_key}")
         
         col_esq, col_meio, col_dir = st.columns(3)
         
@@ -73,6 +76,29 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         opcoes_inst = [""] + lista_instaladores
         idx_inst = opcoes_inst.index(instalador_atual) if instalador_atual in opcoes_inst else 0
         novo_instalador = col_dir.selectbox("Instalador Responsável", opcoes_inst, index=idx_inst, key=f"inst_{prefix_key}")
+
+        # ---------------------------------------------------------------
+        # Reportado pelo Instalador (app do instalador) — só leitura aqui.
+        # Ajustes são feitos direto no orçamento/painel, não por este campo.
+        # ---------------------------------------------------------------
+        _concluida_inst = bool(projeto_selecionado.get('instalacao_concluida_instalador', False))
+        _obs_inst = str(projeto_selecionado.get('observacao_instalador', '') or '').strip()
+        if _obs_inst.lower() in ('nan', 'none'): _obs_inst = ''
+        if _concluida_inst or _obs_inst:
+            with st.container(border=True):
+                st.markdown("##### 📲 Reportado pelo Instalador")
+                if _concluida_inst:
+                    _data_ci = projeto_selecionado.get('data_conclusao_instalador')
+                    _data_ci_str = ""
+                    try:
+                        if pd.notna(_data_ci) and str(_data_ci).lower() not in ('none', 'nan', 'nat', ''):
+                            _data_ci_str = pd.to_datetime(_data_ci).strftime('%d/%m/%Y')
+                    except Exception:
+                        pass
+                    st.success(f"✅ Instalação marcada como concluída pelo instalador{f' em {_data_ci_str}' if _data_ci_str else ''}.")
+                if _obs_inst:
+                    st.caption("Observação do instalador:")
+                    st.markdown(f"> {_obs_inst}")
 
         st.markdown("#### 🛒 Itens Vendidos (Ajuste Quantidades e Custos)")
         
@@ -273,6 +299,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
 
         nova_nf_entrada = ""
         novo_venc_boleto = None
+        pago_avista = bool(projeto_selecionado.get('pago_avista_fornecedor', False))
 
         if novo_status not in ["Orçamento Enviado", "Orçamento Cancelado", "Excluir"]:
             st.markdown("<br>", unsafe_allow_html=True)
@@ -283,6 +310,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             nf_entrada_banco = projeto_selecionado.get('nf_entrada', '')
             venc_boleto_banco = projeto_selecionado.get('vencimento_boleto')
             
+            pago_avista_banco = bool(projeto_selecionado.get('pago_avista_fornecedor', False))
             venc_boleto_inicial = None
             if pd.notna(venc_boleto_banco) and str(venc_boleto_banco).lower() not in ['none', 'nan', 'nat', '']:
                 try: venc_boleto_inicial = pd.to_datetime(venc_boleto_banco).date()
@@ -303,7 +331,12 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     pass
             
             nova_nf_entrada = c_nf.text_input("NF de Entrada", value=str(nf_entrada_banco) if str(nf_entrada_banco) != 'nan' else '', placeholder="Opcional", key=f"nf_ent_{prefix_key}")
-            novo_venc_boleto = c_venc.date_input("Vencimento Boleto (Cliente)", value=venc_boleto_inicial, format="DD/MM/YYYY", key=f"venc_bol_{prefix_key}")
+            pago_avista = c_venc.checkbox("✅ Pago à vista (equipamento já pago)", value=pago_avista_banco, key=f"avista_{prefix_key}")
+            if pago_avista:
+                c_venc.caption("Sem vencimento — marcado como pago à vista.")
+                novo_venc_boleto = None
+            else:
+                novo_venc_boleto = c_venc.date_input("Vencimento Boleto (Cliente)", value=venc_boleto_inicial, format="DD/MM/YYYY", key=f"venc_bol_{prefix_key}")
 
             with st.container(border=True):
                 st.markdown("##### 📥 Importar Boleto de Fornecedor (PDF)")
@@ -616,7 +649,8 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                 dados = {
                     "nome_cliente": novo_nome_cliente,
                     "telefone_cliente": novo_tel_cliente,
-                    "status_projeto": novo_status, 
+                    "endereco_cliente": novo_endereco_cliente,
+                    "status_projeto": novo_status,
                     "data_conclusao": nova_data.strftime('%Y-%m-%d'),
                     "instalador": novo_instalador,
                     "detalhamento_itens": df_itens_final.fillna("").to_dict('records'),
@@ -629,7 +663,8 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     "lucro_estimado": lucro_final, 
                     "notas_internas": notas,
                     "nf_entrada": nova_nf_entrada,
-                    "vencimento_boleto": novo_venc_boleto.strftime('%Y-%m-%d') if novo_venc_boleto else None
+                    "vencimento_boleto": novo_venc_boleto.strftime('%Y-%m-%d') if novo_venc_boleto else None,
+                    "pago_avista_fornecedor": pago_avista
                 }
                 try:
                     supabase.table('servicos_andamento').update(dados).eq('id', id_projeto).execute()

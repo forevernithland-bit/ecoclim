@@ -362,6 +362,7 @@ def _modal_calculo_custos(dados, limpar_func):
             payload = {
                 "nome_cliente": dados['nome_cliente'],
                 "telefone_cliente": dados['telefone'],
+                "endereco_cliente": dados.get('endereco', ''),
                 "produtos_adquiridos": dados['produtos_texto'],
                 "servicos_adquiridos": dados['servicos_texto'],
                 "valor_venda_total": venda_liquida,
@@ -441,6 +442,7 @@ def renderizar(lista_nomes_produtos, limpar_func):
                         st.session_state.rascunho_id = r_data['id']
                         st.session_state.input_nome_cliente = r_data.get('nome_cliente', '')
                         st.session_state.input_whatsapp = r_data.get('telefone_cliente', '')
+                        st.session_state.input_endereco_cliente = r_data.get('endereco_cliente', '') or ''
                         st.session_state.txt_servico = r_data.get('servicos_adquiridos', '')
                         
                         d_ct = r_data.get('dados_contrato') or {}
@@ -537,6 +539,7 @@ def renderizar(lista_nomes_produtos, limpar_func):
 
         nome_cliente = col1.text_input("Nome do Cliente", key="input_nome_cliente")
         whatsapp = col2.text_input("WhatsApp", placeholder="(31) 99715-1596", key="input_whatsapp")
+        endereco_cliente = st.text_input("Endereço (opcional)", placeholder="Rua, número, bairro, cidade - UF", key="input_endereco_cliente")
 
         # Default inicial via session_state (em vez de index=) para conviver com a
         # automação da Parte 1 sem warning do Streamlit.
@@ -777,6 +780,7 @@ def renderizar(lista_nomes_produtos, limpar_func):
         st.session_state.calc_custos_dados = {
             "nome_cliente": nome_cliente,
             "telefone": formatar_telefone(whatsapp),
+            "endereco": endereco_cliente,
             "produtos_texto": ", ".join(lista_prods_texto),
             "servicos_texto": descricao_final_servico,
             "venda_produtos": float(subtotal_equipamentos),
@@ -892,6 +896,7 @@ def renderizar(lista_nomes_produtos, limpar_func):
                 payload_rascunho = {
                     "nome_cliente": nome_cliente,
                     "telefone_cliente": tel_formatado,
+                    "endereco_cliente": endereco_cliente,
                     "servicos_adquiridos": descricao_final_servico,
                     "valor_venda_total": total_investimento,
                     "status_projeto": "Rascunho",
@@ -945,8 +950,9 @@ def renderizar(lista_nomes_produtos, limpar_func):
                     
                     payload_final = {
                         "numero_orcamento": numero_do_orcamento,
-                        "nome_cliente": nome_cliente, 
-                        "telefone_cliente": tel_formatado, 
+                        "nome_cliente": nome_cliente,
+                        "telefone_cliente": tel_formatado,
+                        "endereco_cliente": endereco_cliente,
                         "produtos_adquiridos": string_produtos,
                         "servicos_adquiridos": descricao_final_servico,
                         "valor_venda_total": total_investimento,

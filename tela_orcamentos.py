@@ -42,7 +42,7 @@ def abrir_lembretes():
 
 def limpar_tela_orcamento():
     chaves = [
-        'rascunho_id', 'input_nome_cliente', 'input_whatsapp', 
+        'rascunho_id', 'input_nome_cliente', 'input_whatsapp', 'input_endereco_cliente',
         'txt_servico', 'val_servico', 'txt_outros', 'val_outros', 
         'input_obs_pdf', 'df_orc', 'df_orc_prev', 'editor_orc_base', 
         'pdf_gerado', 'nome_cliente_previa', 'servico_selecionado_anterior',
