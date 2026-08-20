@@ -45,8 +45,9 @@ def limpar_tela_orcamento():
         'rascunho_id', 'input_nome_cliente', 'input_whatsapp', 
         'txt_servico', 'val_servico', 'txt_outros', 'val_outros', 
         'input_obs_pdf', 'df_orc', 'df_orc_prev', 'editor_orc_base', 
-        'pdf_gerado', 'nome_cliente_previa', 'servico_selecionado_anterior', 
+        'pdf_gerado', 'nome_cliente_previa', 'servico_selecionado_anterior',
         'outros_selecionado_anterior',
+        'num_proposta_atual', 'orc_drive_link', 'orc_drive_nome',
         'rapido_rascunho_id', 'rapido_input_nome_cliente', 'rapido_df_orc', 'editor_rapido',
         'rapido_custo_servico', 'rapido_venda_servico', 'rapido_custo_outros', 'rapido_venda_outros',
         'rapido_nf', 'rapido_taxa_cartao', 'rapido_comissao',
@@ -179,6 +180,15 @@ def renderizar():
             
         if st.button("💡 Lembretes e Cálculos Rápidos", use_container_width=True):
             abrir_lembretes()
+
+    # Limpeza automática: manda p/ lixeira os orçamentos do Drive com +6 meses
+    # (contratos nunca são apagados). Roda 1x por sessão, ao abrir Orçamentos.
+    if not st.session_state.get('orc_prune_feito'):
+        st.session_state['orc_prune_feito'] = True
+        try:
+            utils.limpar_orcamentos_antigos()
+        except Exception:
+            pass
 
     if 'db_produtos' not in st.session_state: st.session_state.db_produtos = utils.load_catalog('catalogo_produtos')
     if 'db_servicos' not in st.session_state: st.session_state.db_servicos = utils.load_catalog('catalogo_servicos')

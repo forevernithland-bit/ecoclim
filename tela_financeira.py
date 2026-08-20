@@ -414,6 +414,27 @@ def carregar_ecoclim_mensal(ano):
         serie[m] = fin_mes + (total_andamento if eh_mes_atual else 0.0)
     return serie
 
+def carregar_airnb_breno_mensal(ano):
+    """Calcula a linha AIRNB (parte do sócio BRENO) mês a mês, do mesmo banco
+    do módulo AirBnb: líquido do mês = soma(airnb_entradas) − soma(airnb_saidas),
+    e BRENO fica com 50% desse líquido (o outro 50% é da Eunice). Meses futuros
+    ficam em 0. Nunca quebra a tela se as tabelas não existirem ainda."""
+    serie = pd.Series(0.0, index=utils.meses_pt)
+    try:
+        contas_ent = ['AIRNB', 'LOCAÇÕES POR FORA']
+        contas_sai = ['LIMPEZA', 'LUZ', 'ÁGUA', 'INTERNET', 'PISCINEIRO', 'PRODUTOS DE LIMPEZA', 'OUTROS']
+        df_ent = utils.load_year_data('airnb_entradas', contas_ent, ano)
+        df_sai = utils.load_year_data('airnb_saidas', contas_sai, ano)
+        for i, m in enumerate(utils.meses_pt):
+            if _eh_mes_futuro(ano, i + 1):
+                continue
+            ent = pd.to_numeric(df_ent[m], errors='coerce').fillna(0).sum() if m in df_ent.columns else 0.0
+            sai = pd.to_numeric(df_sai[m], errors='coerce').fillna(0).sum() if m in df_sai.columns else 0.0
+            serie[m] = (float(ent) - float(sai)) * 0.5
+    except Exception:
+        pass
+    return serie
+
 def carregar_manual_legado_mensal(ano, conta):
     """Lê o valor antigo digitado à mão em fin_entradas para uma conta que
     deixou de ser editável (ECOCLIM/CONS INVESTIMENTOS). Usado só como
@@ -620,10 +641,11 @@ def renderizar():
             st.rerun()
 
     contas_p = ['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'INVESTIMENTO INTER', 'INVESTIMENTO ITAU', 'INVESTIMENTO XP', 'FGTS', 'IMÓVEIS', 'VEÍCULOS']
-    # ECOCLIM e CONS INVESTIMENTOS deixaram de ser digitadas à mão — são
-    # calculadas ao vivo (ver carregar_ecoclim_mensal/carregar_breno_mensal).
-    # Só AIRNB e MAGGI CONSORCIOS continuam manuais/gravadas em fin_entradas.
-    contas_e = ['AIRNB', 'MAGGI CONSORCIOS']
+    # ECOCLIM, CONS INVESTIMENTOS e AIRNB deixaram de ser digitadas à mão — são
+    # calculadas ao vivo (carregar_ecoclim_mensal / carregar_breno_mensal /
+    # carregar_airnb_breno_mensal). Só MAGGI CONSORCIOS continua manual/gravada
+    # em fin_entradas (vários recebimentos por mês).
+    contas_e = ['MAGGI CONSORCIOS']
 
     if ('db_df_p' not in st.session_state or
         'db_df_e' not in st.session_state or
@@ -712,12 +734,13 @@ def renderizar():
         st.markdown(f"##### 💰 Recebimentos e Pró-labore ({ano_selecionado})")
         serie_ecoclim = carregar_ecoclim_mensal(ano_selecionado)
         serie_breno = carregar_breno_mensal(ano_selecionado)
+        serie_airnb = carregar_airnb_breno_mensal(ano_selecionado)
         serie_ecoclim = aplicar_fallback_legado(serie_ecoclim, carregar_manual_legado_mensal(ano_selecionado, 'ECOCLIM'), ano_selecionado)
         serie_breno = aplicar_fallback_legado(serie_breno, carregar_manual_legado_mensal(ano_selecionado, 'CONS INVESTIMENTOS'), ano_selecionado)
-        st.caption("🔄 Calculadas automaticamente: **ECOCLIM** (Gestão de Serviços) e **CONS INVESTIMENTOS** (resultado do Breno, via ERP Consorbens). Meses sem dado ainda mostram o último valor digitado à mão.")
-        dict_auto_e = {'MESES': ['ECOCLIM', 'CONS INVESTIMENTOS']}
+        st.caption("🔄 Calculadas automaticamente: **ECOCLIM** (Gestão de Serviços), **CONS INVESTIMENTOS** (resultado do Breno via ERP Consorbens) e **AIRNB** (50% do Breno no líquido do módulo AirBnb). Só a **Maggi** é digitada. Meses sem dado ainda mostram o último valor digitado à mão.")
+        dict_auto_e = {'MESES': ['ECOCLIM', 'CONS INVESTIMENTOS', 'AIRNB (Breno 50%)']}
         for m in utils.meses_pt:
-            dict_auto_e[m] = [utils.to_br_currency(serie_ecoclim[m]), utils.to_br_currency(serie_breno[m])]
+            dict_auto_e[m] = [utils.to_br_currency(serie_ecoclim[m]), utils.to_br_currency(serie_breno[m]), utils.to_br_currency(serie_airnb[m])]
         st.dataframe(pd.DataFrame(dict_auto_e)[colunas_visiveis].style.set_properties(**{'background-color': '#E2F0D9', 'color': 'black', 'font-weight': 'bold'}), hide_index=True, column_config=cfg_text, use_container_width=True)
         _default_mes_idx = (utils.mes_hoje_idx - 1) if ano_selecionado == utils.ano_atual else 0
         st.caption("✏️ Editáveis — uma linha por conta. Para vários pagamentos no mês (ex.: **Maggi**), use o **➕ Adicionar recebimento** abaixo (ele SOMA ao mês).")
@@ -733,7 +756,7 @@ def renderizar():
 
         with st.expander("➕ Adicionar recebimento (soma ao mês selecionado)"):
             qa1, qa2, qa3 = st.columns(3)
-            _conta_add = qa1.selectbox("Conta", ['MAGGI CONSORCIOS', 'AIRNB'], key=f"add_rec_conta_{ano_selecionado}")
+            _conta_add = qa1.selectbox("Conta", ['MAGGI CONSORCIOS'], key=f"add_rec_conta_{ano_selecionado}")
             _mes_add = qa2.selectbox("Mês", utils.meses_pt, index=_default_mes_idx, key=f"add_rec_mes_{ano_selecionado}")
             _val_add = qa3.number_input("Valor (R$)", min_value=0.0, step=100.0, format="%.2f", key=f"add_rec_val_{ano_selecionado}")
             if st.button("➕ Adicionar ao mês", use_container_width=True, key=f"add_rec_btn_{ano_selecionado}"):
@@ -750,7 +773,7 @@ def renderizar():
                 else:
                     st.warning("Informe um valor maior que zero.")
 
-        tot_e = df_e_trabalho.set_index('MESES').sum() + serie_ecoclim + serie_breno
+        tot_e = df_e_trabalho.set_index('MESES').sum() + serie_ecoclim + serie_breno + serie_airnb
         dict_res_e = {'MESES': ['TOTAL RECEBIMENTOS']}
         for i, m in enumerate(utils.meses_pt):
             is_futuro = (ano_selecionado > utils.ano_atual) or (ano_selecionado == utils.ano_atual and i > (utils.mes_hoje_idx - 1))

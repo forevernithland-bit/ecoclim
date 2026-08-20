@@ -60,7 +60,7 @@ def upload_direto_gdrive(file_buffer, filename, mimetype, path_list):
         
         mapeamento_ids = {
             "Orçamentos": "1DySx6I2sMQ6OQNR74mwbTrAf2KuK2YI4",
-            "Contratos": "1s2sf05GjPebJy93V1BdlTBOBM4LDHjic",
+            "Contratos": "1s1pIqZ2MhlxKOQzjwNZwTU8SE3K5WnKb",
             "Imagens": "1F8C5IH6AbscBc3DLoasP9Zjx2qrqgU8p",
             "Notas Fiscais": "1H8S-8mKS5TB8co7df2vMdqyKfTgDG0V2"
         }
@@ -98,7 +98,7 @@ def listar_arquivos_pasta_gdrive(nome_principal, path_list):
         
         mapeamento_ids = {
             "Orçamentos": "1DySx6I2sMQ6OQNR74mwbTrAf2KuK2YI4",
-            "Contratos": "1s2sf05GjPebJy93V1BdlTBOBM4LDHjic",
+            "Contratos": "1s1pIqZ2MhlxKOQzjwNZwTU8SE3K5WnKb",
             "Imagens": "1F8C5IH6AbscBc3DLoasP9Zjx2qrqgU8p",
             "Notas Fiscais": "1H8S-8mKS5TB8co7df2vMdqyKfTgDG0V2"
         }

@@ -162,6 +162,67 @@ def _assinatura_produtos(df):
 
 
 # ---------------------------------------------------------------------------
+# Nome do arquivo do orçamento salvo no Drive
+#   Formato: {numero}_{primeiro_nome}_{descricao}
+#   Ex.: 260806-1850_paulo_800lit_mod
+# A descrição identifica o EQUIPAMENTO PRINCIPAL do orçamento por palavra-chave,
+# na mesma linha da detecção que já existe para capa/serviço. Prioridade:
+#   piscina > trocador(BTU) > aquecedor(acoplado>modular>tradicional) > pressurizador > peças
+# ---------------------------------------------------------------------------
+def _primeiro_nome_cliente(nome_cliente):
+    base = _norm(nome_cliente)
+    tokens = re.sub(r'[^a-z0-9]+', ' ', base).split()
+    return tokens[0] if tokens else "cliente"
+
+def gerar_descricao_arquivo(df):
+    """Código curto do equipamento principal, para compor o nome do arquivo."""
+    nomes = _nomes_produtos(df)
+    if not nomes:
+        return "pecas"
+    nn = [(_norm(n), n) for n in nomes]
+
+    def achar(*termos):
+        return [orig for (nrm, orig) in nn if any(t in nrm for t in termos)]
+
+    suf_tipo = {"acoplado": "acopl", "modular": "mod", "tradicional": "trad"}
+
+    # 1) Piscina (coletores/placas p/ piscina) -> volume em litros + tipo do coletor
+    pisc = achar("piscina")
+    if pisc:
+        n = _extrair_numero(pisc[0], r'(\d+)\s*(?:litros?|lts?|l)\b') or _extrair_numero(pisc[0], r'(\d+)')
+        tipo = detectar_tipo_instalacao(df) or "tradicional"
+        suf = suf_tipo.get(tipo, "trad")
+        return f"{n}lt_pisc_{suf}" if n else f"pisc_{suf}"
+
+    # 2) Trocador / bomba de calor (BTU) -> nº de BTU, sem "lt"
+    troc = achar("trocador", "bomba de calor", "btu")
+    if troc:
+        n = _extrair_numero(troc[0], r'(\d+)\s*btu') or _extrair_numero(troc[0], r'(\d+)')
+        return f"{n}_btu" if n else "btu"
+
+    # 3) Aquecedor residencial (acoplado > modular > tradicional)
+    tipo = detectar_tipo_instalacao(df)
+    if tipo:
+        medida, _un = _medida_do_tipo(df, tipo)
+        if tipo == "acoplado":
+            return f"{medida}t_acopl" if medida else "acopl"
+        return f"{medida}lit_{suf_tipo[tipo]}" if medida else suf_tipo[tipo]
+
+    # 4) Pressurizador / bomba (que não seja de calor) -> modelo
+    press = [o for (nrm, o) in nn if ("pressuriz" in nrm) or ("bomba" in nrm and "calor" not in nrm)]
+    if press:
+        n = _extrair_numero(press[0], r'(\d+)')
+        return f"{n}_press" if n else "press"
+
+    # 5) Nada reconhecido -> peças/acessórios
+    return "pecas"
+
+def gerar_nome_arquivo_orcamento(numero, nome_cliente, df):
+    """Nome-base (sem extensão) do PDF do orçamento salvo no Drive."""
+    return f"{numero}_{_primeiro_nome_cliente(nome_cliente)}_{gerar_descricao_arquivo(df)}"
+
+
+# ---------------------------------------------------------------------------
 # Parte 3: Modal "Cálculo de Custos" (Lucro Líquido detalhado)
 # ---------------------------------------------------------------------------
 def _ler_taxas_cadastradas():
@@ -309,6 +370,15 @@ def _modal_calculo_custos(dados, limpar_func):
                 "detalhamento_itens": dados['snapshot_itens'],
                 "data_conclusao": datetime.date.today().strftime('%Y-%m-%d'),
                 "dados_contrato": breakdown,
+                # Colunas que o painel de Serviços em Andamento lê para JÁ vir tudo
+                # preenchido ao migrar (NF, cartão, comissão, serviço e outros).
+                # Base = venda_liquida = valor_venda_total, então o painel recalcula
+                # as mesmas % e chega exatamente nos mesmos valores.
+                "custo_impostos": custo_nf,
+                "custo_cartao": custo_cartao,
+                "custo_comissao": custo_comissao,
+                "custo_terceirizados": custo_instalacao,
+                "custo_adicional_materiais": custo_outros,
             }
             if st.session_state.get('rascunho_id'):
                 st.session_state.supabase.table("servicos_andamento").update(payload).eq('id', st.session_state.rascunho_id).execute()
@@ -753,10 +823,41 @@ def renderizar(lista_nomes_produtos, limpar_func):
                     descricao_final_outros, 
                     valor_final_outros, 
                     total_investimento, 
-                    obs_pdf, 
+                    obs_pdf,
                     mostrar_precos_unitarios
                 )
                 st.session_state['nome_cliente_previa'] = nome_cliente
+
+                # --- Salva o orçamento AUTOMATICAMENTE no Drive (pasta Orçamentos) ---
+                # Número da proposta: gerado na 1ª prévia e reaproveitado, para o
+                # nome do arquivo bater com o ORC-... salvo depois no sistema.
+                if not st.session_state.get('num_proposta_atual'):
+                    st.session_state['num_proposta_atual'] = datetime.datetime.now().strftime('%y%m%d-%H%M')
+                numero_prop = st.session_state['num_proposta_atual']
+                nome_base = gerar_nome_arquivo_orcamento(numero_prop, nome_cliente, df_editavel)
+                fname = f"{nome_base}.pdf"
+                try:
+                    # "Salva um novo a cada clique": desambigua se o nome já existir.
+                    if utils.drive_nome_existe(utils.DRIVE_FOLDER_ORCAMENTOS, fname):
+                        _i = 2
+                        while utils.drive_nome_existe(utils.DRIVE_FOLDER_ORCAMENTOS, f"{nome_base}_v{_i}.pdf"):
+                            _i += 1
+                        fname = f"{nome_base}_v{_i}.pdf"
+                    _ok_orc, _res_orc = utils.upload_to_drive_folder_id(
+                        st.session_state['pdf_gerado'], fname, "application/pdf", utils.DRIVE_FOLDER_ORCAMENTOS)
+                except Exception as _e_orc:
+                    _ok_orc, _res_orc = False, str(_e_orc)
+                if _ok_orc:
+                    st.session_state['orc_drive_link'] = _res_orc
+                    st.session_state['orc_drive_nome'] = fname
+                    st.toast(f"☁️ Orçamento salvo no Drive como {fname}", icon="✅")
+                else:
+                    st.session_state['orc_drive_link'] = None
+                    st.warning(f"Prévia gerada, mas o envio automático ao Drive falhou ({_res_orc}).")
+
+        if st.session_state.get('orc_drive_link') and st.session_state.get('nome_cliente_previa') == nome_cliente:
+            st.caption(f"☁️ Salvo no Drive: **{st.session_state.get('orc_drive_nome','')}**  ·  "
+                       f"[abrir](https://drive.google.com/file/d/{st.session_state['orc_drive_link']}/view)")
         
         if 'pdf_gerado' in st.session_state and st.session_state.get('nome_cliente_previa') == nome_cliente:
             st.download_button(
@@ -781,9 +882,10 @@ def renderizar(lista_nomes_produtos, limpar_func):
                         nome_item = p_base if p_base not in ["", "OUTRO", "None"] else p_man
                         
                         snapshot_itens.append({
-                            "Item": nome_item, 
-                            "Qtd": r['Quantidade'], 
-                            "Venda Un.": r['Venda (R$)'], 
+                            "Item": nome_item,
+                            "Qtd": r['Quantidade'],
+                            "Custo Un.": r['Custo (R$)'],
+                            "Venda Un.": r['Venda (R$)'],
                             "Descrição": r['Descrição']
                         })
 
@@ -818,7 +920,7 @@ def renderizar(lista_nomes_produtos, limpar_func):
             if not nome_cliente: 
                 st.error("Preencha o nome do cliente!")
             else:
-                string_data = datetime.datetime.now().strftime('%y%m%d-%H%M')
+                string_data = st.session_state.get('num_proposta_atual') or datetime.datetime.now().strftime('%y%m%d-%H%M')
                 numero_do_orcamento = f"ORC-{string_data}"
                 try:
                     tel_formatado = formatar_telefone(whatsapp)

@@ -79,6 +79,9 @@ def iniciar_conexao_consorbens():
 # INTEGRAÇÃO GOOGLE DRIVE E CALENDAR (MOTOR VITALÍCIO)
 # ==========================================
 MAIN_DRIVE_FOLDER_ID = '1rdCO-d0CTF4UPQ1Vddxr0loCgqYaXE2l'
+# Pastas específicas do Drive (IDs absolutos) onde os PDFs devem cair.
+DRIVE_FOLDER_ORCAMENTOS = '1DySx6I2sMQ6OQNR74mwbTrAf2KuK2YI4'
+DRIVE_FOLDER_CONTRATOS = '1s1pIqZ2MhlxKOQzjwNZwTU8SE3K5WnKb'
 
 def get_drive_service():
     """Autentica no Drive usando o seu login definitivo (OAuth)"""
@@ -152,6 +155,71 @@ def upload_to_drive(file_buffer, filename, mimetype, folder_path):
         return True, file_id
     except Exception as e:
         return False, str(e)
+
+def upload_to_drive_folder_id(file_buffer, filename, mimetype, folder_id):
+    """Envia um arquivo direto para uma pasta específica do Drive (ID absoluto),
+    sem aninhar sob MAIN_DRIVE_FOLDER_ID. Deixa acessível por link. Retorna
+    (True, file_id) ou (False, erro)."""
+    try:
+        service = get_drive_service()
+        if not service: return False, "Serviço do Google Drive indisponível."
+        file_metadata = {'name': filename, 'parents': [folder_id]}
+        buffer_puro = BytesIO(file_buffer.getvalue())
+        media = MediaIoBaseUpload(buffer_puro, mimetype=mimetype, resumable=True)
+        uploaded_file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+        file_id = uploaded_file.get('id')
+        try:
+            service.permissions().create(fileId=file_id, body={'type': 'anyone', 'role': 'reader'}).execute()
+        except Exception:
+            pass
+        return True, file_id
+    except Exception as e:
+        return False, str(e)
+
+def drive_nome_existe(folder_id, filename):
+    """True se já existe um arquivo com esse nome exato dentro da pasta.
+    Usado para desambiguar (gerar _v2, _v3) quando se salva um novo a cada clique."""
+    try:
+        service = get_drive_service()
+        if not service: return False
+        safe = str(filename).replace("\\", "\\\\").replace("'", "\\'")
+        q = f"'{folder_id}' in parents and name = '{safe}' and trashed = false"
+        res = service.files().list(q=q, spaces='drive', fields='files(id)').execute()
+        return len(res.get('files', [])) > 0
+    except Exception:
+        return False
+
+def limpar_orcamentos_antigos(dias=183):
+    """Manda para a LIXEIRA do Drive os PDFs de ORÇAMENTO com mais de `dias`
+    dias (padrão ~6 meses), pela data de criação. Vai para a lixeira (reversível
+    por ~30 dias), não é exclusão permanente. NUNCA mexe em contratos.
+    Retorna o nº de arquivos movidos para a lixeira."""
+    try:
+        service = get_drive_service()
+        if not service: return 0
+        cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=dias)
+        q = (f"'{DRIVE_FOLDER_ORCAMENTOS}' in parents and "
+             "mimeType != 'application/vnd.google-apps.folder' and trashed = false")
+        res = service.files().list(q=q, spaces='drive',
+                                   fields='files(id, name, createdTime)', pageSize=1000).execute()
+        movidos = 0
+        for f in res.get('files', []):
+            ct = f.get('createdTime')
+            if not ct:
+                continue
+            try:
+                dt = datetime.datetime.fromisoformat(str(ct).replace('Z', '+00:00'))
+            except ValueError:
+                continue
+            if dt < cutoff:
+                try:
+                    service.files().update(fileId=f['id'], body={'trashed': True}).execute()
+                    movidos += 1
+                except Exception:
+                    pass
+        return movidos
+    except Exception:
+        return 0
 
 def list_drive_files(folder_path):
     try:

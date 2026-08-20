@@ -552,13 +552,29 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                             val_outros=c_val_outros, desc_outros=c_desc_outros
                         )
                         st.session_state[f'pdf_contrato_{prefix_key}'] = pdf_ct_bytes
-                        st.success("✅ Contrato gerado! Clique no botão abaixo para baixar.")
+                        # Salva AUTOMATICAMENTE na pasta "Contratos" do Drive
+                        _hoje_ct = datetime.datetime.now().strftime("%Y_%m_%d")
+                        _p_ct = c_nome.strip().split()
+                        _nf_ct = (f"{_p_ct[0]}_{_p_ct[-1]}".lower() if len(_p_ct) >= 2 else (_p_ct[0].lower() if _p_ct else "cliente"))
+                        _fname_ct = f"contrato_{_hoje_ct}_{_nf_ct}.pdf"
+                        try:
+                            _ok_ct, _res_ct = utils.upload_to_drive_folder_id(file_buffer=pdf_ct_bytes, filename=_fname_ct, mimetype="application/pdf", folder_id=utils.DRIVE_FOLDER_CONTRATOS)
+                        except Exception as _e_ct:
+                            _ok_ct, _res_ct = False, str(_e_ct)
+                        if _ok_ct:
+                            st.session_state[f'ct_drive_link_{prefix_key}'] = _res_ct
+                            st.success(f"✅ Contrato gerado e **salvo automaticamente** no Drive (pasta *Contratos*) como **{_fname_ct}**.")
+                        else:
+                            st.warning(f"Contrato gerado, mas o envio automático ao Drive falhou ({_res_ct}). Use o envio manual abaixo.")
 
                 if f'pdf_contrato_{prefix_key}' in st.session_state:
                     st.download_button("📥 BAIXAR CONTRATO (PDF)", data=st.session_state[f'pdf_contrato_{prefix_key}'], file_name=f"CONTRATO_{c_nome.split()[0]}.pdf", mime="application/pdf", use_container_width=True, key=f"dl_ct_{prefix_key}")
-                    
+                    if st.session_state.get(f'ct_drive_link_{prefix_key}'):
+                        _lnk_ct = st.session_state[f'ct_drive_link_{prefix_key}']
+                        st.markdown(f"☁️ <a href='https://drive.google.com/file/d/{_lnk_ct}/view' target='_blank'>Abrir contrato salvo no Drive</a>", unsafe_allow_html=True)
+
                     with st.container(border=True):
-                        st.markdown("☁️ **Salvar no Drive (Pasta: Contratos)**")
+                        st.markdown("☁️ **Reenviar / salvar com outro nome (opcional)** — já foi salvo automaticamente na pasta *Contratos*.")
                         
                         hoje_str = datetime.datetime.now().strftime("%Y_%m_%d")
                         partes_nome = c_nome.strip().split()
@@ -571,13 +587,13 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                         
                         nome_arquivo_drive = st.text_input("Nome do arquivo do contrato:", value=nome_sugerido, key=f"input_nome_ct_drive_{prefix_key}")
                         
-                        if st.button("🚀 Enviar Contrato para o Drive", use_container_width=True, key=f"btn_upload_ct_drive_{prefix_key}"):
+                        if st.button("🔁 Reenviar para o Drive", use_container_width=True, key=f"btn_upload_ct_drive_{prefix_key}"):
                             with st.spinner("Salvando na pasta Contratos..."):
-                                sucesso, msg = utils.upload_to_drive(
-                                    file_buffer=st.session_state[f'pdf_contrato_{prefix_key}'], 
-                                    filename=nome_arquivo_drive, 
-                                    mimetype="application/pdf", 
-                                    folder_path=["Contratos"]
+                                sucesso, msg = utils.upload_to_drive_folder_id(
+                                    file_buffer=st.session_state[f'pdf_contrato_{prefix_key}'],
+                                    filename=nome_arquivo_drive,
+                                    mimetype="application/pdf",
+                                    folder_id=utils.DRIVE_FOLDER_CONTRATOS
                                 )
                                 if sucesso:
                                     st.success(f"✅ Contrato {nome_arquivo_drive} salvo com sucesso no Drive!")
