@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import io
 import datetime
+import altair as alt
 import utils
 
 # =============================================================================
@@ -101,7 +102,7 @@ def salvar_dados_fin(nome_tabela, df, ano):
 def carregar_aportes_itens(ano):
     """Lê os lançamentos de aporte do ano. Retorna DataFrame [Mês, Conta, Valor, Obs].
     Nunca quebra a tela (se a tabela não existir ainda, devolve vazio)."""
-    cols = ["Mês", "Conta", "Valor", "Obs"]
+    cols = ["Mês", "Conta", "Valor", "Origem", "Obs"]
     try:
         res = st.session_state.supabase.table('fin_aportes_itens').select("*").eq("ano", ano).order("mes").execute()
         linhas = []
@@ -111,6 +112,7 @@ def carregar_aportes_itens(ano):
                 "Mês": utils.meses_pt[mes_idx - 1] if 1 <= mes_idx <= 12 else "",
                 "Conta": str(r.get("conta") or "").upper(),
                 "Valor": utils.safe_float(r.get("valor")),
+                "Origem": str(r.get("origem") or "Capital externo"),
                 "Obs": str(r.get("obs") or ""),
             })
         return pd.DataFrame(linhas, columns=cols)
@@ -132,6 +134,7 @@ def salvar_aportes_itens(ano, df_itens):
                     "mes": utils.meses_pt.index(mes_nome) + 1,
                     "conta": conta,
                     "valor": valor,
+                    "origem": str(r.get("Origem", "") or "Capital externo"),
                     "obs": str(r.get("Obs", "") or ""),
                 })
     try:
@@ -194,6 +197,122 @@ def total_juros_ano(ano, meses):
         juros = var - apser
         total += float(juros[meses].sum())
     return total
+
+# =============================================================================
+# RECEBIMENTOS EDITÁVEIS — lista de lançamentos (MAGGI/AIRNB, vários por mês)
+# =============================================================================
+def carregar_recebimentos_itens(ano):
+    cols = ["Mês", "Conta", "Valor", "Obs"]
+    try:
+        res = st.session_state.supabase.table('fin_recebimentos_itens').select("*").eq("ano", ano).order("mes").execute()
+        linhas = []
+        for r in (res.data or []):
+            mes_idx = int(r.get("mes") or 0)
+            linhas.append({
+                "Mês": utils.meses_pt[mes_idx - 1] if 1 <= mes_idx <= 12 else "",
+                "Conta": str(r.get("conta") or "").upper(),
+                "Valor": utils.safe_float(r.get("valor")),
+                "Obs": str(r.get("obs") or ""),
+            })
+        return pd.DataFrame(linhas, columns=cols)
+    except Exception:
+        return pd.DataFrame(columns=cols)
+
+def salvar_recebimentos_itens(ano, df_itens):
+    supabase = st.session_state.supabase
+    registros = []
+    if df_itens is not None and not df_itens.empty:
+        for _, r in df_itens.iterrows():
+            mes_nome = str(r.get("Mês", "")).strip().upper()
+            conta = str(r.get("Conta", "")).strip().upper()
+            valor = utils.safe_float(r.get("Valor", 0))
+            if mes_nome in utils.meses_pt and conta in ("AIRNB", "MAGGI") and valor != 0:
+                registros.append({
+                    "ano": ano, "mes": utils.meses_pt.index(mes_nome) + 1,
+                    "conta": conta, "valor": valor, "obs": str(r.get("Obs", "") or ""),
+                })
+    try:
+        supabase.table('fin_recebimentos_itens').delete().eq("ano", ano).execute()
+        if registros:
+            supabase.table('fin_recebimentos_itens').insert(registros).execute()
+    except Exception as e:
+        st.error(f"Erro ao salvar recebimentos: {e}")
+
+def agregar_recebimentos(df_itens):
+    """Soma os recebimentos manuais (AIRNB+MAGGI) por mês → Series por utils.meses_pt."""
+    serie = pd.Series(0.0, index=utils.meses_pt)
+    if df_itens is None or df_itens.empty:
+        return serie
+    for _, r in df_itens.iterrows():
+        mes = str(r.get("Mês", "")).strip().upper()
+        if mes in utils.meses_pt:
+            serie[mes] += utils.safe_float(r.get("Valor", 0))
+    return serie
+
+def _receb_ja_migrado(ano):
+    try:
+        res = st.session_state.supabase.table('fin_configuracoes').select('chave').eq('chave', f'receb_migrado_{ano}').execute()
+        return bool(res.data)
+    except Exception:
+        return False
+
+def _marcar_receb_migrado(ano):
+    try:
+        st.session_state.supabase.table('fin_configuracoes').delete().eq('chave', f'receb_migrado_{ano}').execute()
+        st.session_state.supabase.table('fin_configuracoes').insert({'chave': f'receb_migrado_{ano}', 'valor1': '1'}).execute()
+    except Exception:
+        pass
+
+def migrar_entradas_para_itens(ano):
+    """Converte a matriz antiga (fin_entradas: AIRNB/MAGGI CONSORCIOS) em lançamentos,
+    para não perder o que já estava digitado."""
+    dfm = carregar_dados_fin('fin_entradas', ['AIRNB', 'MAGGI CONSORCIOS'], ano).set_index('MESES')
+    linhas = []
+    for conta_nome, conta_curto in [('AIRNB', 'AIRNB'), ('MAGGI CONSORCIOS', 'MAGGI')]:
+        if conta_nome in dfm.index:
+            for m in utils.meses_pt:
+                val = utils.safe_float(dfm.loc[conta_nome, m])
+                if val != 0:
+                    linhas.append({"Mês": m, "Conta": conta_curto, "Valor": val, "Obs": "migrado da matriz"})
+    return pd.DataFrame(linhas, columns=["Mês", "Conta", "Valor", "Obs"])
+
+# =============================================================================
+# GRÁFICOS MODERNOS (Altair) — área/linha/barra com o visual do sistema
+# =============================================================================
+def _fin_df(serie):
+    return pd.DataFrame({
+        "Mês": [m[:3].title() for m in utils.meses_pt],
+        "_ord": list(range(12)),
+        "Valor": [utils.safe_float(serie.get(m, 0)) for m in utils.meses_pt],
+    })
+
+def _fin_enc(df):
+    x = alt.X("Mês:N", sort=alt.SortField("_ord"),
+              axis=alt.Axis(title=None, labelAngle=0, grid=False, domain=False, ticks=False, labelColor="#64748b"))
+    y = alt.Y("Valor:Q",
+              axis=alt.Axis(title=None, grid=True, gridColor="#eef1f5", tickCount=4, labelColor="#94a3b8", format="~s"))
+    tip = [alt.Tooltip("Mês:N", title="Mês"), alt.Tooltip("Valor:Q", title="R$", format=",.2f")]
+    return x, y, tip
+
+def grafico_area(serie, cor):
+    df = _fin_df(serie); x, y, tip = _fin_enc(df)
+    b = alt.Chart(df).encode(x=x, y=y, tooltip=tip)
+    ch = (b.mark_area(interpolate="monotone", opacity=0.14, color=cor)
+          + b.mark_line(interpolate="monotone", strokeWidth=3, color=cor))
+    return ch.properties(height=210).configure_view(strokeWidth=0)
+
+def grafico_linha(serie, cor):
+    df = _fin_df(serie); x, y, tip = _fin_enc(df)
+    b = alt.Chart(df).encode(x=x, y=y, tooltip=tip)
+    ch = b.mark_line(interpolate="monotone", strokeWidth=3, color=cor,
+                     point=alt.OverlayMarkDef(color=cor, size=45))
+    return ch.properties(height=210).configure_view(strokeWidth=0)
+
+def grafico_barra(serie, cor):
+    df = _fin_df(serie); x, y, tip = _fin_enc(df)
+    b = alt.Chart(df).encode(x=x, y=y, tooltip=tip)
+    ch = b.mark_bar(color=cor, cornerRadiusTopLeft=5, cornerRadiusTopRight=5, size=22)
+    return ch.properties(height=210).configure_view(strokeWidth=0)
 
 def carregar_periodo_visivel():
     if 'periodo_visivel_financeiro' in st.session_state:
@@ -493,10 +612,10 @@ def renderizar():
             
         colunas_visiveis = ["MESES"] + utils.meses_pt[utils.meses_pt.index(m_ini):utils.meses_pt.index(m_fim) + 1]
 
-        if st.button("🔄 Recarregar Banco", use_container_width=True): 
+        if st.button("🔄 Recarregar Banco", use_container_width=True):
             st.session_state.pop('ano_dados_atual', None)
             st.session_state.pop('db_df_p', None)
-            st.session_state.pop('db_df_e', None)
+            st.session_state.pop('db_df_rec_itens', None)
             st.session_state.pop('db_df_ap_itens', None)
             st.rerun()
 
@@ -507,15 +626,18 @@ def renderizar():
     contas_e = ['AIRNB', 'MAGGI CONSORCIOS']
 
     if ('db_df_p' not in st.session_state or
-        'db_df_e' not in st.session_state or
+        'db_df_rec_itens' not in st.session_state or
         'db_df_ap_itens' not in st.session_state or
         'ano_dados_atual' not in st.session_state or
         st.session_state.ano_dados_atual != ano_selecionado or
         st.session_state.get('forcar_reload_fin', False)):
 
         st.session_state.db_df_p = limpar_e_garantir_linhas(carregar_dados_fin('fin_patrimonio', contas_p, ano_selecionado), contas_p)
-        st.session_state.db_df_e = limpar_e_garantir_linhas(carregar_dados_fin('fin_entradas', contas_e, ano_selecionado), contas_e)
         st.session_state.db_df_ap_itens = carregar_aportes_itens(ano_selecionado)
+        _rec = carregar_recebimentos_itens(ano_selecionado)
+        if _rec.empty and not _receb_ja_migrado(ano_selecionado):
+            _rec = migrar_entradas_para_itens(ano_selecionado)  # não perde a matriz antiga
+        st.session_state.db_df_rec_itens = _rec
         st.session_state.ano_dados_atual = ano_selecionado
         st.session_state.forcar_reload_fin = False
 
@@ -570,18 +692,24 @@ def renderizar():
         st.markdown("##### 💵 Aportes de Capital (Investimentos)")
         with st.expander("Registrar depósitos (pode haver vários no mesmo mês)", expanded=False):
             st.caption("Lance cada DEPÓSITO feito. O sistema soma por mês/conta e desconta do rendimento e do Limite de Gasto — não é juros. Registre só no mês em que o dinheiro entrou.")
+            st.caption("**Origem**: use *Reinvestimento de renda* quando o dinheiro veio de um recebimento já lançado (ex.: salário Maggi) — assim fica claro que não é dinheiro novo. Não muda nenhum número; só o cálculo de juros usa o valor.")
             cfg_ap = {
-                "Mês": st.column_config.SelectboxColumn("Mês", options=utils.meses_pt, width="medium", required=True),
+                "Mês": st.column_config.SelectboxColumn("Mês", options=utils.meses_pt, width="small", required=True),
                 "Conta": st.column_config.SelectboxColumn("Conta", options=["XP", "INTER", "ITAU"], width="small", required=True),
                 "Valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f", min_value=0.0, width="small"),
+                "Origem": st.column_config.SelectboxColumn("Origem", options=["Capital externo", "Reinvestimento de renda"], width="medium"),
                 "Obs": st.column_config.TextColumn("Obs (opcional)"),
             }
             df_ap_itens_ed = st.data_editor(
                 st.session_state.db_df_ap_itens, column_config=cfg_ap, num_rows="dynamic",
                 hide_index=True, use_container_width=True, key=f"ed_ap_itens_{ano_selecionado}")
-            _tot_ap = utils.safe_float(pd.to_numeric(df_ap_itens_ed.get("Valor"), errors="coerce").fillna(0).sum()) if not df_ap_itens_ed.empty else 0.0
-            if _tot_ap > 0:
-                st.caption(f"Total aportado no ano: **{utils.to_br_currency(_tot_ap)}**")
+            if not df_ap_itens_ed.empty:
+                _vals = pd.to_numeric(df_ap_itens_ed.get("Valor"), errors="coerce").fillna(0)
+                _orig = df_ap_itens_ed.get("Origem")
+                _reinv = float(_vals[_orig == "Reinvestimento de renda"].sum()) if _orig is not None else 0.0
+                _ext = float(_vals.sum()) - _reinv
+                if (_reinv + _ext) > 0:
+                    st.caption(f"💰 Capital externo (dinheiro novo): **{utils.to_br_currency(_ext)}**  ·  ♻️ Reinvestimento de renda: **{utils.to_br_currency(_reinv)}**")
         ap_xp, ap_it, ap_itau = agregar_aportes(df_ap_itens_ed)
 
         st.markdown(f"##### 💰 Recebimentos e Pró-labore ({ano_selecionado})")
@@ -594,16 +722,18 @@ def renderizar():
         for m in utils.meses_pt:
             dict_auto_e[m] = [utils.to_br_currency(serie_ecoclim[m]), utils.to_br_currency(serie_breno[m])]
         st.dataframe(pd.DataFrame(dict_auto_e)[colunas_visiveis].style.set_properties(**{'background-color': '#E2F0D9', 'color': 'black', 'font-weight': 'bold'}), hide_index=True, column_config=cfg_text, use_container_width=True)
-        st.caption("✏️ Editáveis (gravadas manualmente):")
-        df_e_view = st.session_state.db_df_e[colunas_visiveis].copy()
-        for m in colunas_visiveis:
-            if m != "MESES":
-                df_e_view[m] = df_e_view[m].apply(lambda x: utils.to_br_currency(x))
-        df_e_ed = st.data_editor(df_e_view, hide_index=True, column_config=cfg_edit, use_container_width=True, height=115, key=f"ed_e_fin_estavel_v13_{ano_selecionado}")
-        df_e_trabalho = st.session_state.db_df_e.copy()
-        for c in colunas_visiveis:
-            if c != "MESES": df_e_trabalho[c] = df_e_ed[c].apply(parse_br_currency)
-        tot_e = df_e_trabalho.set_index('MESES').sum() + serie_ecoclim + serie_breno
+        st.caption("✏️ Editáveis — lance cada recebimento (a **MAGGI** pode ter vários no mesmo mês). O sistema soma por mês.")
+        cfg_rec = {
+            "Mês": st.column_config.SelectboxColumn("Mês", options=utils.meses_pt, width="small", required=True),
+            "Conta": st.column_config.SelectboxColumn("Conta", options=["MAGGI", "AIRNB"], width="small", required=True),
+            "Valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f", min_value=0.0, width="small"),
+            "Obs": st.column_config.TextColumn("Obs (opcional)"),
+        }
+        df_rec_ed = st.data_editor(
+            st.session_state.db_df_rec_itens, column_config=cfg_rec, num_rows="dynamic",
+            hide_index=True, use_container_width=True, key=f"ed_rec_itens_{ano_selecionado}")
+        rec_editaveis = agregar_recebimentos(df_rec_ed)
+        tot_e = rec_editaveis + serie_ecoclim + serie_breno
         dict_res_e = {'MESES': ['TOTAL RECEBIMENTOS']}
         for i, m in enumerate(utils.meses_pt):
             is_futuro = (ano_selecionado > utils.ano_atual) or (ano_selecionado == utils.ano_atual and i > (utils.mes_hoje_idx - 1))
@@ -617,11 +747,12 @@ def renderizar():
         if st.session_state.salvar_fin_clicado:
             with st.spinner("Gravando no Supabase..."):
                 st.session_state.db_df_p = df_p_trabalho
-                st.session_state.db_df_e = df_e_trabalho
                 st.session_state.db_df_ap_itens = df_ap_itens_ed
+                st.session_state.db_df_rec_itens = df_rec_ed
                 salvar_dados_fin('fin_patrimonio', st.session_state.db_df_p, ano_selecionado)
-                salvar_dados_fin('fin_entradas', st.session_state.db_df_e, ano_selecionado)
                 salvar_aportes_itens(ano_selecionado, df_ap_itens_ed)
+                salvar_recebimentos_itens(ano_selecionado, df_rec_ed)
+                _marcar_receb_migrado(ano_selecionado)
             st.session_state.salvar_fin_clicado = False
             st.success("✅ Alterações gravadas!")
 
@@ -638,7 +769,12 @@ def renderizar():
         val_prev = pat_tot[utils.meses_pt[i-1]] if i > 0 else pat_tot_prev_dec
         var_abs[m] = pat_tot[m] - val_prev
         var_pct[m] = (var_abs[m] / val_prev * 100) if val_prev != 0 else 0.0
-    var_liq = pat_liq - pat_liq.shift(1).fillna(pat_liq_prev_dec)
+    # Alerta de gasto: ignora a CAPITAL DE GIRO (ML) — é o giro da Ecoclim e
+    # flutua naturalmente (ora sobe, ora desce). Só considera as demais contas.
+    _contas_alerta = ['CAPITAL DE GIRO CONSOR (ITAU)', 'INVESTIMENTO INTER', 'INVESTIMENTO ITAU', 'INVESTIMENTO XP', 'FGTS']
+    _pl_alerta = df_n.loc[df_n.index.isin(_contas_alerta)].sum()
+    _pl_alerta_prev_dec = df_p_prev.loc[df_p_prev.index.isin(_contas_alerta), 'DEZEMBRO'].sum()
+    var_liq = _pl_alerta - _pl_alerta.shift(1).fillna(_pl_alerta_prev_dec)
 
     xp_v = df_n.loc['INVESTIMENTO XP'] if 'INVESTIMENTO XP' in df_n.index else pd.Series(0.0, index=utils.meses_pt)
     it_v = df_n.loc['INVESTIMENTO INTER'] if 'INVESTIMENTO INTER' in df_n.index else pd.Series(0.0, index=utils.meses_pt)
@@ -775,12 +911,16 @@ def renderizar():
     with tabs[2]:
         g1, g2 = st.columns(2)
         with g1:
-            st.subheader("Evolução Patrimonial Total")
-            st.line_chart(pat_tot[utils.meses_pt])
-            st.subheader("Rendimento (juros) Mensal (R$)")
-            st.bar_chart(rend_tot_full[utils.meses_pt])
+            with st.container(border=True):
+                st.markdown("##### 📈 Evolução Patrimonial")
+                st.altair_chart(grafico_area(pat_tot, "#0f9d58"), use_container_width=True)
+            with st.container(border=True):
+                st.markdown("##### 📊 Rendimento (juros) mensal")
+                st.altair_chart(grafico_barra(rend_tot_full, "#0f9d58"), use_container_width=True)
         with g2:
-            st.subheader("Salário + Rendimento")
-            st.area_chart(tot_e[utils.meses_pt] + rend_tot_full[utils.meses_pt])
-            st.subheader("Faturamento Ecoclim")
-            st.line_chart(serie_ecoclim[utils.meses_pt])
+            with st.container(border=True):
+                st.markdown("##### 💵 Salário + Rendimento")
+                st.altair_chart(grafico_area(tot_e + rend_tot_full, "#2563eb"), use_container_width=True)
+            with st.container(border=True):
+                st.markdown("##### ☀️ Faturamento Ecoclim")
+                st.altair_chart(grafico_linha(serie_ecoclim, "#d97706"), use_container_width=True)
