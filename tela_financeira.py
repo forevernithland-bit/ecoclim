@@ -728,7 +728,7 @@ def renderizar():
                 _reinv = float(_vals[_orig == "Reinvestimento de renda"].sum()) if _orig is not None else 0.0
                 _ext = float(_vals.sum()) - _reinv
                 if (_reinv + _ext) > 0:
-                    st.caption(f"💰 Capital externo (dinheiro novo): **{utils.to_br_currency(_ext)}**  ·  ♻️ Reinvestimento de renda: **{utils.to_br_currency(_reinv)}**")
+                    st.caption(f"💰 Capital externo (dinheiro novo): **{utils.to_br_currency_md(_ext)}**  ·  ♻️ Reinvestimento de renda: **{utils.to_br_currency_md(_reinv)}**")
         ap_xp, ap_it, ap_itau = agregar_aportes(df_ap_itens_ed)
 
         st.markdown(f"##### 💰 Recebimentos e Pró-labore ({ano_selecionado})")
@@ -892,14 +892,14 @@ def renderizar():
         with cm1:
             if meta > 0:
                 prog = max(min(pat_atual / meta, 1.0), 0.0) if meta > 0 else 0.0
-                st.progress(prog, text=f"{utils.to_br_currency(pat_atual)} de {utils.to_br_currency(meta)}  ({prog*100:.1f}%)")
+                st.progress(prog, text=f"{utils.to_br_currency_md(pat_atual)} de {utils.to_br_currency_md(meta)}  ({prog*100:.1f}%)")
                 falta = max(meta - pat_atual, 0.0)
                 if falta <= 0:
                     st.success("🎉 Meta atingida!")
                 elif media_rend_r > 0:
-                    st.caption(f"Faltam {utils.to_br_currency(falta)} — no ritmo atual de juros (~{utils.to_br_currency(media_rend_r)}/mês), cerca de **{falta/media_rend_r:.0f} meses** para a meta.")
+                    st.caption(f"Faltam {utils.to_br_currency_md(falta)} — no ritmo atual de juros (~{utils.to_br_currency_md(media_rend_r)}/mês), cerca de **{falta/media_rend_r:.0f} meses** para a meta.")
                 else:
-                    st.caption(f"Faltam {utils.to_br_currency(falta)} para a meta.")
+                    st.caption(f"Faltam {utils.to_br_currency_md(falta)} para a meta.")
             else:
                 st.caption("Defina uma meta ao lado para acompanhar o progresso. ➡️")
 
@@ -942,7 +942,7 @@ def renderizar():
         _pct_pat = (_cresc_pat / pat_tot_prev_dec * 100) if pat_tot_prev_dec else 0.0
         ca1.metric(f"Patrimônio (vs Dez/{ano_selecionado-1})", utils.to_br_currency(pat_atual), delta=f"{utils.to_br_currency(_cresc_pat)}  ({_pct_pat:.1f}%)")
         ca2.metric(f"Rendimento acum. {ano_selecionado}", utils.to_br_currency(rend_acum), delta=f"{utils.to_br_currency(rend_acum - rend_acum_prev)} vs {ano_selecionado-1}")
-        st.caption(f"Juros acumulados no mesmo período — {ano_selecionado}: {utils.to_br_currency(rend_acum)} · {ano_selecionado-1}: {utils.to_br_currency(rend_acum_prev)}.")
+        st.caption(f"Juros acumulados no mesmo período — {ano_selecionado}: {utils.to_br_currency_md(rend_acum)} · {ano_selecionado-1}: {utils.to_br_currency_md(rend_acum_prev)}.")
 
     # =====================================================================
     # ABA GRÁFICOS

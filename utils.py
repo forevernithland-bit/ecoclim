@@ -427,6 +427,13 @@ def to_br_currency(valor, incluir_simbolo=True):
     res = f"{valor_float:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     return f"R$ {res}" if incluir_simbolo else res
 
+def to_br_currency_md(valor):
+    # Igual a to_br_currency, mas com o '$' escapado — usar dentro de
+    # st.markdown/st.caption/st.warning/st.success quando o texto tem 2+
+    # valores em R$: sem o escape, o Streamlit lê tudo entre o 1º e o 2º '$'
+    # como LaTeX e renderiza estranho (foi o que aconteceu na Meta de Patrimônio).
+    return to_br_currency(valor).replace("$", "\\$")
+
 def parse_br_currency(texto_valor):
     if isinstance(texto_valor, (int, float)): return float(texto_valor)
     s = str(texto_valor).replace("R$", "").strip().replace(".", "").replace(",", ".")

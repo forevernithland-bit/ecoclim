@@ -109,17 +109,140 @@ def _modal_cadastrar_venda(supabase, lista_instaladores):
         except Exception as e:
             st.error(f"Erro ao cadastrar: {e}")
 
+def _buscar_adiantamentos_com_saldo(supabase, instaladores):
+    """Busca os adiantamentos de um ou mais instaladores junto com o total já
+    baixado (soma de adiantamento_baixas) e o saldo restante de cada um —
+    nunca mistura baixa de um instalador no saldo de outro. Ordenado por
+    data crescente (mais antigo primeiro), pra dar baixa no FIFO."""
+    if isinstance(instaladores, str):
+        instaladores = [instaladores]
+    instaladores = [i for i in instaladores if str(i).strip()]
+    if not instaladores:
+        return []
+    try:
+        res = supabase.table('adiantamentos_instalador').select('*').in_('instalador', instaladores).order('data').execute()
+        adiantamentos = res.data or []
+    except Exception:
+        return []
+    if not adiantamentos:
+        return []
+    ids = [a['id'] for a in adiantamentos]
+    baixas_por_id = {}
+    try:
+        res_b = supabase.table('adiantamento_baixas').select('*').in_('adiantamento_id', ids).order('data').execute()
+        for b in (res_b.data or []):
+            baixas_por_id.setdefault(b['adiantamento_id'], []).append(b)
+    except Exception:
+        pass
+    for a in adiantamentos:
+        _baixas = baixas_por_id.get(a['id'], [])
+        a['_baixas'] = _baixas
+        a['_baixado'] = sum(float(b.get('valor') or 0) for b in _baixas)
+        a['_saldo'] = max(float(a.get('valor') or 0) - a['_baixado'], 0.0)
+    return adiantamentos
+
+
+def _registrar_baixa_adiantamento(supabase, adiantamento, valor_baixa):
+    """Registra uma baixa (total ou parcial) — sempre cria uma linha NOVA no
+    histórico (nunca apaga/sobrescreve o adiantamento original, pra manter o
+    acompanhamento completo pra cobranças futuras), e marca 'pago' quando o
+    saldo chegar a zero."""
+    hoje_str = datetime.date.today().strftime('%Y-%m-%d')
+    supabase.table('adiantamento_baixas').insert({
+        "adiantamento_id": adiantamento['id'],
+        "valor": valor_baixa,
+        "data": hoje_str,
+    }).execute()
+    baixado_total = float(adiantamento.get('_baixado', 0)) + valor_baixa
+    if baixado_total >= float(adiantamento.get('valor') or 0) - 0.005:
+        supabase.table('adiantamentos_instalador').update({"pago": True}).eq('id', adiantamento['id']).execute()
+
+
+def _aplicar_baixa_fifo(supabase, adiantamentos_ordenados, valor_total_baixa):
+    """Distribui um valor entre os adiantamentos em aberto de um instalador,
+    do mais antigo pro mais novo, até acabar o valor ou os adiantamentos.
+    Cada um que for tocado ganha sua própria linha no histórico de baixas."""
+    restante = valor_total_baixa
+    for a in adiantamentos_ordenados:
+        if restante <= 0.005:
+            break
+        saldo = a['_saldo']
+        if saldo <= 0.005:
+            continue
+        aplicar = min(saldo, restante)
+        _registrar_baixa_adiantamento(supabase, a, aplicar)
+        restante -= aplicar
+    return valor_total_baixa - restante  # quanto foi de fato aplicado
+
+
+@st.dialog("💵 Baixa de Adiantamento")
+def _modal_perguntar_baixa(supabase, instalador, key_suffix):
+    """Aberto automaticamente depois de 'Salvar Pagamentos', um instalador de
+    cada vez (fila em session_state), perguntando se o adiantamento em aberto
+    dele deve ser descontado agora que ele acabou de receber."""
+    fila_key = f"fila_baixa_{key_suffix}"
+    etapa_key = f"baixa_etapa_{key_suffix}"
+
+    def _fechar_e_avancar():
+        fila = st.session_state.get(fila_key, [])
+        if fila:
+            fila.pop(0)
+        if fila:
+            st.session_state[fila_key] = fila
+        else:
+            st.session_state.pop(fila_key, None)
+        st.session_state.pop(etapa_key, None)
+        st.rerun()
+
+    adiantamentos = [a for a in _buscar_adiantamentos_com_saldo(supabase, instalador) if a['_saldo'] > 0.005]
+    saldo_total = sum(a['_saldo'] for a in adiantamentos)
+    if saldo_total <= 0.005:
+        _fechar_e_avancar()
+        return
+
+    st.write(f"O instalador **{instalador}** acabou de receber um pagamento e tem **{utils.to_br_currency(saldo_total)}** em adiantamento(s) ainda em aberto.")
+    st.write("Deseja dar baixa nos Adiantamentos agora?")
+
+    etapa = st.session_state.get(etapa_key, "perguntar")
+
+    if etapa == "perguntar":
+        cB1, cB2 = st.columns(2)
+        if cB1.button("✅ Sim, dar baixa", type="primary", use_container_width=True, key=f"baixa_sim_{key_suffix}"):
+            st.session_state[etapa_key] = "escolher"
+            st.rerun()
+        if cB2.button("Não, manter em carteira", use_container_width=True, key=f"baixa_nao_{key_suffix}"):
+            _fechar_e_avancar()
+    elif etapa == "escolher":
+        modo = st.radio("Descontar quanto?", ["Total", "Parte dele"], key=f"baixa_modo_{key_suffix}")
+        valor_baixa = saldo_total
+        if modo == "Parte dele":
+            valor_baixa = st.number_input("Valor a descontar (R$)", min_value=0.01, max_value=float(saldo_total), value=float(saldo_total), format="%.2f", key=f"baixa_valor_{key_suffix}")
+        st.caption(f"Fica pendente depois: **{utils.to_br_currency(max(saldo_total - valor_baixa, 0.0))}**")
+        if st.button("💾 Confirmar Baixa", type="primary", use_container_width=True, key=f"baixa_confirmar_{key_suffix}"):
+            aplicado = _aplicar_baixa_fifo(supabase, adiantamentos, valor_baixa)
+            st.success(f"✅ {utils.to_br_currency(aplicado)} baixado do(s) adiantamento(s) de {instalador}.")
+            _fechar_e_avancar()
+
+
 def renderizar_pagamento_instaladores(df_subset, supabase, key_suffix, titulo):
+    fila_baixa = st.session_state.get(f"fila_baixa_{key_suffix}")
+    if fila_baixa:
+        _modal_perguntar_baixa(supabase, fila_baixa[0], key_suffix)
     """Tabela compacta de pagamento aos instaladores — marca vários de uma vez,
     sem precisar abrir o painel de detalhe de cada cliente. df_subset já deve
     vir filtrado pra quem faz sentido pagar agora (ex.: finalizados do mês,
     ou concluídos pelo instalador mas ainda aguardando pagamento do cliente)."""
-    df_pag_base = df_subset[['id', 'nome_cliente', 'instalador', 'custo_terceirizados', 'pago_instalador']].copy()
+    df_pag_base = df_subset[['id', 'nome_cliente', 'instalador', 'custo_terceirizados', 'pago_instalador', 'status_projeto']].copy()
     df_pag_base['custo_terceirizados'] = pd.to_numeric(df_pag_base['custo_terceirizados'], errors='coerce').fillna(0)
     df_pag_base = df_pag_base[df_pag_base['custo_terceirizados'] > 0].reset_index(drop=True)
     df_pag_base['pago_instalador'] = df_pag_base['pago_instalador'].fillna(False).astype(bool)
     if df_pag_base.empty:
         return
+
+    # Instalador já confirmou pronto, mas o cliente ainda não pagou a
+    # empresa (Breno ainda não fechou como Concluído PIX/CARTÃO) — mostra
+    # um aviso junto do nome, sem precisar de coluna extra na tabela.
+    df_pag_base['cliente_nao_pagou'] = ~df_pag_base['status_projeto'].isin(['Concluído PIX', 'Concluído CARTÃO'])
 
     # Pagos sobem pro topo (só depois de salvar — durante a edição a linha
     # não pula de lugar, senão fica confuso clicar em vários seguidos),
@@ -132,17 +255,16 @@ def renderizar_pagamento_instaladores(df_subset, supabase, key_suffix, titulo):
     # Adiantamentos ainda não compensados dos instaladores que aparecem
     # nesta lista — descontados do total pendente (pedido do Breno).
     instaladores_aqui = [i for i in df_pag_base['instalador'].dropna().unique().tolist() if str(i).strip()]
-    total_adiantado = 0.0
-    try:
-        if instaladores_aqui:
-            res_ad = supabase.table('adiantamentos_instalador').select('valor').in_('instalador', instaladores_aqui).eq('pago', False).execute()
-            total_adiantado = sum(float(a.get('valor') or 0) for a in (res_ad.data or []))
-    except Exception:
-        pass
+    total_adiantado = sum(a['_saldo'] for a in _buscar_adiantamentos_com_saldo(supabase, instaladores_aqui))
     valor_liquido = valor_total_pendente - total_adiantado
 
     with st.expander(f"💰 {titulo} — {utils.to_br_currency(valor_liquido)} líquido pendente ({n_pendentes})", expanded=False):
-        df_pag_view = df_pag_base.rename(columns={
+        df_pag_view = df_pag_base.copy()
+        df_pag_view['nome_cliente'] = df_pag_view.apply(
+            lambda r: f"{r['nome_cliente']}  🔴 cliente não pagou ainda" if r['cliente_nao_pagou'] else r['nome_cliente'],
+            axis=1,
+        )
+        df_pag_view = df_pag_view.drop(columns=['status_projeto', 'cliente_nao_pagou']).rename(columns={
             'nome_cliente': 'Cliente', 'instalador': 'Instalador',
             'custo_terceirizados': 'Valor Instalação', 'pago_instalador': 'Pago?',
         })
@@ -169,6 +291,7 @@ def renderizar_pagamento_instaladores(df_subset, supabase, key_suffix, titulo):
         if st.button("💾 Salvar Pagamentos", key=f"btn_salvar_pag_{key_suffix}"):
             hoje_str = datetime.date.today().strftime('%Y-%m-%d')
             alterados = 0
+            instaladores_pagos_agora = set()
             for _, row in df_pag_ed.iterrows():
                 original = df_pag_base[df_pag_base['id'] == row['id']].iloc[0]
                 if bool(row['Pago?']) != bool(original['pago_instalador']):
@@ -176,8 +299,19 @@ def renderizar_pagamento_instaladores(df_subset, supabase, key_suffix, titulo):
                     payload["data_pagamento_instalador"] = hoje_str if bool(row['Pago?']) else None
                     supabase.table('servicos_andamento').update(payload).eq('id', int(row['id'])).execute()
                     alterados += 1
+                    if bool(row['Pago?']):
+                        instaladores_pagos_agora.add(original['instalador'])
             if alterados:
                 st.success(f"✅ {alterados} pagamento(s) atualizado(s)!")
+                # Pergunta sobre baixa de adiantamento só de quem realmente
+                # acabou de ser marcado como pago agora, e só se tiver saldo
+                # de adiantamento em aberto — um instalador por vez.
+                fila = [
+                    inst for inst in sorted(instaladores_pagos_agora)
+                    if sum(a['_saldo'] for a in _buscar_adiantamentos_com_saldo(supabase, inst)) > 0.005
+                ]
+                if fila:
+                    st.session_state[f"fila_baixa_{key_suffix}"] = fila
                 st.rerun()
             else:
                 st.info("Nenhuma alteração pra salvar.")
@@ -196,15 +330,11 @@ def _modal_adiantamento_instalador(supabase, lista_instaladores):
     except Exception:
         total_a_receber = 0.0
 
-    try:
-        res_adiant = supabase.table('adiantamentos_instalador').select('*').eq('instalador', instalador_sel).order('data', desc=True).execute()
-        adiantamentos = res_adiant.data or []
-    except Exception:
-        adiantamentos = []
-    # Só adiantamentos ainda NÃO marcados como pagos/compensados descontam
-    # do saldo — um que já foi compensado não deve continuar puxando o
-    # saldo pra baixo pra sempre.
-    total_adiantado_aberto = sum(float(a.get('valor') or 0) for a in adiantamentos if not a.get('pago', False))
+    adiantamentos = _buscar_adiantamentos_com_saldo(supabase, instalador_sel)
+    # Só o saldo ainda em aberto de cada adiantamento (valor menos o que já
+    # foi baixado) desconta do saldo pendente — um já quitado não continua
+    # puxando pra baixo pra sempre.
+    total_adiantado_aberto = sum(a['_saldo'] for a in adiantamentos)
     saldo_pendente = total_a_receber - total_adiantado_aberto
 
     c1, c2 = st.columns(2)
@@ -238,21 +368,41 @@ def _modal_adiantamento_instalador(supabase, lista_instaladores):
 
     if adiantamentos:
         st.markdown("##### 🕓 Histórico de Adiantamentos")
-        st.caption("Marque como Pago quando esse adiantamento já tiver sido descontado/compensado — ele deixa de reduzir o saldo pendente.")
-        for a in adiantamentos:
+        st.caption("Dê baixa total ou parcial quando o adiantamento for descontado/compensado — cada baixa fica registrada no histórico, pra acompanhamento e cobranças futuras.")
+        for a in sorted(adiantamentos, key=lambda x: x.get('data') or '', reverse=True):
             try:
                 data_fmt = pd.to_datetime(a.get('data')).strftime('%d/%m/%Y')
             except Exception:
                 data_fmt = str(a.get('data') or '')
-            _ca1, _ca2 = st.columns([4, 1])
-            _ca1.markdown(f"**{data_fmt}** — {utils.to_br_currency(a.get('valor'))} — {a.get('motivo') or 'sem motivo informado'}")
-            _pago_novo = _ca2.checkbox("Pago", value=bool(a.get('pago', False)), key=f"ad_pago_{a['id']}")
-            if _pago_novo != bool(a.get('pago', False)):
-                try:
-                    supabase.table('adiantamentos_instalador').update({"pago": _pago_novo}).eq('id', a['id']).execute()
+            saldo = a['_saldo']
+            quitado = saldo <= 0.005
+            st.markdown(f"**{data_fmt}** — {utils.to_br_currency(a.get('valor'))} — {a.get('motivo') or 'sem motivo informado'}")
+            if a['_baixado'] > 0.005:
+                st.caption(f"Já baixado: {utils.to_br_currency(a['_baixado'])} · Saldo: {utils.to_br_currency(saldo)}")
+                for b in a['_baixas']:
+                    try:
+                        b_data_fmt = pd.to_datetime(b.get('data')).strftime('%d/%m/%Y')
+                    except Exception:
+                        b_data_fmt = str(b.get('data') or '')
+                    st.caption(f"　↳ {b_data_fmt}: baixou {utils.to_br_currency(b.get('valor'))}")
+
+            if quitado:
+                st.markdown("✅ **Quitado**")
+            else:
+                _bt1, _bt2 = st.columns(2)
+                if _bt1.button("✅ Baixa Total", key=f"ad_baixa_total_{a['id']}", use_container_width=True):
+                    _registrar_baixa_adiantamento(supabase, a, saldo)
                     st.rerun()
-                except Exception as e:
-                    st.error(f"Erro ao atualizar: {e}")
+                _mostrar_parcial_key = f"ad_mostrar_parcial_{a['id']}"
+                if _bt2.button("➗ Baixa Parcial", key=f"ad_btn_parcial_{a['id']}", use_container_width=True):
+                    st.session_state[_mostrar_parcial_key] = not st.session_state.get(_mostrar_parcial_key, False)
+                if st.session_state.get(_mostrar_parcial_key):
+                    _valor_parcial = st.number_input("Valor a baixar (R$)", min_value=0.01, max_value=float(saldo), value=float(saldo), format="%.2f", key=f"ad_valor_parcial_{a['id']}")
+                    if st.button("💾 Confirmar Baixa Parcial", key=f"ad_confirma_parcial_{a['id']}"):
+                        _registrar_baixa_adiantamento(supabase, a, _valor_parcial)
+                        st.session_state[_mostrar_parcial_key] = False
+                        st.rerun()
+            st.divider()
 
 
 @st.dialog("📅 Agendar Tarefa/Visita para o Instalador")

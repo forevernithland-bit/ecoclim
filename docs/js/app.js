@@ -4,7 +4,9 @@ import { sincronizarTudo, iniciarSyncAutomatico, statusAtual, aoMudarStatusSync 
 import { adicionarMidia, enviarMidiasPendentes, puxarMidias, urlPublicaMidia, listarPendentesLocal } from "./midias.js";
 import { puxarVisitas, visitasPendentesNovas, criarVisita, atualizarStatusVisita, contarNaoVistas, marcarTodasComoVistas, salvarRespostaInstalador } from "./agenda.js";
 import { puxarMinhasListas, puxarMateriaisPadrao, salvarLista, adicionarItemAoPadrao, listasPendentesNovas } from "./materiais.js";
-import { agruparPorMes, formatarMes, servicosSemPrevisao } from "./financeiro.js";
+import {
+  agruparPorMes, formatarMes, servicosFinalizadosAReceber, servicosEmAndamentoSemData, totalGeralAReceber,
+} from "./financeiro.js";
 import { puxarAdiantamentos, totalAdiantadoAberto } from "./adiantamentos.js";
 
 const raiz = document.getElementById("app");
@@ -915,16 +917,37 @@ async function viewFinanceiro() {
     puxarAdiantamentos(sessao.instaladorVinculado),
   ]);
   const grupos = agruparPorMes(todos);
-  const semPrevisao = servicosSemPrevisao(todos);
-  const totalAReceber = grupos.reduce((acc, g) => acc + g.aReceber, 0);
+  const finalizadosAReceber = servicosFinalizadosAReceber(todos);
+  const emAndamentoSemData = servicosEmAndamentoSemData(todos);
+  const totalAReceber = totalGeralAReceber(todos);
   const totalRecebido = grupos.reduce((acc, g) => acc + g.recebido, 0);
   const totalAdiantado = totalAdiantadoAberto(adiantamentos);
   const liquidoAReceber = totalAReceber - totalAdiantado;
+  const totalFinalizadosAReceber = finalizadosAReceber.reduce((acc, s) => acc + Number(s.custo_terceirizados), 0);
+  const totalEmAndamentoSemData = emAndamentoSemData.reduce((acc, s) => acc + Number(s.custo_terceirizados), 0);
 
   const linhaCliente = (s, cor) => `
     <div class="campo" style="font-size:0.88rem;">
       <span>${escapeHTML(s.nome_cliente || "Sem nome")}${!estaConcluida(s) ? " (em andamento)" : ""}</span>
       <span style="color:${cor};font-weight:700;">${formatarBRL(s.custo_terceirizados)}</span>
+    </div>`;
+
+  // Igual linhaCliente, mas clicável — leva direto pro cliente (útil pra
+  // marcar como pago, ou pra preencher a Data Prevista de Instalação).
+  const linhaClienteClicavel = (s, cor) => `
+    <button class="cartao--clicavel campo" data-ir-cliente="${s.id}" style="font-size:0.88rem; width:100%; border:none; background:none; padding:6px 0; font-family:inherit;">
+      <span>${escapeHTML(s.nome_cliente || "Sem nome")}${!estaConcluida(s) ? " (em andamento)" : ""}</span>
+      <span style="color:${cor};font-weight:700;">${formatarBRL(s.custo_terceirizados)}</span>
+    </button>`;
+
+  const cartaoQuadrante = (chave, titulo, cor, total, itens, dica) => `
+    <div class="cartao cartao--clicavel" data-quad="${chave}">
+      <div class="cartao-titulo">${titulo}</div>
+      <div class="campo"><span class="rotulo">${itens.length} cliente(s)</span><span style="color:${cor};font-weight:800;font-size:1.05rem;">${formatarBRL(total)}</span></div>
+    </div>
+    <div id="detalhe-quad-${chave}" class="cartao" style="display:none; margin-top:-6px; margin-bottom:12px;">
+      ${dica ? `<p class="dica">${dica}</p>` : ""}
+      ${itens.length ? itens.map((s) => linhaClienteClicavel(s, cor)).join("") : `<p class="vazio">Nenhum cliente aqui no momento.</p>`}
     </div>`;
 
   const cartaoMes = (g) => `
@@ -951,13 +974,16 @@ async function viewFinanceiro() {
         ` : ""}
       </div>
 
-      ${semPrevisao.length ? `
-        <div class="cartao" style="border-color:var(--warn);">
-          <h3 class="cartao-secao">⚠️ Sem previsão de data (${semPrevisao.length})</h3>
-          <p class="dica">Preencha a "Data Prevista de Instalação" nesses clientes pra eles entrarem na previsão do mês certo.</p>
-          ${semPrevisao.map((s) => `<div class="campo" style="font-size:0.88rem;"><span>${escapeHTML(s.nome_cliente || "")}</span><span>${formatarBRL(s.custo_terceirizados)}</span></div>`).join("")}
-        </div>
-      ` : ""}
+      <h2 class="secao-titulo">Clique pra ver os clientes</h2>
+      ${cartaoQuadrante(
+        "finalizados", "✅ Serviços Finalizados a Receber", "var(--warn)",
+        totalFinalizadosAReceber, finalizadosAReceber, null,
+      )}
+      ${cartaoQuadrante(
+        "semdata", "🔧 Serviços em Andamento a Receber (sem data)", "var(--warn)",
+        totalEmAndamentoSemData, emAndamentoSemData,
+        "Preencha a \"Data Prevista de Instalação\" desses clientes (toque no nome pra abrir) pra eles entrarem na previsão do mês certo.",
+      )}
 
       <h2 class="secao-titulo">Por mês (clique pra ver os clientes)</h2>
       ${grupos.length ? grupos.map(cartaoMes).join("") : `<p class="vazio">Nenhum valor de instalação registrado ainda.</p>`}
@@ -967,9 +993,20 @@ async function viewFinanceiro() {
         ${adiantamentos.map((a) => {
           let dataFmt = "";
           try { dataFmt = formatarData(String(a.data)); } catch (e) { dataFmt = String(a.data || ""); }
+          const saldo = Number(a._saldo) || 0;
+          const baixado = Number(a._baixado) || 0;
+          const quitado = saldo <= 0.005;
+          const historicoBaixas = (a._baixas || []).map((b) => {
+            let bDataFmt = "";
+            try { bDataFmt = formatarData(String(b.data)); } catch (e) { bDataFmt = String(b.data || ""); }
+            return `<div class="campo" style="font-size:0.82rem; color:var(--muted);">
+              <span>　↳ ${bDataFmt}: baixou</span><span>${formatarBRL(b.valor)}</span>
+            </div>`;
+          }).join("");
           return `<div class="cartao">
             <div class="campo"><span>${dataFmt} — ${escapeHTML(a.motivo || "sem motivo informado")}</span><span style="font-weight:700;">${formatarBRL(a.valor)}</span></div>
-            <span class="etiqueta ${a.pago ? "etiqueta--ok" : "etiqueta--pendente"}">${a.pago ? "✅ Compensado" : "⏳ Em aberto"}</span>
+            ${baixado > 0.005 ? `<div class="campo" style="font-size:0.85rem;"><span class="rotulo">Já baixado: ${formatarBRL(baixado)} · Saldo</span><span style="font-weight:700;">${formatarBRL(saldo)}</span></div>${historicoBaixas}` : ""}
+            <span class="etiqueta ${quitado ? "etiqueta--ok" : "etiqueta--pendente"}">${quitado ? "✅ Quitado" : "⏳ Em aberto"}</span>
           </div>`;
         }).join("")}
       ` : ""}
@@ -981,6 +1018,18 @@ async function viewFinanceiro() {
     el.addEventListener("click", () => {
       const det = document.getElementById(`detalhe-mes-${el.dataset.mes}`);
       det.style.display = det.style.display === "none" ? "block" : "none";
+    });
+  });
+  raiz.querySelectorAll("[data-quad]").forEach((el) => {
+    el.addEventListener("click", () => {
+      const det = document.getElementById(`detalhe-quad-${el.dataset.quad}`);
+      det.style.display = det.style.display === "none" ? "block" : "none";
+    });
+  });
+  raiz.querySelectorAll("[data-ir-cliente]").forEach((el) => {
+    el.addEventListener("click", (ev) => {
+      ev.stopPropagation(); // não fecha o quadrante ao navegar
+      viewDetalhe(Number(el.dataset.irCliente));
     });
   });
   ligarNav();
