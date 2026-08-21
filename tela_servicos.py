@@ -444,6 +444,88 @@ def _modal_agendar_tarefa_instalador(supabase, lista_instaladores):
                 st.error(f"Erro ao agendar. Certifique-se de que as colunas 'visto_pelo_instalador' e 'criado_por' existem na tabela 'agenda_visitas'. Detalhe: {e}")
 
 
+@st.dialog("📅 Tarefa da Agenda")
+def _modal_editar_visita_agenda(supabase, visita, lista_instaladores):
+    """Acesso completo do admin a UMA tarefa da Agenda — reatribuir
+    instalador, mudar status, editar qualquer campo, ver a resposta/mídia do
+    instalador e apagar. Antes disso o admin só conseguia CRIAR tarefas."""
+    st.caption(f"Criada em {visita.get('criado_em', '')[:10]} por {visita.get('criado_por', 'admin')}")
+
+    _idx_inst = lista_instaladores.index(visita['instalador']) if visita.get('instalador') in lista_instaladores else 0
+    c1, c2 = st.columns(2)
+    instalador_novo = c1.selectbox("Instalador", lista_instaladores, index=_idx_inst, key=f"ev_inst_{visita['id']}")
+    tipo_novo = c2.selectbox("Tipo", ["Manutenção", "Orçamento", "Tarefa"],
+                              index=["Manutenção", "Orçamento", "Tarefa"].index(visita.get('tipo')) if visita.get('tipo') in ["Manutenção", "Orçamento", "Tarefa"] else 0,
+                              key=f"ev_tipo_{visita['id']}")
+
+    cliente_novo = st.text_input("Cliente", value=visita.get('cliente_nome') or '', key=f"ev_cliente_{visita['id']}")
+    c3, c4 = st.columns(2)
+    telefone_novo = c3.text_input("Telefone", value=visita.get('telefone') or '', key=f"ev_tel_{visita['id']}")
+    endereco_novo = c4.text_input("Endereço", value=visita.get('endereco') or '', key=f"ev_end_{visita['id']}")
+
+    try:
+        _dt_atual = pd.to_datetime(visita.get('data_hora'))
+        _data_atual, _hora_atual = _dt_atual.date(), _dt_atual.time()
+    except Exception:
+        _data_atual, _hora_atual = datetime.date.today(), datetime.time(9, 0)
+    c5, c6 = st.columns(2)
+    data_nova = c5.date_input("Data", value=_data_atual, format="DD/MM/YYYY", key=f"ev_data_{visita['id']}")
+    hora_nova = c6.time_input("Hora", value=_hora_atual, key=f"ev_hora_{visita['id']}")
+
+    status_novo = st.selectbox("Status", ["Agendada", "Realizada", "Cancelada"],
+                                index=["Agendada", "Realizada", "Cancelada"].index(visita.get('status')) if visita.get('status') in ["Agendada", "Realizada", "Cancelada"] else 0,
+                                key=f"ev_status_{visita['id']}")
+    obs_novo = st.text_area("O que ele precisa fazer (comentário do admin)", value=visita.get('observacoes') or '', key=f"ev_obs_{visita['id']}")
+
+    if str(visita.get('comentario_instalador') or '').strip():
+        st.markdown("##### 💬 Resposta do instalador")
+        st.info(visita['comentario_instalador'])
+        if visita.get('valor_sugerido'):
+            st.caption(f"💰 Valor sugerido: {utils.to_br_currency(visita['valor_sugerido'])}")
+
+    try:
+        _res_midia = supabase.table('servico_midias').select('*').eq('visita_id', visita['id']).order('criado_em').execute()
+        _midias = _res_midia.data or []
+    except Exception:
+        _midias = []
+    if _midias:
+        st.markdown(f"##### 📷 Mídia anexada ({len(_midias)})")
+        servicos_painel.renderizar_galeria_midias(_midias)
+
+    st.markdown("---")
+    cb1, cb2 = st.columns(2)
+    if cb1.button("💾 Salvar Alterações", type="primary", use_container_width=True):
+        try:
+            data_hora_iso = datetime.datetime.combine(data_nova, hora_nova).isoformat()
+            supabase.table('agenda_visitas').update({
+                "instalador": instalador_novo, "tipo": tipo_novo,
+                "cliente_nome": cliente_novo.strip(), "telefone": telefone_novo.strip(),
+                "endereco": endereco_novo.strip(), "data_hora": data_hora_iso,
+                "status": status_novo, "observacoes": obs_novo.strip(),
+                "visto_pelo_admin": True,
+            }).eq('id', visita['id']).execute()
+            st.success("✅ Tarefa atualizada!")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Erro ao salvar: {e}")
+    if cb2.button("🗑️ Excluir Tarefa", use_container_width=True):
+        st.session_state[f"ev_confirma_excluir_{visita['id']}"] = True
+    if st.session_state.get(f"ev_confirma_excluir_{visita['id']}"):
+        st.warning("Confirma que quer excluir essa tarefa? Não dá pra desfazer.")
+        cc1, cc2 = st.columns(2)
+        if cc1.button("✅ Sim, excluir", type="primary", use_container_width=True, key=f"ev_excluir_sim_{visita['id']}"):
+            try:
+                supabase.table('agenda_visitas').delete().eq('id', visita['id']).execute()
+                st.session_state.pop(f"ev_confirma_excluir_{visita['id']}", None)
+                st.success("✅ Tarefa excluída.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Erro ao excluir: {e}")
+        if cc2.button("Cancelar", use_container_width=True, key=f"ev_excluir_nao_{visita['id']}"):
+            st.session_state.pop(f"ev_confirma_excluir_{visita['id']}", None)
+            st.rerun()
+
+
 def renderizar():
     st.markdown("""
         <style>
@@ -642,7 +724,7 @@ def renderizar():
     df_fin = df[df['ir_finalizados'] == True].reset_index(drop=True)
     df_atv = df[(df['status_projeto'].isin(ativos_status)) & (df['ir_finalizados'] == False)].reset_index(drop=True)
 
-    aba1, aba2, aba3 = st.tabs(["🚀 Em Andamento", "📝 Orçamentos", "✅ Finalizados"])
+    aba1, aba2, aba3, aba4 = st.tabs(["🚀 Em Andamento", "📝 Orçamentos", "✅ Finalizados", "📅 Agenda"])
 
     colunas_visiveis = ['Cliente', 'Status', 'Valor Total', 'Lucro Líquido', 'Data de término', 'Instalador', '($) Fornecedor', 'Instalador Reportou']
 
@@ -729,3 +811,54 @@ def renderizar():
 
             if sel_fin is not None and sel_fin.selection.rows and len(df_fin_mes) > sel_fin.selection.rows[0]:
                 servicos_painel.exibir_painel_detalhado(df_fin_mes.iloc[sel_fin.selection.rows[0]], supabase, df_taxas, df_produtos, f"fin_{df_fin_mes.iloc[sel_fin.selection.rows[0]]['id']}", lista_instaladores)
+
+    with aba4:
+        st.caption("Todas as tarefas da Agenda dos instaladores — clique numa linha pra abrir, editar, reatribuir instalador, ver a resposta/mídia ou excluir.")
+        try:
+            res_agenda_todas = supabase.table('agenda_visitas').select('*').order('data_hora', desc=True).execute()
+            _visitas_raw = res_agenda_todas.data or []
+            df_agenda = pd.DataFrame(_visitas_raw)
+            # Lookup pelos dicts crus (não pelo DataFrame) — evita que campo
+            # vazio vire NaN do pandas e quebre os widgets do modal de edição.
+            visitas_por_id = {v['id']: v for v in _visitas_raw}
+        except Exception as e:
+            df_agenda = pd.DataFrame()
+            visitas_por_id = {}
+            st.error(f"Erro ao carregar a Agenda: {e}")
+
+        if df_agenda.empty:
+            st.info("Nenhuma tarefa cadastrada na Agenda ainda.")
+        else:
+            fc1, fc2, fc3 = st.columns(3)
+            with fc1:
+                _filtro_inst = st.selectbox("Instalador", ["Todos"] + lista_instaladores, key="filtro_agenda_inst")
+            with fc2:
+                _filtro_status = st.selectbox("Status", ["Todos", "Agendada", "Realizada", "Cancelada"], key="filtro_agenda_status")
+            with fc3:
+                _filtro_busca = st.text_input("Buscar cliente", key="filtro_agenda_busca", placeholder="Nome do cliente...")
+
+            df_ag_filtrado = df_agenda.copy()
+            if _filtro_inst != "Todos":
+                df_ag_filtrado = df_ag_filtrado[df_ag_filtrado['instalador'] == _filtro_inst]
+            if _filtro_status != "Todos":
+                df_ag_filtrado = df_ag_filtrado[df_ag_filtrado['status'] == _filtro_status]
+            if _filtro_busca.strip():
+                df_ag_filtrado = df_ag_filtrado[df_ag_filtrado['cliente_nome'].fillna('').str.contains(_filtro_busca.strip(), case=False)]
+            df_ag_filtrado = df_ag_filtrado.reset_index(drop=True)
+
+            df_ag_view = df_ag_filtrado.copy()
+            df_ag_view['Data/Hora'] = pd.to_datetime(df_ag_view['data_hora'], errors='coerce').dt.strftime('%d/%m/%Y %H:%M')
+            df_ag_view['Cliente'] = df_ag_view['cliente_nome']
+            df_ag_view['Tipo'] = df_ag_view['tipo']
+            df_ag_view['Instalador'] = df_ag_view['instalador']
+            df_ag_view['Status'] = df_ag_view['status']
+            df_ag_view['Respondeu?'] = df_ag_view['comentario_instalador'].fillna('').astype(str).str.strip().apply(lambda x: "💬 Sim" if x else "")
+
+            _cols_agenda = ['Cliente', 'Tipo', 'Instalador', 'Data/Hora', 'Status', 'Respondeu?']
+            sel_agenda = st.dataframe(df_ag_view[_cols_agenda], use_container_width=True, on_select="rerun",
+                                       selection_mode="single-row", hide_index=True, key="g_agenda")
+
+            if sel_agenda.selection.rows and len(df_ag_filtrado) > sel_agenda.selection.rows[0]:
+                _id_sel = int(df_ag_filtrado.iloc[sel_agenda.selection.rows[0]]['id'])
+                if _id_sel in visitas_por_id:
+                    _modal_editar_visita_agenda(supabase, visitas_por_id[_id_sel], lista_instaladores)
