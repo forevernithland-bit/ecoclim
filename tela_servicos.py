@@ -109,6 +109,62 @@ def _modal_cadastrar_venda(supabase, lista_instaladores):
         except Exception as e:
             st.error(f"Erro ao cadastrar: {e}")
 
+def renderizar_pagamento_instaladores(df_subset, supabase, key_suffix, titulo):
+    """Tabela compacta de pagamento aos instaladores — marca vários de uma vez,
+    sem precisar abrir o painel de detalhe de cada cliente. df_subset já deve
+    vir filtrado pra quem faz sentido pagar agora (ex.: finalizados do mês,
+    ou concluídos pelo instalador mas ainda aguardando pagamento do cliente)."""
+    df_pag_base = df_subset[['id', 'nome_cliente', 'instalador', 'custo_terceirizados', 'pago_instalador']].copy()
+    df_pag_base['custo_terceirizados'] = pd.to_numeric(df_pag_base['custo_terceirizados'], errors='coerce').fillna(0)
+    df_pag_base = df_pag_base[df_pag_base['custo_terceirizados'] > 0].reset_index(drop=True)
+    df_pag_base['pago_instalador'] = df_pag_base['pago_instalador'].fillna(False).astype(bool)
+    if df_pag_base.empty:
+        return
+
+    # Pagos sobem pro topo (só depois de salvar — durante a edição a linha
+    # não pula de lugar, senão fica confuso clicar em vários seguidos),
+    # pendentes ficam embaixo, mais fáceis de achar.
+    df_pag_base = df_pag_base.sort_values(['pago_instalador', 'nome_cliente'], ascending=[False, True]).reset_index(drop=True)
+
+    n_pendentes = int((~df_pag_base['pago_instalador']).sum())
+    with st.expander(f"💰 {titulo} ({n_pendentes} pendente(s))", expanded=False):
+        df_pag_view = df_pag_base.rename(columns={
+            'nome_cliente': 'Cliente', 'instalador': 'Instalador',
+            'custo_terceirizados': 'Valor Instalação', 'pago_instalador': 'Pago?',
+        })
+        cfg_pag = {
+            "id": None,
+            "Cliente": st.column_config.TextColumn("Cliente", disabled=True),
+            "Instalador": st.column_config.TextColumn("Instalador", disabled=True),
+            "Valor Instalação": st.column_config.NumberColumn("Valor Instalação", format="R$ %.2f", disabled=True),
+            "Pago?": st.column_config.CheckboxColumn("💰 Pago?"),
+        }
+        df_pag_ed = st.data_editor(df_pag_view, column_config=cfg_pag, hide_index=True,
+                                   use_container_width=True, key=f"pag_editor_{key_suffix}")
+
+        total_pendente_pag = df_pag_ed.loc[~df_pag_ed['Pago?'].astype(bool), 'Valor Instalação'].sum()
+        total_pago_pag = df_pag_ed.loc[df_pag_ed['Pago?'].astype(bool), 'Valor Instalação'].sum()
+        mp1, mp2 = st.columns(2)
+        mp1.metric("💰 Pendente de Pagamento", utils.to_br_currency(total_pendente_pag))
+        mp2.metric("✅ Já Pago", utils.to_br_currency(total_pago_pag))
+
+        if st.button("💾 Salvar Pagamentos", key=f"btn_salvar_pag_{key_suffix}"):
+            hoje_str = datetime.date.today().strftime('%Y-%m-%d')
+            alterados = 0
+            for _, row in df_pag_ed.iterrows():
+                original = df_pag_base[df_pag_base['id'] == row['id']].iloc[0]
+                if bool(row['Pago?']) != bool(original['pago_instalador']):
+                    payload = {"pago_instalador": bool(row['Pago?'])}
+                    payload["data_pagamento_instalador"] = hoje_str if bool(row['Pago?']) else None
+                    supabase.table('servicos_andamento').update(payload).eq('id', int(row['id'])).execute()
+                    alterados += 1
+            if alterados:
+                st.success(f"✅ {alterados} pagamento(s) atualizado(s)!")
+                st.rerun()
+            else:
+                st.info("Nenhuma alteração pra salvar.")
+
+
 @st.dialog("💵 Adiantamento ao Instalador")
 def _modal_adiantamento_instalador(supabase, lista_instaladores):
     st.caption("Registra um adiantamento dado ao instalador (fora do valor normal da instalação). Não altera nenhum serviço — só fica no histórico dele.")
@@ -284,8 +340,19 @@ def renderizar():
         total_bruto_atv = pd.to_numeric(df_atv['valor_venda_total'], errors='coerce').fillna(0).sum()
         total_lucro_atv = pd.to_numeric(df_atv['lucro_estimado'], errors='coerce').fillna(0).sum()
         st.markdown(f"<div style='text-align: right; font-size: 18px; font-weight: bold; margin-bottom: 20px;'><span style='color: #555; margin-right: 20px;'>Faturamento Bruto: {utils.to_br_currency(total_bruto_atv)}</span> <span style='color: #004488;'>Lucro Líquido Estimado: {utils.to_br_currency(total_lucro_atv)}</span></div>", unsafe_allow_html=True)
-        
-        if sel.selection.rows and len(df_atv) > sel.selection.rows[0]: 
+
+        # Serviço já executado (instalador confirmou pelo app) mas o cliente
+        # ainda não pagou — o status continua "Em Andamento", então não cai
+        # na aba Finalizados. Mesmo assim já dá pra pagar o instalador, já
+        # que o trabalho dele está pronto independente de quando o cliente
+        # fechar a conta com a Ecoclim.
+        df_pronto_p_pagar = df_atv[df_atv['instalacao_concluida_instalador'].fillna(False).astype(bool)]
+        if not df_pronto_p_pagar.empty:
+            renderizar_pagamento_instaladores(
+                df_pronto_p_pagar, supabase, "andamento",
+                "Pagamento aos Instaladores (serviço pronto, cliente ainda não pagou)")
+
+        if sel.selection.rows and len(df_atv) > sel.selection.rows[0]:
             servicos_painel.exibir_painel_detalhado(df_atv.iloc[sel.selection.rows[0]], supabase, df_taxas, df_produtos, f"atv_{df_atv.iloc[sel.selection.rows[0]]['id']}", lista_instaladores)
     
     with aba2:
@@ -325,44 +392,7 @@ def renderizar():
             total_lucro_fin_mes = pd.to_numeric(df_fin_mes['lucro_estimado'], errors='coerce').fillna(0).sum()
             st.markdown(f"<div style='text-align: right; font-size: 18px; font-weight: bold; margin-bottom: 20px;'><span style='color: #555; margin-right: 20px;'>Faturamento Bruto ({mes_sel}): {utils.to_br_currency(total_bruto_fin_mes)}</span> <span style='color: #004488;'>Lucro Líquido Realizado: {utils.to_br_currency(total_lucro_fin_mes)}</span></div>", unsafe_allow_html=True)
 
-            # ---------------------------------------------------------------
-            # Pagamento aos instaladores — marca vários de uma vez, direto na
-            # lista, sem precisar abrir o painel de detalhe de cada cliente.
-            # ---------------------------------------------------------------
-            df_pag_base = df_fin_mes[['id', 'nome_cliente', 'instalador', 'custo_terceirizados', 'pago_instalador']].copy()
-            df_pag_base['custo_terceirizados'] = pd.to_numeric(df_pag_base['custo_terceirizados'], errors='coerce').fillna(0)
-            df_pag_base = df_pag_base[df_pag_base['custo_terceirizados'] > 0].reset_index(drop=True)
-            df_pag_base['pago_instalador'] = df_pag_base['pago_instalador'].fillna(False).astype(bool)
-            if not df_pag_base.empty:
-                with st.expander(f"💰 Pagamento aos Instaladores — {mes_sel} ({int((~df_pag_base['pago_instalador']).sum())} pendente(s))", expanded=False):
-                    df_pag_view = df_pag_base.rename(columns={
-                        'nome_cliente': 'Cliente', 'instalador': 'Instalador',
-                        'custo_terceirizados': 'Valor Instalação', 'pago_instalador': 'Pago?',
-                    })
-                    cfg_pag = {
-                        "id": None,
-                        "Cliente": st.column_config.TextColumn("Cliente", disabled=True),
-                        "Instalador": st.column_config.TextColumn("Instalador", disabled=True),
-                        "Valor Instalação": st.column_config.NumberColumn("Valor Instalação", format="R$ %.2f", disabled=True),
-                        "Pago?": st.column_config.CheckboxColumn("💰 Pago?"),
-                    }
-                    df_pag_ed = st.data_editor(df_pag_view, column_config=cfg_pag, hide_index=True,
-                                               use_container_width=True, key=f"pag_editor_{ano_sel}_{mes_sel_idx}")
-                    if st.button("💾 Salvar Pagamentos", key=f"btn_salvar_pag_{ano_sel}_{mes_sel_idx}"):
-                        hoje_str = datetime.date.today().strftime('%Y-%m-%d')
-                        alterados = 0
-                        for _, row in df_pag_ed.iterrows():
-                            original = df_pag_base[df_pag_base['id'] == row['id']].iloc[0]
-                            if bool(row['Pago?']) != bool(original['pago_instalador']):
-                                payload = {"pago_instalador": bool(row['Pago?'])}
-                                payload["data_pagamento_instalador"] = hoje_str if bool(row['Pago?']) else None
-                                supabase.table('servicos_andamento').update(payload).eq('id', int(row['id'])).execute()
-                                alterados += 1
-                        if alterados:
-                            st.success(f"✅ {alterados} pagamento(s) atualizado(s)!")
-                            st.rerun()
-                        else:
-                            st.info("Nenhuma alteração pra salvar.")
+            renderizar_pagamento_instaladores(df_fin_mes, supabase, f"{ano_sel}_{mes_sel_idx}", f"Pagamento aos Instaladores — {mes_sel}")
 
             if sel_fin.selection.rows and len(df_fin_mes) > sel_fin.selection.rows[0]:
                 servicos_painel.exibir_painel_detalhado(df_fin_mes.iloc[sel_fin.selection.rows[0]], supabase, df_taxas, df_produtos, f"fin_{df_fin_mes.iloc[sel_fin.selection.rows[0]]['id']}", lista_instaladores)
