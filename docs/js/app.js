@@ -275,9 +275,12 @@ async function viewDetalhe(id) {
       </div>
 
       <div class="cartao" id="cartao-concluir">
-        ${estaConcluida(s)
-          ? `<p class="valor-somente-leitura">✅ Instalação concluída em ${formatarData(dataConclusaoExibir(s))}</p>`
-          : `<button id="btn-concluir" class="botao botao--principal">✅ Marcar Instalação Concluída</button>`}
+        ${estaConcluida(s) ? `
+          <p class="valor-somente-leitura">✅ Instalação concluída em ${formatarData(dataConclusaoExibir(s))}</p>
+          ${s.instalacao_concluida_instalador
+            ? `<button id="btn-desfazer-conclusao" class="botao botao--secundario">↩️ Cliquei por engano — Desfazer</button>`
+            : `<p class="dica">Fechada pelo Breno no sistema — fale com ele se precisar mudar.</p>`}
+        ` : `<button id="btn-concluir" class="botao botao--principal">✅ Marcar Instalação Concluída</button>`}
       </div>
     </div>
     ${navBarHTML("instalacoes")}
@@ -333,6 +336,18 @@ async function viewDetalhe(id) {
       document.getElementById("btn-cancelar-conclusao").addEventListener("click", () => {
         viewDetalhe(id);
       });
+    });
+  }
+
+  const btnDesfazer = document.getElementById("btn-desfazer-conclusao");
+  if (btnDesfazer) {
+    btnDesfazer.addEventListener("click", async () => {
+      await enfileirar(id, {
+        instalacao_concluida_instalador: false,
+        data_conclusao_instalador: null,
+      });
+      sincronizarTudo(sessao.instaladorVinculado);
+      await viewDetalhe(id);
     });
   }
 
