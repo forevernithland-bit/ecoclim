@@ -3,7 +3,7 @@ import { lerServicos, lerServico, enfileirar } from "./db.js";
 import { sincronizarTudo, iniciarSyncAutomatico, statusAtual, aoMudarStatusSync } from "./sync.js";
 import { adicionarMidia, enviarMidiasPendentes, puxarMidias, urlPublicaMidia, listarPendentesLocal } from "./midias.js";
 import { puxarVisitas, visitasPendentesNovas, criarVisita, atualizarStatusVisita, contarNaoVistas, marcarTodasComoVistas, salvarRespostaInstalador } from "./agenda.js";
-import { puxarMinhasListas, puxarMateriaisPadrao, salvarLista, adicionarItemAoPadrao, listasPendentesNovas, puxarListaDoServico } from "./materiais.js";
+import { puxarMinhasListas, puxarMateriaisPadrao, salvarLista, listasPendentesNovas, puxarListaDoServico, sugerirNovoMaterial } from "./materiais.js";
 import {
   agruparPorMes, formatarMes, servicosFinalizadosAReceber, servicosEmAndamentoSemData, totalGeralAReceber,
 } from "./financeiro.js";
@@ -466,13 +466,10 @@ async function viewDetalhe(id) {
         <div id="materiais-lista-cliente"><p class="dica">Carregando...</p></div>
         <button id="btn-toggle-nova-lista-cliente" class="botao botao--secundario">+ Nova Lista de Materiais</button>
         <div id="form-nova-lista-cliente" style="display:none; margin-top:10px;">
-          <label>Categoria (pra carregar itens padrão)</label>
-          <select id="ml-categoria" class="campo-select">
-            ${CATEGORIAS_MATERIAIS.map((c) => `<option value="${c}">${c}</option>`).join("")}
-          </select>
-          <button type="button" id="btn-carregar-padrao" class="botao botao--secundario">📥 Carregar itens padrão desta categoria</button>
+          <label>Buscar material</label>
+          <input type="text" id="ml-busca" placeholder="Ex: 22, joel, cpvc..." autocomplete="off" />
+          <div id="ml-resultados-busca" class="ml-resultados"></div>
           <div id="ml-itens" style="margin-top:10px;"></div>
-          <button type="button" id="btn-add-item" class="botao botao--secundario">+ Item em branco</button>
           <button type="button" id="btn-salvar-lista" class="botao botao--principal">💾 Salvar Lista deste Cliente</button>
         </div>
       </div>
@@ -516,24 +513,25 @@ async function viewDetalhe(id) {
 
   renderizarListaMateriaisCliente(id, "materiais-lista-cliente");
   itensListaAtual = [];
-  document.getElementById("btn-toggle-nova-lista-cliente").addEventListener("click", () => {
+  let materiaisPadraoCacheDetalhe = [];
+  document.getElementById("btn-toggle-nova-lista-cliente").addEventListener("click", async () => {
     const f = document.getElementById("form-nova-lista-cliente");
     const vaiAbrir = f.style.display === "none";
     f.style.display = vaiAbrir ? "block" : "none";
     formularioAbertoAgendaOuMateriais = vaiAbrir;
-    if (vaiAbrir) renderizarItensLista();
+    if (vaiAbrir) {
+      if (!materiaisPadraoCacheDetalhe.length) materiaisPadraoCacheDetalhe = await puxarMateriaisPadrao();
+      renderizarItensLista();
+    }
   });
-  document.getElementById("btn-carregar-padrao").addEventListener("click", async () => {
-    const cat = document.getElementById("ml-categoria").value;
-    const padrao = await puxarMateriaisPadrao();
-    const itensCategoria = padrao.filter((p) => p.categoria === cat);
-    itensListaAtual = itensCategoria.map((p) => ({ item: p.item, qtd: 1, unidade: p.unidade || "un" }));
-    renderizarItensLista();
-  });
-  document.getElementById("btn-add-item").addEventListener("click", () => {
-    itensListaAtual = lerItensDoFormularioBruto();
-    itensListaAtual.push({ item: "", qtd: 1, unidade: "un" });
-    renderizarItensLista();
+  document.getElementById("ml-busca").addEventListener("input", (e) => {
+    renderizarResultadosBuscaMaterial(e.target.value, materiaisPadraoCacheDetalhe, "ml-resultados-busca", (dados) => {
+      itensListaAtual = lerItensDoFormularioBruto();
+      itensListaAtual.push({ item: dados.item, qtd: 1, unidade: dados.unidade, categoria: dados.categoria, manual: dados.manual });
+      renderizarItensLista();
+      document.getElementById("ml-busca").value = "";
+      document.getElementById("ml-resultados-busca").innerHTML = "";
+    });
   });
   document.getElementById("btn-salvar-lista").addEventListener("click", async () => {
     const itens = lerItensDoFormulario();
@@ -544,6 +542,9 @@ async function viewDetalhe(id) {
       servico_id: id,
       itens,
     });
+    for (const it of itens.filter((i) => i.manual)) {
+      await sugerirNovoMaterial({ item: it.item, instalador: sessao.instaladorVinculado, clienteNome: s.nome_cliente, servicoId: id });
+    }
     document.getElementById("materiais-lista-cliente").innerHTML = `<p class="dica">Salvando...</p>`;
     // Espera a sincronização de verdade antes de recarregar — senão o
     // resumo consulta o servidor rápido demais e mostra "nenhuma lista"
@@ -828,13 +829,59 @@ async function viewAgenda() {
   renderFaixaSync(navigator.onLine ? "sincronizado" : "offline", pendentes);
 }
 
-// ---------- Materiais (lista padrão + listas por cliente/avulsas) ----------
-const CATEGORIAS_MATERIAIS = ["modular", "tradicional", "acoplado", "piscina", "trocador", "pressurizador", "geral"];
+// ---------- Materiais (catálogo com busca + listas por cliente/avulsas) ----------
 let itensListaAtual = [];
+
+// Remove acento/caixa pra busca funcionar digitando de qualquer jeito
+// ("cpvc", "CPVC", "cpvç" tudo bate igual).
+function normalizarBuscaTexto(s) {
+  return String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+}
+
+// Busca por substring em qualquer parte do nome (não só no começo) — digitar
+// "22" acha tudo que tem 22 em algum lugar do nome, "joel" acha todo joelho.
+function buscarMateriaisFiltrados(query, todosOsPadrao) {
+  const q = normalizarBuscaTexto(query).trim();
+  if (!q) return [];
+  return todosOsPadrao
+    .filter((m) => normalizarBuscaTexto(m.item).includes(q))
+    .sort((a, b) => a.item.localeCompare(b.item, "pt-BR"))
+    .slice(0, 30);
+}
+
+// Desenha os resultados da busca embaixo do campo, com um botão por item
+// achado + sempre uma opção no fim pra adicionar manualmente o que foi
+// digitado, caso não esteja no catálogo. `onAdicionar` recebe
+// {item, categoria, unidade, manual}.
+function renderizarResultadosBuscaMaterial(query, todosOsPadrao, elId, onAdicionar) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  const texto = query.trim();
+  if (!texto) { el.innerHTML = ""; return; }
+  const resultados = buscarMateriaisFiltrados(texto, todosOsPadrao);
+  const botoesResultado = resultados.map((m) => `
+    <button type="button" class="resultado-busca" data-item="${escapeHTML(m.item)}" data-categoria="${escapeHTML(m.categoria || "")}" data-unidade="${escapeHTML(m.unidade || "un")}">
+      ${escapeHTML(m.item)}
+    </button>`);
+  const botaoManual = `
+    <button type="button" class="resultado-busca resultado-busca--manual" data-manual="1">
+      ➕ Adicionar "${escapeHTML(texto)}" (não achei na lista)
+    </button>`;
+  el.innerHTML = botoesResultado.join("") + botaoManual;
+  el.querySelectorAll("[data-item]").forEach((btn) => {
+    btn.addEventListener("click", () => onAdicionar({
+      item: btn.dataset.item, categoria: btn.dataset.categoria || null, unidade: btn.dataset.unidade || "un", manual: false,
+    }));
+  });
+  const btnManual = el.querySelector("[data-manual]");
+  if (btnManual) {
+    btnManual.addEventListener("click", () => onAdicionar({ item: texto, categoria: null, unidade: "un", manual: true }));
+  }
+}
 
 function linhaItemHTML(it, idx) {
   return `
-    <div class="linha-item" data-idx="${idx}">
+    <div class="linha-item" data-idx="${idx}" data-categoria="${escapeHTML(it.categoria || "")}" data-manual="${it.manual ? "1" : ""}">
       <input type="text" class="li-item" value="${escapeHTML(it.item || "")}" placeholder="Item" />
       <input type="number" class="li-qtd" value="${it.qtd ?? 1}" min="0" step="1" />
       <input type="text" class="li-unidade" value="${escapeHTML(it.unidade || "un")}" placeholder="un" />
@@ -845,7 +892,7 @@ function linhaItemHTML(it, idx) {
 function renderizarItensLista() {
   const el = document.getElementById("ml-itens");
   if (!el) return;
-  el.innerHTML = itensListaAtual.map(linhaItemHTML).join("") || `<p class="dica">Nenhum item ainda.</p>`;
+  el.innerHTML = itensListaAtual.map(linhaItemHTML).join("") || `<p class="dica">Nenhum item ainda. Use a busca acima.</p>`;
   el.querySelectorAll("[data-remover-item]").forEach((btn) => {
     btn.addEventListener("click", () => {
       itensListaAtual.splice(Number(btn.dataset.removerItem), 1);
@@ -854,25 +901,71 @@ function renderizarItensLista() {
   });
 }
 
-// Lê as linhas exatamente como estão (inclusive as ainda em branco) — usada
-// pra sincronizar itensListaAtual antes de mexer na lista (add/remover
-// linha, trocar categoria), sem descartar uma linha que o instalador ainda
-// não terminou de preencher.
+// Lê as linhas exatamente como estão (inclusive as ainda em branco) —
+// preserva categoria/manual guardados nos data-attributes de cada linha
+// (não dá pra descobrir isso só pelo texto digitado).
 function lerItensDoFormularioBruto() {
   const linhas = document.querySelectorAll("#ml-itens .linha-item");
   return Array.from(linhas).map((l) => ({
     item: l.querySelector(".li-item").value,
     qtd: Number(l.querySelector(".li-qtd").value) || 0,
     unidade: l.querySelector(".li-unidade").value.trim() || "un",
+    categoria: l.dataset.categoria || null,
+    manual: l.dataset.manual === "1",
   }));
 }
 
 // Versão "limpa", só com linhas de fato preenchidas — usada na hora de
-// salvar de verdade (lista final ou item novo no padrão).
+// salvar de verdade.
 function lerItensDoFormulario() {
   return lerItensDoFormularioBruto()
     .map((i) => ({ ...i, item: i.item.trim() }))
     .filter((i) => i.item);
+}
+
+// ---------- Texto formatado pra WhatsApp ----------
+const NOMES_CATEGORIA_MATERIAL = {
+  agua_quente: "Material Água Quente - CPVC",
+  agua_fria: "Material Água Fria - PVC",
+  bronze_cobre: "Material Bronze/Cobre",
+};
+const ORDEM_CATEGORIAS_MATERIAL = ["agua_quente", "agua_fria", "bronze_cobre", "geral_hidraulico"];
+
+function gerarTextoListaMateriais(clienteNome, itens) {
+  const porCategoria = {};
+  for (const it of itens || []) {
+    const cat = ORDEM_CATEGORIAS_MATERIAL.includes(it.categoria) ? it.categoria : "geral_hidraulico";
+    if (!porCategoria[cat]) porCategoria[cat] = [];
+    porCategoria[cat].push(it);
+  }
+  const blocos = [];
+  for (const cat of ORDEM_CATEGORIAS_MATERIAL) {
+    const lista = porCategoria[cat];
+    if (!lista || !lista.length) continue;
+    const titulo = NOMES_CATEGORIA_MATERIAL[cat] || "Outros";
+    const ordenados = [...lista].sort((a, b) => a.item.localeCompare(b.item, "pt-BR"));
+    const linhas = ordenados.map((it) => `${it.qtd} ${it.item}`);
+    blocos.push(`*${titulo}*\n${linhas.join("\n")}`);
+  }
+  const cabecalho = `*Lista de Materiais - ${clienteNome || "Cliente"}*`;
+  return [cabecalho, ...blocos].join("\n\n");
+}
+
+function botaoWhatsAppListaHTML(idx) {
+  return `<button type="button" class="botao botao--secundario botao--mini" data-whatsapp-lista="${idx}" style="margin-top:6px;">📤 Enviar por WhatsApp</button>`;
+}
+
+function ligarBotoesWhatsAppLista(elId, listas) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  el.querySelectorAll("[data-whatsapp-lista]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const lista = listas[Number(btn.dataset.whatsappLista)];
+      if (!lista) return;
+      const texto = gerarTextoListaMateriais(lista.cliente_nome, lista.itens || []);
+      window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, "_blank");
+    });
+  });
 }
 
 // Lista de materiais de UM cliente específico, mostrada dentro da tela de
@@ -887,12 +980,14 @@ async function renderizarListaMateriaisCliente(servicoId, elId) {
     elAtual.innerHTML = `<p class="vazio">Nenhuma lista de materiais registrada ainda.</p>`;
     return;
   }
-  elAtual.innerHTML = listas.map((l) => `
+  elAtual.innerHTML = listas.map((l, idx) => `
     <div class="cartao" style="margin-bottom:8px;">
       <div class="cartao-sub">${(l.itens || []).length} item(ns)</div>
       <div class="cartao-sub">${(l.itens || []).map((i) => `${i.qtd}x ${escapeHTML(i.item)} (${escapeHTML(i.unidade || "un")})`).join(", ")}</div>
+      ${botaoWhatsAppListaHTML(idx)}
     </div>
   `).join("");
+  ligarBotoesWhatsAppLista(elId, listas);
 }
 
 async function viewMateriais() {
@@ -905,12 +1000,13 @@ async function viewMateriais() {
   ]);
   itensListaAtual = [];
 
-  const cartaoLista = (l, pendente) => `
+  const cartaoLista = (l, pendente, idx) => `
     <div class="cartao">
       ${pendente ? `<span class="etiqueta etiqueta--pendente">⏳ pendente</span>` : ""}
       <div class="cartao-titulo">${escapeHTML(l.cliente_nome || "Lista sem cliente")}</div>
       <div class="cartao-sub">${(l.itens || []).length} item(ns) — ${l.servico_id ? "vinculada a uma instalação" : "avulsa"}</div>
       <div class="cartao-sub">${(l.itens || []).map((i) => `${i.qtd}x ${escapeHTML(i.item)} (${escapeHTML(i.unidade || "un")})`).join(", ")}</div>
+      ${pendente ? "" : botaoWhatsAppListaHTML(idx)}
     </div>`;
 
   raiz.innerHTML = `
@@ -921,20 +1017,16 @@ async function viewMateriais() {
       <div id="form-nova-lista" class="cartao" style="display:none; margin-top:12px;">
         <label>Cliente (opcional, se não escolher deixa "Avulsa")</label>
         <input type="text" id="ml-cliente" placeholder="Nome do cliente" />
-        <label>Categoria (pra carregar itens padrão)</label>
-        <select id="ml-categoria" class="campo-select">
-          ${CATEGORIAS_MATERIAIS.map((c) => `<option value="${c}">${c}</option>`).join("")}
-        </select>
-        <button type="button" id="btn-carregar-padrao" class="botao botao--secundario">📥 Carregar itens padrão desta categoria</button>
+        <label>Buscar material</label>
+        <input type="text" id="ml-busca" placeholder="Ex: 22, joel, cpvc..." autocomplete="off" />
+        <div id="ml-resultados-busca" class="ml-resultados"></div>
         <div id="ml-itens" style="margin-top:10px;"></div>
-        <button type="button" id="btn-add-item" class="botao botao--secundario">+ Item em branco</button>
-        <button type="button" id="btn-add-padrao" class="botao botao--secundario">⭐ Salvar item atual no padrão da categoria</button>
         <button type="button" id="btn-salvar-lista" class="botao botao--principal">💾 Salvar Lista</button>
       </div>
 
       <h2 class="secao-titulo">📄 Minhas Listas (${minhasListas.length + pendentesNovas.length})</h2>
       ${pendentesNovas.map((p) => cartaoLista(p.dados, true)).join("")}
-      ${minhasListas.length ? minhasListas.map((l) => cartaoLista(l, false)).join("") : (pendentesNovas.length ? "" : `<p class="vazio">Nenhuma lista criada ainda.</p>`)}
+      ${minhasListas.length ? minhasListas.map((l, idx) => cartaoLista(l, false, idx)).join("") : (pendentesNovas.length ? "" : `<p class="vazio">Nenhuma lista criada ainda.</p>`)}
     </div>
     ${navBarHTML("materiais")}
   `;
@@ -944,41 +1036,42 @@ async function viewMateriais() {
     const vaiAbrir = f.style.display === "none";
     f.style.display = vaiAbrir ? "block" : "none";
     formularioAbertoAgendaOuMateriais = vaiAbrir;
+    if (vaiAbrir) renderizarItensLista();
   });
 
-  document.getElementById("btn-carregar-padrao").addEventListener("click", () => {
-    const cat = document.getElementById("ml-categoria").value;
-    const itensCategoria = padrao.filter((p) => p.categoria === cat);
-    itensListaAtual = itensCategoria.map((p) => ({ item: p.item, qtd: 1, unidade: p.unidade || "un" }));
-    renderizarItensLista();
-  });
-
-  document.getElementById("btn-add-item").addEventListener("click", () => {
-    itensListaAtual = lerItensDoFormularioBruto();
-    itensListaAtual.push({ item: "", qtd: 1, unidade: "un" });
-    renderizarItensLista();
-  });
-
-  document.getElementById("btn-add-padrao").addEventListener("click", async () => {
-    const cat = document.getElementById("ml-categoria").value;
-    const itens = lerItensDoFormulario();
-    if (!itens.length) { alert("Adicione pelo menos um item antes."); return; }
-    const ultimo = itens[itens.length - 1];
-    await adicionarItemAoPadrao(cat, ultimo.item, ultimo.unidade);
-    sincronizarTudo(sessao.instaladorVinculado);
-    alert(`"${ultimo.item}" adicionado ao padrão de ${cat} para todos os instaladores.`);
+  document.getElementById("ml-busca").addEventListener("input", (e) => {
+    renderizarResultadosBuscaMaterial(e.target.value, padrao, "ml-resultados-busca", (dados) => {
+      itensListaAtual = lerItensDoFormularioBruto();
+      itensListaAtual.push({ item: dados.item, qtd: 1, unidade: dados.unidade, categoria: dados.categoria, manual: dados.manual });
+      renderizarItensLista();
+      document.getElementById("ml-busca").value = "";
+      document.getElementById("ml-resultados-busca").innerHTML = "";
+    });
   });
 
   document.getElementById("btn-salvar-lista").addEventListener("click", async () => {
     const itens = lerItensDoFormulario();
     if (!itens.length) { alert("Adicione pelo menos um item."); return; }
+    const clienteNome = document.getElementById("ml-cliente").value.trim() || null;
     await salvarLista({
       instalador: sessao.instaladorVinculado,
-      cliente_nome: document.getElementById("ml-cliente").value.trim() || null,
+      cliente_nome: clienteNome,
       itens,
     });
+    for (const it of itens.filter((i) => i.manual)) {
+      await sugerirNovoMaterial({ item: it.item, instalador: sessao.instaladorVinculado, clienteNome });
+    }
     sincronizarTudo(sessao.instaladorVinculado);
     await viewMateriais();
+  });
+
+  raiz.querySelectorAll("[data-whatsapp-lista]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const lista = minhasListas[Number(btn.dataset.whatsappLista)];
+      if (!lista) return;
+      const texto = gerarTextoListaMateriais(lista.cliente_nome, lista.itens || []);
+      window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, "_blank");
+    });
   });
 
   renderizarItensLista();

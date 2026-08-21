@@ -64,8 +64,20 @@ export async function listasPendentesNovas() {
   return pendentes.filter((p) => !p.dados.id);
 }
 
-// Grava um item novo no padrão compartilhado desta categoria — visível pra
-// todos os instaladores a partir da próxima sincronização deles.
-export async function adicionarItemAoPadrao(categoria, item, unidade) {
-  await enfileirarCriacao(T_PADRAO, { categoria, item, unidade: unidade || "un", ordem: 999 });
+// Quando o instalador não acha o item no catálogo e digita à mão, isso fica
+// registrado pro Breno ver e decidir se entra no catálogo padrão (fica
+// disponível pra busca de todo mundo a partir daí). Não impede o instalador
+// de continuar — a lista dele é salva do mesmo jeito, isso é só o aviso.
+const T_SUGESTOES = "materiais_sugeridos";
+export async function sugerirNovoMaterial({ item, instalador, clienteNome, servicoId }) {
+  try {
+    const supabase = getSupabase();
+    await supabase.from(T_SUGESTOES).insert({
+      item, instalador, cliente_nome: clienteNome || null, servico_id: servicoId || null,
+      visto_pelo_admin: false,
+    });
+  } catch (e) {
+    // Sem sinal agora — não é crítico, o Breno só vai descobrir esse item
+    // um pouco mais tarde. Não trava o salvamento da lista por causa disso.
+  }
 }

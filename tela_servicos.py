@@ -638,7 +638,13 @@ def renderizar():
                 "instalador": info.get('instalador', ''), "itens": itens,
             })
 
-    total_notif = len(notif_agenda) + len(notif_concluidos) + len(notif_midia_clientes)
+    try:
+        res_materiais_notif = supabase.table('materiais_sugeridos').select('*').eq('visto_pelo_admin', False).order('criado_em').execute()
+        notif_materiais = res_materiais_notif.data or []
+    except Exception:
+        notif_materiais = []
+
+    total_notif = len(notif_agenda) + len(notif_concluidos) + len(notif_midia_clientes) + len(notif_materiais)
 
     if total_notif:
         with st.container(border=True):
@@ -687,6 +693,18 @@ def renderizar():
                     try:
                         _ids = [m['id'] for m in n['itens']]
                         supabase.table('servico_midias').update({"visto_pelo_admin": True}).in_('id', _ids).execute()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro: {e}")
+                st.markdown("---")
+
+            for n in notif_materiais:
+                _cliente = f" em **{n.get('cliente_nome')}**" if n.get('cliente_nome') else ""
+                st.markdown(f"🧰 **{n.get('instalador', '')}** digitou um item fora do catálogo{_cliente}: **{n.get('item', '')}**")
+                st.caption("Se quiser, adicione esse item ao catálogo padrão (materiais_padrao) pra ficar disponível na busca de todos os instaladores.")
+                if st.button("✅ Marcar como visto", key=f"notif_material_{n['id']}"):
+                    try:
+                        supabase.table('materiais_sugeridos').update({"visto_pelo_admin": True}).eq('id', n['id']).execute()
                         st.rerun()
                     except Exception as e:
                         st.error(f"Erro: {e}")
