@@ -111,3 +111,50 @@ textarea {
   font-family: inherit; font-size: 0.95rem; resize: vertical;
 }
 textarea:focus { outline: none; border-color: var(--brand); }
+
+/* ---------- Fotos e vídeos ---------- */
+.midias-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px;
+}
+.midia-item {
+  width: 100%; aspect-ratio: 1 / 1; object-fit: cover; border-radius: 10px;
+  background: var(--bg); border: 1px solid var(--line);
+}
+.midia-item--pendente {
+  display: flex; align-items: center; justify-content: center; flex-direction: column;
+  font-size: 0.75rem; color: var(--muted); text-align: center;
+}
+
+/* ---------- Navegação inferior ---------- */
+.conteudo { padding-bottom: 84px; } /* espaço pra nav fixa não cobrir o conteúdo */
+.nav-inferior {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+  display: flex; background: var(--card); border-top: 1px solid var(--line);
+  max-width: 480px; margin: 0 auto; padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
+}
+.nav-item {
+  flex: 1; background: none; border: none; display: flex; flex-direction: column;
+  align-items: center; gap: 2px; padding: 6px 2px; color: var(--muted); cursor: pointer;
+}
+.nav-icone { font-size: 1.25rem; }
+.nav-label { font-size: 0.68rem; font-weight: 600; }
+.nav-item--ativo { color: var(--brand); }
+
+/* ---------- Formulários (Agenda / Materiais) ---------- */
+.conteudo label {
+  font-size: 0.85rem; font-weight: 600; color: var(--muted); display: block; margin: 12px 0 4px;
+}
+.conteudo input[type="text"], .conteudo input[type="date"], .conteudo input[type="time"],
+.conteudo input[type="number"], .conteudo select {
+  width: 100%; padding: 10px 12px; border-radius: 10px; border: 1.5px solid var(--line);
+  font-size: 0.95rem; background: #fff; font-family: inherit;
+}
+.conteudo input:focus, .conteudo select:focus { outline: none; border-color: var(--brand); }
+
+.botao--mini { width: auto; padding: 8px 12px; font-size: 0.82rem; margin-top: 0; }
+.etiqueta--pendente { background: var(--warn-bg); color: var(--warn); }
+
+.linha-item {
+  display: grid; grid-template-columns: 1fr 56px 56px 34px; gap: 6px; align-items: center; margin-bottom: 6px;
+}
+.linha-item input { padding: 8px 8px !important; font-size: 0.88rem !important; }

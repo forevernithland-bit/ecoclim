@@ -100,6 +100,37 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     st.caption("Observação do instalador:")
                     st.markdown(f"> {_obs_inst}")
 
+        # ---------------------------------------------------------------
+        # Pasta do cliente no Drive (criada automaticamente ao entrar Em
+        # Andamento) + fotos/vídeos que o instalador já enviou. Roda só pro
+        # item aberto agora (não a lista inteira), pra não pesar a página.
+        # ---------------------------------------------------------------
+        _pasta_drive_id = utils.garantir_pasta_drive_cliente(projeto_selecionado)
+        if _pasta_drive_id:
+            utils.sincronizar_midias_pendentes_drive(id_projeto, _pasta_drive_id)
+            st.markdown(
+                f"📁 <a href='https://drive.google.com/drive/folders/{_pasta_drive_id}' target='_blank'>Abrir pasta do cliente no Drive</a>",
+                unsafe_allow_html=True)
+
+        try:
+            _res_midias = supabase.table('servico_midias').select('*').eq('servico_id', id_projeto).order('criado_em').execute()
+            _midias = _res_midias.data or []
+        except Exception:
+            _midias = []
+
+        if _midias:
+            with st.container(border=True):
+                st.markdown(f"##### 📷 Fotos e Vídeos do Instalador ({len(_midias)})")
+                _url_base = st.secrets["SUPABASE_URL"].rstrip('/')
+                _cols_midia = st.columns(3)
+                for _i_m, _m in enumerate(_midias):
+                    _url_m = f"{_url_base}/storage/v1/object/public/instalacao-midias/{_m['storage_path']}"
+                    with _cols_midia[_i_m % 3]:
+                        if _m.get('tipo') == 'video':
+                            st.video(_url_m)
+                        else:
+                            st.image(_url_m, use_container_width=True)
+
         st.markdown("#### 🛒 Itens Vendidos (Ajuste Quantidades e Custos)")
         
         lista_prod = df_produtos['Item'].dropna().tolist() if not df_produtos.empty and 'Item' in df_produtos.columns else []
@@ -284,7 +315,23 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             f_col5.caption("&nbsp;", unsafe_allow_html=True) 
 
             custo_mo = f_col6.number_input("Mão de Obra / Terceiros (R$)", value=val_mo_salvo, format="%.2f", step=None, key=f"mao_{prefix_key}")
-            f_col6.caption("&nbsp;", unsafe_allow_html=True) 
+            f_col6.caption("&nbsp;", unsafe_allow_html=True)
+
+            # Financeiro do instalador — "Mão de Obra / Terceiros" acima É o
+            # "Valor Instalação" que o app do instalador mostra. Aqui só
+            # marca se já foi pago a ele (alimenta a aba Financeiro do PWA).
+            f_pago1, f_pago2 = st.columns([1, 2])
+            pago_instalador_salvo = bool(projeto_selecionado.get('pago_instalador', False))
+            novo_pago_instalador = f_pago1.checkbox("💰 Pago ao instalador", value=pago_instalador_salvo, key=f"pago_inst_{prefix_key}")
+            data_pag_inst_banco = projeto_selecionado.get('data_pagamento_instalador')
+            data_pag_inst_inicial = datetime.date.today()
+            if pd.notna(data_pag_inst_banco) and str(data_pag_inst_banco).lower() not in ('none', 'nan', 'nat', ''):
+                try: data_pag_inst_inicial = pd.to_datetime(data_pag_inst_banco).date()
+                except Exception: pass
+            if novo_pago_instalador:
+                nova_data_pag_inst = f_pago2.date_input("Data do pagamento", value=data_pag_inst_inicial, format="DD/MM/YYYY", key=f"data_pago_inst_{prefix_key}")
+            else:
+                nova_data_pag_inst = None
 
             abatimentos = valor_nf + valor_cartao_taxa + valor_comissao + custo_ext + custo_mo
             lucro_final = venda_final - custo_total_produtos - abatimentos
@@ -597,6 +644,8 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                         if _ok_ct:
                             st.session_state[f'ct_drive_link_{prefix_key}'] = _res_ct
                             st.success(f"✅ Contrato gerado e **salvo automaticamente** no Drive (pasta *Contratos*) como **{_fname_ct}**.")
+                            if _pasta_drive_id:
+                                utils.criar_atalho_drive(_res_ct, _pasta_drive_id, _fname_ct)
                         else:
                             st.warning(f"Contrato gerado, mas o envio automático ao Drive falhou ({_res_ct}). Use o envio manual abaixo.")
 
@@ -656,6 +705,8 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     "detalhamento_itens": df_itens_final.fillna("").to_dict('records'),
                     "custo_adicional_materiais": custo_ext, 
                     "custo_terceirizados": custo_mo,
+                    "pago_instalador": novo_pago_instalador,
+                    "data_pagamento_instalador": nova_data_pag_inst.strftime('%Y-%m-%d') if nova_data_pag_inst else None,
                     "custo_comissao": valor_comissao, 
                     "custo_impostos": valor_nf,
                     "custo_cartao": valor_cartao_taxa, 

@@ -1,11 +1,15 @@
 import { getSupabase } from "./supabase-client.js";
-import { salvarServicos, lerOutbox, removerDaOutbox, lerServicos } from "./db.js";
+import {
+  salvarServicos, lerOutbox, removerDaOutbox, lerServicos,
+  lerCriacoesOutbox, removerDaCriacoesOutbox,
+} from "./db.js";
 
 const COLUNAS_SEGURAS = [
   "id", "numero_orcamento", "nome_cliente", "telefone_cliente", "endereco_cliente",
   "status_projeto", "produtos_adquiridos", "servicos_adquiridos", "data_conclusao",
   "instalador", "custo_terceirizados",
   "observacao_instalador", "instalacao_concluida_instalador", "data_conclusao_instalador",
+  "pago_instalador", "data_pagamento_instalador",
 ].join(",");
 
 let ouvintes = [];
@@ -63,11 +67,36 @@ export async function enviarPendencias() {
   return { enviados, restantes: (await lerOutbox()).length };
 }
 
+// Envia as criações/edições pendentes de Agenda e Materiais (fila genérica,
+// sempre um upsert). Mesma lógica de "para no primeiro erro" da outbox.
+export async function enviarCriacoesPendentes() {
+  const pendentes = await lerCriacoesOutbox();
+  let supabase;
+  try {
+    supabase = getSupabase();
+  } catch (e) {
+    return { enviados: 0 };
+  }
+  let enviados = 0;
+  for (const item of pendentes) {
+    try {
+      const { error } = await supabase.from(item.tabela).upsert(item.dados);
+      if (error) throw error;
+      await removerDaCriacoesOutbox(item.localId);
+      enviados++;
+    } catch (e) {
+      break;
+    }
+  }
+  return { enviados };
+}
+
 export async function sincronizarTudo(instaladorVinculado) {
   avisar("sincronizando");
   const push = await enviarPendencias();
+  await enviarCriacoesPendentes();
   const pull = await puxarServicos(instaladorVinculado);
-  const pendentes = (await lerOutbox()).length;
+  const pendentes = (await lerOutbox()).length + (await lerCriacoesOutbox()).length;
   const status = pull.ok ? (pendentes > 0 ? "pendente" : "sincronizado") : "offline";
   avisar(status);
   return { status, pendentes };
@@ -81,6 +110,6 @@ export function iniciarSyncAutomatico(instaladorVinculado) {
 }
 
 export async function statusAtual() {
-  const pendentes = (await lerOutbox()).length;
+  const pendentes = (await lerOutbox()).length + (await lerCriacoesOutbox()).length;
   return { online: navigator.onLine, pendentes };
 }

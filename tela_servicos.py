@@ -186,6 +186,15 @@ def renderizar():
     
     df['($) Fornecedor'] = df.apply(descobrir_venc_fornecedor, axis=1)
 
+    def descobrir_report_instalador(row):
+        if bool(row.get('instalacao_concluida_instalador', False)):
+            return "📲✅ Concluiu"
+        if str(row.get('observacao_instalador', '') or '').strip().lower() not in ('', 'nan', 'none'):
+            return "📲 Comentou"
+        return ""
+
+    df['Instalador Reportou'] = df.apply(descobrir_report_instalador, axis=1)
+
     ativos_status = ["Em Andamento", "Aguardando Pagamento", "Aguardando Peças", "Concluído PIX", "Concluído CARTÃO"]
     
     df_orc = df[(~df['status_projeto'].isin(ativos_status)) & (df['status_projeto'] != 'Rascunho') & (df['status_projeto'] != 'Rascunho Rápido')].reset_index(drop=True)
@@ -194,15 +203,16 @@ def renderizar():
 
     aba1, aba2, aba3 = st.tabs(["🚀 Em Andamento", "📝 Orçamentos", "✅ Finalizados"])
     
-    colunas_visiveis = ['Cliente', 'Status', 'Valor Total', 'Lucro Líquido', 'Data de término', 'Instalador', '($) Fornecedor']
-    
+    colunas_visiveis = ['Cliente', 'Status', 'Valor Total', 'Lucro Líquido', 'Data de término', 'Instalador', '($) Fornecedor', 'Instalador Reportou']
+
     config_colunas = {
         "Cliente": "Cliente", "Status": "Status",
         "Valor Total": st.column_config.TextColumn("Valor Total"),
         "Lucro Líquido": st.column_config.TextColumn("Lucro Líquido"),
         "Data de término": st.column_config.TextColumn("Data de término"),
         "Instalador": "Instalador",
-        "($) Fornecedor": st.column_config.TextColumn("($) Fornecedor")
+        "($) Fornecedor": st.column_config.TextColumn("($) Fornecedor"),
+        "Instalador Reportou": st.column_config.TextColumn("App Instalador"),
     }
     
     with aba1:

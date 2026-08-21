@@ -221,6 +221,112 @@ def limpar_orcamentos_antigos(dias=183):
     except Exception:
         return 0
 
+def criar_atalho_drive(file_id, pasta_destino_id, nome_atalho):
+    """Cria um ATALHO (não uma cópia) do arquivo file_id dentro de pasta_destino_id.
+    O arquivo original continua na pasta onde já estava (Orçamentos/Contratos) —
+    o atalho é só um ponteiro, então não duplica armazenamento nem fica
+    desatualizado. Retorna (True, id_do_atalho) ou (False, erro)."""
+    try:
+        service = get_drive_service()
+        if not service: return False, "Serviço do Google Drive indisponível."
+        metadata = {
+            'name': nome_atalho,
+            'mimeType': 'application/vnd.google-apps.shortcut',
+            'parents': [pasta_destino_id],
+            'shortcutDetails': {'targetId': file_id},
+        }
+        atalho = service.files().create(body=metadata, fields='id').execute()
+        return True, atalho.get('id')
+    except Exception as e:
+        return False, str(e)
+
+def _buscar_arquivo_por_prefixo(folder_id, prefixo):
+    """Procura, dentro de folder_id, o arquivo cujo nome comece com `prefixo`
+    (usado para achar o PDF do orçamento já salvo, pelo número da proposta).
+    Retorna {'id', 'name'} ou None."""
+    if not prefixo:
+        return None
+    try:
+        service = get_drive_service()
+        if not service: return None
+        safe = str(prefixo).replace("'", "\\'")
+        q = f"'{folder_id}' in parents and name contains '{safe}' and trashed = false"
+        res = service.files().list(q=q, spaces='drive', fields='files(id, name)').execute()
+        arquivos = res.get('files', [])
+        arquivos = [a for a in arquivos if a['name'].startswith(prefixo)]
+        arquivos.sort(key=lambda a: a['name'])
+        return arquivos[0] if arquivos else None
+    except Exception:
+        return None
+
+def garantir_pasta_drive_cliente(servico):
+    """Garante uma pasta no Drive ("Clientes/{numero}_{nome}", dentro da pasta
+    raiz do sistema) para este serviço, criando-a na primeira vez que o status
+    vira 'Em Andamento' (ou além) e tentando linkar por atalho o orçamento já
+    enviado. Orçamento/Rascunho ainda não geram pasta. Idempotente: se já
+    existe `drive_pasta_id`, só devolve ele. Retorna o ID da pasta, ou None
+    se não deu pra criar (nunca lança exceção — chamado a cada abertura do
+    painel do serviço)."""
+    status = str(servico.get('status_projeto', ''))
+    if status in ('', 'Orçamento Enviado', 'Orçamento Cancelado', 'Rascunho', 'Rascunho Rápido'):
+        return None
+    pasta_existente = servico.get('drive_pasta_id')
+    if pasta_existente and str(pasta_existente).strip():
+        return pasta_existente
+    try:
+        service = get_drive_service()
+        if not service: return None
+        numero = str(servico.get('numero_orcamento') or '').strip()
+        nome_cliente = str(servico.get('nome_cliente') or 'cliente').strip()
+        nome_pasta = f"{numero}_{nome_cliente}" if numero else nome_cliente
+        pasta_id = get_or_create_nested_folder(service, MAIN_DRIVE_FOLDER_ID, ["Clientes", nome_pasta])
+
+        prefixo_num = re.sub(r'^(ORC|VENDA|RASC)-', '', numero)
+        if prefixo_num:
+            arq = _buscar_arquivo_por_prefixo(DRIVE_FOLDER_ORCAMENTOS, prefixo_num)
+            if arq:
+                criar_atalho_drive(arq['id'], pasta_id, arq['name'])
+
+        st.session_state.supabase.table('servicos_andamento').update(
+            {'drive_pasta_id': pasta_id}).eq('id', servico['id']).execute()
+        return pasta_id
+    except Exception:
+        return None
+
+def sincronizar_midias_pendentes_drive(servico_id, pasta_id):
+    """Copia para a pasta do cliente no Drive as fotos/vídeos que o instalador
+    já enviou pro Supabase Storage e ainda não foram sincronizados
+    (servico_midias.sincronizado_drive = false). Marca cada um como
+    sincronizado ao concluir. Retorna quantos foram copiados."""
+    if not pasta_id:
+        return 0
+    try:
+        sb = st.session_state.supabase
+        res = sb.table('servico_midias').select('*').eq('servico_id', servico_id).eq('sincronizado_drive', False).execute()
+        pendentes = res.data or []
+        if not pendentes:
+            return 0
+        service = get_drive_service()
+        if not service: return 0
+        url_base = st.secrets["SUPABASE_URL"].rstrip('/')
+        enviados = 0
+        for m in pendentes:
+            try:
+                url_arquivo = f"{url_base}/storage/v1/object/public/instalacao-midias/{m['storage_path']}"
+                with urllib.request.urlopen(url_arquivo, timeout=30) as resp:
+                    conteudo = resp.read()
+                mimetype = 'video/mp4' if m.get('tipo') == 'video' else 'image/jpeg'
+                media = MediaIoBaseUpload(BytesIO(conteudo), mimetype=mimetype, resumable=True)
+                metadata = {'name': m.get('nome_arquivo') or m['storage_path'], 'parents': [pasta_id]}
+                service.files().create(body=metadata, media_body=media, fields='id').execute()
+                sb.table('servico_midias').update({'sincronizado_drive': True}).eq('id', m['id']).execute()
+                enviados += 1
+            except Exception:
+                continue
+        return enviados
+    except Exception:
+        return 0
+
 def list_drive_files(folder_path):
     try:
         service = get_drive_service()
