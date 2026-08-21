@@ -464,27 +464,85 @@ def renderizar():
     supabase = st.session_state.supabase
 
     # ---------------------------------------------------------------
-    # Notificação: instalador deixou comentário/valor sugerido numa
-    # tarefa de agenda (respondendo o que o Breno pediu pelo app dele).
+    # Notificações: qualquer interação do instalador que o admin ainda não
+    # viu — comentário/mídia numa tarefa de Agenda, instalação concluída, ou
+    # foto/áudio anexado direto num cliente. As três aparecem juntas aqui
+    # (dentro de Serviços em Andamento) e o total também some no aviso da
+    # barra lateral, visível em qualquer tela do sistema (ver app.py).
     # ---------------------------------------------------------------
     try:
-        res_notif = supabase.table('agenda_visitas').select('*').eq('visto_pelo_admin', False).not_.is_('comentario_instalador', 'null').execute()
-        notificacoes_instalador = [n for n in (res_notif.data or []) if str(n.get('comentario_instalador') or '').strip()]
+        res_agenda_notif = supabase.table('agenda_visitas').select('*').eq('visto_pelo_admin', False).execute()
+        notif_agenda = res_agenda_notif.data or []
     except Exception:
-        notificacoes_instalador = []
+        notif_agenda = []
 
-    if notificacoes_instalador:
+    try:
+        res_concluidos_notif = supabase.table('servicos_andamento').select('id, nome_cliente, instalador').eq('conclusao_vista_pelo_admin', False).execute()
+        notif_concluidos = res_concluidos_notif.data or []
+    except Exception:
+        notif_concluidos = []
+
+    try:
+        res_midia_notif = supabase.table('servico_midias').select('*').eq('visto_pelo_admin', False).not_.is_('servico_id', 'null').execute()
+        midias_pendentes = res_midia_notif.data or []
+    except Exception:
+        midias_pendentes = []
+    midias_por_servico = {}
+    for m in midias_pendentes:
+        midias_por_servico.setdefault(m['servico_id'], []).append(m)
+    notif_midia_clientes = []
+    if midias_por_servico:
+        try:
+            res_nomes = supabase.table('servicos_andamento').select('id, nome_cliente, instalador').in_('id', list(midias_por_servico.keys())).execute()
+            nomes_por_id = {r['id']: r for r in (res_nomes.data or [])}
+        except Exception:
+            nomes_por_id = {}
+        for sid, itens in midias_por_servico.items():
+            info = nomes_por_id.get(sid, {})
+            notif_midia_clientes.append({
+                "servico_id": sid, "nome_cliente": info.get('nome_cliente') or f"Serviço #{sid}",
+                "instalador": info.get('instalador', ''), "itens": itens,
+            })
+
+    total_notif = len(notif_agenda) + len(notif_concluidos) + len(notif_midia_clientes)
+
+    if total_notif:
         with st.container(border=True):
-            st.markdown(f"##### 🔔 {len(notificacoes_instalador)} resposta(s) do(s) instalador(es) na Agenda")
-            for n in notificacoes_instalador:
-                _partes = [f"**{n.get('instalador', '')}** sobre **{n.get('cliente_nome', '')}**:"]
-                _partes.append(f"> {n.get('comentario_instalador')}")
+            st.markdown(f"##### 🔔 {total_notif} novidade(s) do instalador")
+
+            for n in notif_agenda:
+                _tem_comentario = str(n.get('comentario_instalador') or '').strip()
+                _partes = [f"📅 **{n.get('instalador', '')}** — Agenda de **{n.get('cliente_nome', '')}**"]
+                _partes.append(f"> {n.get('comentario_instalador')}" if _tem_comentario
+                               else "_Anexou foto/vídeo/áudio nessa tarefa (sem comentário)._")
                 if n.get('valor_sugerido'):
                     _partes.append(f"💰 Valor sugerido: {utils.to_br_currency(n.get('valor_sugerido'))}")
                 st.markdown("\n\n".join(_partes))
-                if st.button("✅ Marcar como visto", key=f"notif_visto_{n['id']}"):
+                if st.button("✅ Marcar como visto", key=f"notif_agenda_{n['id']}"):
                     try:
                         supabase.table('agenda_visitas').update({"visto_pelo_admin": True}).eq('id', n['id']).execute()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro: {e}")
+                st.markdown("---")
+
+            for n in notif_concluidos:
+                st.markdown(f"✅ **{n.get('instalador', '')}** concluiu a instalação de **{n.get('nome_cliente', '')}**")
+                if st.button("✅ Marcar como visto", key=f"notif_concluido_{n['id']}"):
+                    try:
+                        supabase.table('servicos_andamento').update({"conclusao_vista_pelo_admin": True}).eq('id', n['id']).execute()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro: {e}")
+                st.markdown("---")
+
+            for n in notif_midia_clientes:
+                _n_itens = len(n['itens'])
+                st.markdown(f"📷 **{n.get('instalador', '')}** anexou {_n_itens} mídia(s) em **{n['nome_cliente']}**")
+                if st.button("✅ Marcar como visto", key=f"notif_midia_{n['servico_id']}"):
+                    try:
+                        _ids = [m['id'] for m in n['itens']]
+                        supabase.table('servico_midias').update({"visto_pelo_admin": True}).in_('id', _ids).execute()
                         st.rerun()
                     except Exception as e:
                         st.error(f"Erro: {e}")

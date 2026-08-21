@@ -535,6 +535,7 @@ async function viewDetalhe(id) {
         const patch = {
           instalacao_concluida_instalador: true,
           data_conclusao_instalador: hoje,
+          conclusao_vista_pelo_admin: false,
         };
         // Início da garantia é registrado automaticamente na data em que o
         // instalador confirma — só na primeira vez (se o Breno já tiver
@@ -558,6 +559,7 @@ async function viewDetalhe(id) {
       const patch = {
         instalacao_concluida_instalador: false,
         data_conclusao_instalador: null,
+        conclusao_vista_pelo_admin: true,
       };
       // Só limpa a data de início de garantia se ela ainda estiver no valor
       // automático (igual à data de conclusão) — se o Breno já mudou essa
@@ -920,11 +922,17 @@ async function viewFinanceiro() {
   const finalizadosAReceber = servicosFinalizadosAReceber(todos);
   const emAndamentoSemData = servicosEmAndamentoSemData(todos);
   const totalAReceber = totalGeralAReceber(todos);
-  const totalRecebido = grupos.reduce((acc, g) => acc + g.recebido, 0);
   const totalAdiantado = totalAdiantadoAberto(adiantamentos);
   const liquidoAReceber = totalAReceber - totalAdiantado;
   const totalFinalizadosAReceber = finalizadosAReceber.reduce((acc, s) => acc + Number(s.custo_terceirizados), 0);
   const totalEmAndamentoSemData = emAndamentoSemData.reduce((acc, s) => acc + Number(s.custo_terceirizados), 0);
+
+  // Filtro de mês do "Recebido" — sem isso, o número lá em cima somava tudo
+  // desde o início e parecia fora de contexto. Sempre inclui o mês atual
+  // na lista, mesmo sem nada recebido nele ainda, pra já vir selecionado.
+  const mesAtualChave = chaveMesHoje();
+  const mesesDisponiveis = Array.from(new Set([mesAtualChave, ...grupos.map((g) => g.mes)])).sort((a, b) => b.localeCompare(a));
+  const grupoDoMes = (mes) => grupos.find((g) => g.mes === mes) || { recebido: 0, itensRecebido: [] };
 
   const linhaCliente = (s, cor) => `
     <div class="campo" style="font-size:0.88rem;">
@@ -965,9 +973,15 @@ async function viewFinanceiro() {
     <div class="topo"><div class="topo-titulo">💰 Financeiro</div></div>
     <div id="faixa-sync" class="faixa-sync"></div>
     <div class="conteudo">
+      <label style="margin-top:0;">📅 Ver recebimento do mês</label>
+      <select id="filtro-mes-financeiro">
+        ${mesesDisponiveis.map((m) => `<option value="${m}" ${m === mesAtualChave ? "selected" : ""}>${formatarMes(m)}</option>`).join("")}
+      </select>
+      <div id="cartao-recebido-mes" style="margin-top:12px;"></div>
+
+      <h2 class="secao-titulo">📌 Situação Atual (todos os períodos)</h2>
       <div class="cartao">
         <div class="campo"><span class="rotulo">Total a Receber</span><span style="color:var(--warn);font-weight:800;font-size:1.15rem;">${formatarBRL(totalAReceber)}</span></div>
-        <div class="campo"><span class="rotulo">Total Recebido</span><span style="color:var(--ok);font-weight:800;font-size:1.15rem;">${formatarBRL(totalRecebido)}</span></div>
         ${totalAdiantado > 0 ? `
           <div class="campo"><span class="rotulo">💵 Adiantamento (em aberto)</span><span style="color:var(--danger);font-weight:700;">− ${formatarBRL(totalAdiantado)}</span></div>
           <div class="campo" style="border-top:1px dashed var(--line); padding-top:8px; margin-top:4px;"><span class="rotulo"><b>Líquido a Receber</b></span><span style="color:var(--ink);font-weight:800;">${formatarBRL(liquidoAReceber)}</span></div>
@@ -1013,6 +1027,30 @@ async function viewFinanceiro() {
     </div>
     ${navBarHTML("financeiro")}
   `;
+
+  const renderRecebidoMes = (mes) => {
+    const g = grupoDoMes(mes);
+    const el = document.getElementById("cartao-recebido-mes");
+    if (!el) return;
+    el.innerHTML = cartaoQuadrante(
+      "recebido-mes", `✅ Recebido em ${formatarMes(mes)}`, "var(--ok)",
+      g.recebido, g.itensRecebido, null,
+    );
+    el.querySelectorAll("[data-quad]").forEach((elq) => {
+      elq.addEventListener("click", () => {
+        const det = document.getElementById(`detalhe-quad-${elq.dataset.quad}`);
+        det.style.display = det.style.display === "none" ? "block" : "none";
+      });
+    });
+    el.querySelectorAll("[data-ir-cliente]").forEach((elc) => {
+      elc.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        viewDetalhe(Number(elc.dataset.irCliente));
+      });
+    });
+  };
+  renderRecebidoMes(mesAtualChave);
+  document.getElementById("filtro-mes-financeiro").addEventListener("change", (e) => renderRecebidoMes(e.target.value));
 
   raiz.querySelectorAll("[data-mes]").forEach((el) => {
     el.addEventListener("click", () => {

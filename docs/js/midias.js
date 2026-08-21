@@ -55,11 +55,18 @@ export async function enviarMidiasPendentes(ref, instaladorVinculado) {
         storage_path: caminho,
         nome_arquivo: m.nome_arquivo,
         instalador: instaladorVinculado,
+        visto_pelo_admin: false,
       };
       if (ref.servico_id) registro.servico_id = ref.servico_id;
       if (ref.visita_id) registro.visita_id = ref.visita_id;
       const { error: erroInsert } = await supabase.from("servico_midias").insert(registro);
       if (erroInsert) throw erroInsert;
+      // Mídia numa tarefa de Agenda também acende a notificação do Breno
+      // (mesmo mecanismo do comentário) — sem isso, anexar só uma foto/áudio
+      // sem escrever nada no campo de comentário passava despercebido.
+      if (ref.visita_id) {
+        await supabase.from("agenda_visitas").update({ visto_pelo_admin: false }).eq("id", ref.visita_id);
+      }
       await removerDaMidiaOutbox(m.localId);
       enviados++;
     } catch (e) {

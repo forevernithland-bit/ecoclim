@@ -421,6 +421,29 @@ def save_catalog(nome_tabela, df):
         if lista_dados: supabase.table(nome_tabela).insert(lista_dados).execute()
     except Exception as e: st.error(f"Erro ao salvar catálogo: {e}")
 
+def contar_notificacoes_instalador(supabase):
+    """Conta quantas novidades do instalador o admin ainda não viu — comentário
+    ou mídia numa tarefa de Agenda, instalação concluída, ou foto/áudio anexado
+    direto num cliente. Usada no aviso da barra lateral (app.py), que aparece
+    em qualquer tela do sistema, não só em Serviços em Andamento."""
+    total = 0
+    try:
+        r1 = supabase.table('agenda_visitas').select('id', count='exact', head=True).eq('visto_pelo_admin', False).execute()
+        total += r1.count or 0
+    except Exception:
+        pass
+    try:
+        r2 = supabase.table('servicos_andamento').select('id', count='exact', head=True).eq('conclusao_vista_pelo_admin', False).execute()
+        total += r2.count or 0
+    except Exception:
+        pass
+    try:
+        r3 = supabase.table('servico_midias').select('id', count='exact', head=True).eq('visto_pelo_admin', False).not_.is_('servico_id', 'null').execute()
+        total += r3.count or 0
+    except Exception:
+        pass
+    return total
+
 def to_br_currency(valor, incluir_simbolo=True):
     try: valor_float = float(valor)
     except: valor_float = 0.0

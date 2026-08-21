@@ -171,6 +171,26 @@ else:
             st.session_state.menu_option = menu
             st.rerun()
 
+        # Aviso de novidades do instalador (comentário/mídia na Agenda,
+        # instalação concluída, foto/áudio no cliente) — some em qualquer
+        # tela, não só dentro de Serviços em Andamento, pra não passar
+        # despercebido se o Breno estiver em outro menu quando acontecer.
+        try:
+            _n_notif = utils.contar_notificacoes_instalador(st.session_state.supabase)
+        except Exception:
+            _n_notif = 0
+        if _n_notif > 0 and st.session_state.menu_option != "Serviços em Andamento":
+            st.markdown(
+                f"<div style='margin-top:10px; padding:9px 12px; border-radius:12px;"
+                f" background:linear-gradient(135deg,#dc2626,#f87171); color:#fff;"
+                f" font-weight:700; font-size:.82rem; text-align:center;'>"
+                f"🔔 {_n_notif} novidade(s) do instalador</div>",
+                unsafe_allow_html=True,
+            )
+            if st.button("Ver agora →", key="btn_ver_notif_sidebar", use_container_width=True):
+                st.session_state.menu_option = "Serviços em Andamento"
+                st.rerun()
+
         estilo.render_seletor_tema_sidebar()
         
         st.write("---")
