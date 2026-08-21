@@ -135,11 +135,23 @@ function viewLogin(erro) {
   });
 }
 
+// Uma instalação conta como concluída se o instalador marcou pelo app OU se
+// o Breno já fechou como Concluído PIX/CARTÃO no admin (mesmo que o
+// instalador nunca tenha tocado em "marcar concluído") — mesmos status que
+// o admin já trata como "Finalizados" em tela_servicos.py.
+const STATUS_FINALIZADOS_ADMIN = ["Concluído PIX", "Concluído CARTÃO"];
+function estaConcluida(s) {
+  return Boolean(s.instalacao_concluida_instalador) || STATUS_FINALIZADOS_ADMIN.includes(s.status_projeto);
+}
+function dataConclusaoExibir(s) {
+  return s.data_conclusao_instalador || s.data_conclusao || "";
+}
+
 async function viewLista() {
   telaAtual = "lista";
   const todos = await lerServicos();
-  const abertos = todos.filter((s) => !s.instalacao_concluida_instalador);
-  const concluidos = todos.filter((s) => s.instalacao_concluida_instalador);
+  const abertos = todos.filter((s) => !estaConcluida(s));
+  const concluidos = todos.filter((s) => estaConcluida(s));
 
   const cartao = (s) => `
     <button class="cartao cartao--clicavel" data-id="${s.id}">
@@ -147,8 +159,8 @@ async function viewLista() {
       <div class="cartao-sub">${escapeHTML(s.produtos_adquiridos || "")}</div>
       <div class="cartao-rodape">
         <span class="etiqueta">${escapeHTML(s.status_projeto || "")}</span>
-        ${s.instalacao_concluida_instalador
-          ? `<span class="etiqueta etiqueta--ok">✅ ${formatarData(s.data_conclusao_instalador)}</span>`
+        ${estaConcluida(s)
+          ? `<span class="etiqueta etiqueta--ok">✅ ${formatarData(dataConclusaoExibir(s))}</span>`
           : ""}
       </div>
     </button>
@@ -263,8 +275,8 @@ async function viewDetalhe(id) {
       </div>
 
       <div class="cartao" id="cartao-concluir">
-        ${s.instalacao_concluida_instalador
-          ? `<p class="valor-somente-leitura">✅ Instalação concluída em ${formatarData(s.data_conclusao_instalador)}</p>`
+        ${estaConcluida(s)
+          ? `<p class="valor-somente-leitura">✅ Instalação concluída em ${formatarData(dataConclusaoExibir(s))}</p>`
           : `<button id="btn-concluir" class="botao botao--principal">✅ Marcar Instalação Concluída</button>`}
       </div>
     </div>
