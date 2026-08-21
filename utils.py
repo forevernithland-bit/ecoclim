@@ -264,18 +264,18 @@ def garantir_pasta_drive_cliente(servico):
     raiz do sistema) para este serviço, criando-a na primeira vez que o status
     vira 'Em Andamento' (ou além) e tentando linkar por atalho o orçamento já
     enviado. Orçamento/Rascunho ainda não geram pasta. Idempotente: se já
-    existe `drive_pasta_id`, só devolve ele. Retorna o ID da pasta, ou None
-    se não deu pra criar (nunca lança exceção — chamado a cada abertura do
-    painel do serviço)."""
+    existe `drive_pasta_id`, só devolve ele. Retorna (pasta_id, erro) — erro
+    vem preenchido (string) sempre que algo falhou, pra dar pra mostrar na
+    tela em vez de falhar em silêncio."""
     status = str(servico.get('status_projeto', ''))
     if status in ('', 'Orçamento Enviado', 'Orçamento Cancelado', 'Rascunho', 'Rascunho Rápido'):
-        return None
+        return None, None
     pasta_existente = servico.get('drive_pasta_id')
     if pasta_existente and str(pasta_existente).strip():
-        return pasta_existente
+        return pasta_existente, None
     try:
         service = get_drive_service()
-        if not service: return None
+        if not service: return None, "Serviço do Drive indisponível (verifique os secrets do Google OAuth)."
         numero = str(servico.get('numero_orcamento') or '').strip()
         nome_cliente = str(servico.get('nome_cliente') or 'cliente').strip()
         nome_pasta = f"{numero}_{nome_cliente}" if numero else nome_cliente
@@ -289,43 +289,52 @@ def garantir_pasta_drive_cliente(servico):
 
         st.session_state.supabase.table('servicos_andamento').update(
             {'drive_pasta_id': pasta_id}).eq('id', servico['id']).execute()
-        return pasta_id
-    except Exception:
-        return None
+        return pasta_id, None
+    except Exception as e:
+        return None, str(e)
 
 def sincronizar_midias_pendentes_drive(servico_id, pasta_id):
     """Copia para a pasta do cliente no Drive as fotos/vídeos que o instalador
     já enviou pro Supabase Storage e ainda não foram sincronizados
     (servico_midias.sincronizado_drive = false). Marca cada um como
-    sincronizado ao concluir. Retorna quantos foram copiados."""
+    sincronizado ao concluir. Retorna (enviados, erro) — erro só vem
+    preenchido se algo impediu de tentar de verdade (ex.: Drive fora do ar);
+    falha em um arquivo isolado não é reportada aqui, só pula pro próximo."""
     if not pasta_id:
-        return 0
+        return 0, None
     try:
         sb = st.session_state.supabase
         res = sb.table('servico_midias').select('*').eq('servico_id', servico_id).eq('sincronizado_drive', False).execute()
         pendentes = res.data or []
         if not pendentes:
-            return 0
+            return 0, None
         service = get_drive_service()
-        if not service: return 0
+        if not service: return 0, "Serviço do Drive indisponível."
         url_base = st.secrets["SUPABASE_URL"].rstrip('/')
         enviados = 0
+        ultimo_erro = None
         for m in pendentes:
             try:
                 url_arquivo = f"{url_base}/storage/v1/object/public/instalacao-midias/{m['storage_path']}"
                 with urllib.request.urlopen(url_arquivo, timeout=30) as resp:
                     conteudo = resp.read()
-                mimetype = 'video/mp4' if m.get('tipo') == 'video' else 'image/jpeg'
+                if m.get('tipo') == 'video':
+                    mimetype = 'video/mp4'
+                elif m.get('tipo') == 'audio':
+                    mimetype = 'audio/webm'
+                else:
+                    mimetype = 'image/jpeg'
                 media = MediaIoBaseUpload(BytesIO(conteudo), mimetype=mimetype, resumable=True)
                 metadata = {'name': m.get('nome_arquivo') or m['storage_path'], 'parents': [pasta_id]}
                 service.files().create(body=metadata, media_body=media, fields='id').execute()
                 sb.table('servico_midias').update({'sincronizado_drive': True}).eq('id', m['id']).execute()
                 enviados += 1
-            except Exception:
+            except Exception as e:
+                ultimo_erro = str(e)
                 continue
-        return enviados
-    except Exception:
-        return 0
+        return enviados, (None if enviados > 0 else ultimo_erro)
+    except Exception as e:
+        return 0, str(e)
 
 def list_drive_files(folder_path):
     try:

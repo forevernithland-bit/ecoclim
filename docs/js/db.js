@@ -147,21 +147,25 @@ export async function removerDaOutbox(localId) {
   await tx("outbox", "readwrite", (s) => s.delete(localId));
 }
 
-// ---------- Fila de fotos/vídeos (fila de escrita binária) ----------
-export async function enfileirarMidiaLocal(servicoId, file, tipo) {
+// ---------- Fila de fotos/vídeos/áudios (fila de escrita binária) ----------
+// "contexto" identifica onde a mídia pertence: "servico:123" (instalação) ou
+// "visita:45" (item de agenda) — mesmo mecanismo pros dois, sem precisar de
+// object stores/índices separados. Guardado no campo `servico_id` por
+// simplicidade (nome antigo, mas aceita qualquer string de contexto).
+export async function enfileirarMidiaLocal(contexto, file, tipo) {
   const item = {
-    servico_id: servicoId, tipo, file,
+    servico_id: contexto, tipo, file,
     nome_arquivo: file.name || `${tipo}_${Date.now()}`,
     criado_em: new Date().toISOString(),
   };
   return await tx("midia_outbox", "readwrite", (s) => s.add(item));
 }
 
-export async function lerMidiaOutbox(servicoId) {
+export async function lerMidiaOutbox(contexto) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const req = db.transaction("midia_outbox", "readonly").objectStore("midia_outbox").getAll();
-    req.onsuccess = () => resolve((req.result || []).filter((m) => m.servico_id === servicoId));
+    req.onsuccess = () => resolve((req.result || []).filter((m) => m.servico_id === contexto));
     req.onerror = () => reject(req.error);
   });
 }
@@ -171,29 +175,29 @@ export async function removerDaMidiaOutbox(localId) {
 }
 
 // ---------- Cache de mídias já confirmadas no servidor ----------
-export async function salvarMidiasCache(servicoId, lista) {
+export async function salvarMidiasCache(contexto, lista) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const t = db.transaction("midias_cache", "readwrite");
     const store = t.objectStore("midias_cache");
     const idx = store.index("servico_id");
-    const range = IDBKeyRange.only(servicoId);
+    const range = IDBKeyRange.only(contexto);
     const cursorReq = idx.openCursor(range);
     cursorReq.onsuccess = () => {
       const cursor = cursorReq.result;
       if (cursor) { cursor.delete(); cursor.continue(); }
-      else { for (const item of lista) store.put(item); }
+      else { for (const item of lista) store.put({ ...item, servico_id: contexto }); }
     };
     t.oncomplete = () => resolve();
     t.onerror = () => reject(t.error);
   });
 }
 
-export async function lerMidiasCache(servicoId) {
+export async function lerMidiasCache(contexto) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const idx = db.transaction("midias_cache", "readonly").objectStore("midias_cache").index("servico_id");
-    const req = idx.getAll(IDBKeyRange.only(servicoId));
+    const req = idx.getAll(IDBKeyRange.only(contexto));
     req.onsuccess = () => resolve(req.result || []);
     req.onerror = () => reject(req.error);
   });

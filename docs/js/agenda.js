@@ -71,3 +71,25 @@ export async function marcarTodasComoVistas(instaladorVinculado) {
     // sem sinal — ok, tenta de novo depois
   }
 }
+
+// Instalador respondendo uma tarefa: comentário + valor sugerido pro
+// orçamento/manutenção. Isso liga o "visto_pelo_admin=false", que acende a
+// notificação do lado do Breno no painel — o mesmo mecanismo, na direção
+// contrária.
+export async function salvarRespostaInstalador(visita, comentario, valorSugerido) {
+  const dados = {
+    ...visita,
+    comentario_instalador: comentario,
+    visto_pelo_admin: false,
+  };
+  if (valorSugerido !== null && valorSugerido !== undefined && valorSugerido !== "") {
+    dados.valor_sugerido = valorSugerido;
+  }
+  await enfileirarCriacao(TABELA, dados);
+  if (visita.id) {
+    await aplicarPatchCacheGenerico(TABELA, visita.id, {
+      comentario_instalador: comentario,
+      valor_sugerido: dados.valor_sugerido ?? visita.valor_sugerido,
+    });
+  }
+}

@@ -2,9 +2,10 @@ import { login, sessaoAtual, logout } from "./auth.js";
 import { lerServicos, lerServico, enfileirar } from "./db.js";
 import { sincronizarTudo, iniciarSyncAutomatico, statusAtual, aoMudarStatusSync } from "./sync.js";
 import { adicionarMidia, enviarMidiasPendentes, puxarMidias, urlPublicaMidia, listarPendentesLocal } from "./midias.js";
-import { puxarVisitas, visitasPendentesNovas, criarVisita, atualizarStatusVisita, contarNaoVistas, marcarTodasComoVistas } from "./agenda.js";
+import { puxarVisitas, visitasPendentesNovas, criarVisita, atualizarStatusVisita, contarNaoVistas, marcarTodasComoVistas, salvarRespostaInstalador } from "./agenda.js";
 import { puxarMinhasListas, puxarMateriaisPadrao, salvarLista, adicionarItemAoPadrao, listasPendentesNovas } from "./materiais.js";
-import { agruparPorMes, formatarMes } from "./financeiro.js";
+import { agruparPorMes, formatarMes, servicosSemPrevisao } from "./financeiro.js";
+import { puxarAdiantamentos, totalAdiantadoAberto } from "./adiantamentos.js";
 
 const raiz = document.getElementById("app");
 let sessao = null;
@@ -206,6 +207,31 @@ function agruparConcluidosPorMes(lista) {
   return grupos;
 }
 
+function chaveMesHoje() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+function chaveMesAnterior() {
+  const d = new Date();
+  d.setMonth(d.getMonth() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function renderConcluidosFiltrado(grupos, filtro, cartaoFn) {
+  const atual = chaveMesHoje();
+  const anterior = chaveMesAnterior();
+  const filtrados = filtro === "todos"
+    ? grupos
+    : filtro === "recentes"
+      ? grupos.filter((g) => g.chave === atual || g.chave === anterior)
+      : grupos.filter((g) => g.chave === filtro);
+  if (!filtrados.length) return `<p class="vazio">Nenhuma instalação concluída nesse período.</p>`;
+  return filtrados.map((g) => `
+    <h2 class="secao-titulo">${g.chave === "sem-data" ? "Sem data registrada" : formatarMes(g.chave)} (${g.itens.length})</h2>
+    ${g.itens.map(cartaoFn).join("")}
+  `).join("");
+}
+
 async function viewLista() {
   telaAtual = "lista";
   const todos = await lerServicos();
@@ -236,16 +262,26 @@ async function viewLista() {
     </div>
     <div id="faixa-sync" class="faixa-sync"></div>
     <div class="conteudo">
+      ${badgeAgenda > 0 ? `
+        <button id="banner-notif-agenda" class="banner-notificacao">
+          🔔 Você tem ${badgeAgenda} nova${badgeAgenda > 1 ? "s" : ""} tarefa${badgeAgenda > 1 ? "s" : ""} na Agenda!
+          <span class="banner-notificacao-ver">Ver agora →</span>
+        </button>
+      ` : ""}
       <h2 class="secao-titulo">📋 Em Aberto (${abertos.length})</h2>
       ${abertos.length ? abertos.map(cartao).join("") : `<p class="vazio">Nenhuma instalação em aberto.</p>`}
 
       ${concluidos.length ? `
         <button id="btn-toggle-concluidos" class="botao botao--secundario">✅ Ver Concluídas (${concluidos.length})</button>
         <div id="secao-concluidos" style="display:none; margin-top:12px;">
-          ${gruposConcluidos.map((g) => `
-            <h2 class="secao-titulo">${g.chave === "sem-data" ? "Sem data registrada" : formatarMes(g.chave)} (${g.itens.length})</h2>
-            ${g.itens.map(cartao).join("")}
-          `).join("")}
+          <select id="filtro-mes-concluidos" class="campo-select" style="margin-bottom:10px;">
+            <option value="recentes">Mês atual + anterior</option>
+            <option value="todos">Todos os meses</option>
+            ${gruposConcluidos.map((g) => `<option value="${g.chave}">${g.chave === "sem-data" ? "Sem data" : formatarMes(g.chave)}</option>`).join("")}
+          </select>
+          <div id="lista-concluidos-filtrada">
+            ${renderConcluidosFiltrado(gruposConcluidos, "recentes", cartao)}
+          </div>
         </div>
       ` : ""}
     </div>
@@ -257,9 +293,13 @@ async function viewLista() {
     sessao = null;
     viewLogin();
   });
-  raiz.querySelectorAll(".cartao--clicavel").forEach((el) => {
-    el.addEventListener("click", () => viewDetalhe(Number(el.dataset.id)));
-  });
+  const ligarCliquesCartoes = () => {
+    raiz.querySelectorAll(".cartao--clicavel").forEach((el) => {
+      el.onclick = () => viewDetalhe(Number(el.dataset.id));
+    });
+  };
+  ligarCliquesCartoes();
+
   const btnToggleConcluidos = document.getElementById("btn-toggle-concluidos");
   if (btnToggleConcluidos) {
     btnToggleConcluidos.addEventListener("click", () => {
@@ -271,36 +311,100 @@ async function viewLista() {
         : `🔼 Ocultar Concluídas`;
     });
   }
+  const filtroMesConcluidos = document.getElementById("filtro-mes-concluidos");
+  if (filtroMesConcluidos) {
+    filtroMesConcluidos.addEventListener("change", () => {
+      document.getElementById("lista-concluidos-filtrada").innerHTML =
+        renderConcluidosFiltrado(gruposConcluidos, filtroMesConcluidos.value, cartao);
+      ligarCliquesCartoes();
+    });
+  }
+  const bannerNotif = document.getElementById("banner-notif-agenda");
+  if (bannerNotif) {
+    bannerNotif.addEventListener("click", () => viewAgenda());
+  }
   ligarNav();
 
   const { pendentes } = await statusAtual();
   renderFaixaSync(navigator.onLine ? "sincronizado" : "offline", pendentes);
 }
 
-async function renderizarMidias(servicoId) {
-  const el = document.getElementById("midias-lista");
+// Liga um botão de "gravar áudio" (grava no próprio navegador, sem precisar
+// de app de câmera/gravador do aparelho). `btn` é o elemento do botão
+// (referência direta, não um id — evita depender de todo botão ter um id
+// único no HTML). `ref` = { servico_id } ou { visita_id }; ao terminar, o
+// áudio entra na fila de envio (mesma lógica de fotos/vídeos) e a galeria
+// em `elId` é atualizada.
+function ligarBotaoGravarAudio(btn, ref, elId) {
+  if (!btn) return;
+  let gravador = null;
+  let pedacos = [];
+  let gravando = false;
+
+  btn.addEventListener("click", async () => {
+    if (!gravando) {
+      if (!navigator.mediaDevices || !window.MediaRecorder) {
+        alert("Este aparelho/navegador não suporta gravação de áudio direto aqui.");
+        return;
+      }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        pedacos = [];
+        gravador = new MediaRecorder(stream);
+        gravador.ondataavailable = (e) => { if (e.data.size > 0) pedacos.push(e.data); };
+        gravador.onstop = async () => {
+          stream.getTracks().forEach((t) => t.stop());
+          const blob = new Blob(pedacos, { type: "audio/webm" });
+          const arquivo = new File([blob], `audio_${Date.now()}.webm`, { type: "audio/webm" });
+          const el = document.getElementById(elId);
+          if (el) el.innerHTML = `<p class="dica">Enviando áudio...</p>`;
+          await adicionarMidia(ref, arquivo, sessao.instaladorVinculado);
+          await renderizarMidias(ref, elId);
+        };
+        gravador.start();
+        gravando = true;
+        btn.textContent = "⏹️ Parar e Enviar";
+        btn.classList.add("botao--gravando");
+      } catch (e) {
+        alert("Não consegui acessar o microfone. Verifique a permissão do navegador.");
+      }
+    } else {
+      gravador.stop();
+      gravando = false;
+      btn.textContent = "🎤 Gravar Áudio";
+      btn.classList.remove("botao--gravando");
+    }
+  });
+}
+
+// `ref` = { servico_id } ou { visita_id }; `elId` = id do container onde
+// desenhar a galeria (cada card de agenda tem o seu próprio, por isso não é
+// fixo em "midias-lista").
+async function renderizarMidias(ref, elId) {
+  const el = document.getElementById(elId);
   if (!el) return;
   if (navigator.onLine) {
-    await enviarMidiasPendentes(servicoId, sessao.instaladorVinculado);
+    await enviarMidiasPendentes(ref, sessao.instaladorVinculado);
   }
   const [confirmadas, pendentesLocal] = await Promise.all([
-    puxarMidias(servicoId),
-    listarPendentesLocal(servicoId),
+    puxarMidias(ref),
+    listarPendentesLocal(ref),
   ]);
   // A tela pode ter mudado enquanto isso (network/upload demorou) — não
   // escreve num elemento que já não existe mais.
-  const elAtual = document.getElementById("midias-lista");
+  const elAtual = document.getElementById(elId);
   if (!elAtual) return;
   if (!confirmadas.length && !pendentesLocal.length) {
-    elAtual.innerHTML = `<p class="vazio">Nenhuma foto ou vídeo ainda.</p>`;
+    elAtual.innerHTML = `<p class="vazio">Nenhuma foto, vídeo ou áudio ainda.</p>`;
     return;
   }
-  const itensConfirmados = confirmadas.map((m) => {
+  const itemHTML = (m) => {
     const url = urlPublicaMidia(m.storage_path);
-    return m.tipo === "video"
-      ? `<video src="${url}" controls class="midia-item"></video>`
-      : `<img src="${url}" class="midia-item" alt="foto da instalação" />`;
-  }).join("");
+    if (m.tipo === "video") return `<video src="${url}" controls class="midia-item"></video>`;
+    if (m.tipo === "audio") return `<audio src="${url}" controls class="midia-item midia-item--audio"></audio>`;
+    return `<img src="${url}" class="midia-item" alt="foto" />`;
+  };
+  const itensConfirmados = confirmadas.map(itemHTML).join("");
   const itensPendentes = pendentesLocal.map(() =>
     `<div class="midia-item midia-item--pendente">⏳<br>enviando...</div>`
   ).join("");
@@ -326,6 +430,15 @@ async function viewDetalhe(id) {
         <div class="campo"><span class="rotulo">Status</span><span>${escapeHTML(s.status_projeto || "")}</span></div>
       </div>
 
+      ${!estaConcluida(s) ? `
+        <div class="cartao">
+          <h3 class="cartao-secao">🗓️ Data Prevista de Instalação</h3>
+          <input type="date" id="in-data-prevista" value="${s.data_prevista_instalacao ? String(s.data_prevista_instalacao).slice(0, 10) : ""}" />
+          <button id="btn-salvar-data-prevista" class="botao botao--secundario">💾 Salvar Data Prevista</button>
+          <p class="dica">Ajuda o Breno a prever quando o pagamento dessa instalação deve cair no Financeiro.</p>
+        </div>
+      ` : ""}
+
       <div class="cartao">
         <h3 class="cartao-secao">🛠️ Equipamentos</h3>
         <p>${escapeHTML(s.produtos_adquiridos || "Nenhum produto listado.")}</p>
@@ -339,10 +452,11 @@ async function viewDetalhe(id) {
       </div>
 
       <div class="cartao">
-        <h3 class="cartao-secao">📷 Fotos e Vídeos</h3>
+        <h3 class="cartao-secao">📷 Fotos, Vídeos e Áudios</h3>
         <div id="midias-lista" class="midias-grade"><p class="dica">Carregando...</p></div>
-        <input type="file" id="in-midia" accept="image/*,video/*" multiple style="display:none" />
+        <input type="file" id="in-midia" accept="image/*,video/*,audio/*" multiple style="display:none" />
         <button id="btn-add-midia" class="botao botao--secundario">📷 Adicionar Foto/Vídeo</button>
+        <button id="btn-gravar-audio" class="botao botao--secundario">🎤 Gravar Áudio</button>
       </div>
 
       <div class="cartao">
@@ -374,12 +488,24 @@ async function viewDetalhe(id) {
     const el = document.getElementById("midias-lista");
     if (el) el.innerHTML = `<p class="dica">Enviando...</p>`;
     for (const arquivo of arquivos) {
-      await adicionarMidia(id, arquivo, sessao.instaladorVinculado);
+      await adicionarMidia({ servico_id: id }, arquivo, sessao.instaladorVinculado);
     }
     e.target.value = "";
-    await renderizarMidias(id);
+    await renderizarMidias({ servico_id: id }, "midias-lista");
   });
-  renderizarMidias(id);
+  renderizarMidias({ servico_id: id }, "midias-lista");
+  ligarBotaoGravarAudio(document.getElementById("btn-gravar-audio"), { servico_id: id }, "midias-lista");
+
+  const btnSalvarDataPrevista = document.getElementById("btn-salvar-data-prevista");
+  if (btnSalvarDataPrevista) {
+    btnSalvarDataPrevista.addEventListener("click", async (e) => {
+      const data = document.getElementById("in-data-prevista").value;
+      await enfileirar(id, { data_prevista_instalacao: data || null });
+      e.target.textContent = "✅ Salvo";
+      setTimeout(() => { e.target.textContent = "💾 Salvar Data Prevista"; }, 1500);
+      sincronizarTudo(sessao.instaladorVinculado);
+    });
+  }
 
   document.getElementById("btn-salvar-obs").addEventListener("click", async (e) => {
     const texto = document.getElementById("in-obs").value.trim();
@@ -489,11 +615,27 @@ async function viewAgenda() {
       ${v.endereco ? `<div class="cartao-sub">📍 ${escapeHTML(v.endereco)}</div>` : ""}
       ${v.telefone ? `<div class="cartao-sub">📞 ${escapeHTML(v.telefone)}</div>` : ""}
       ${v.observacoes ? `<div class="cartao-sub">📝 ${escapeHTML(v.observacoes)}</div>` : ""}
+      ${v.comentario_instalador ? `<div class="cartao-sub">💬 Você respondeu: ${escapeHTML(v.comentario_instalador)}</div>` : ""}
+      ${v.valor_sugerido ? `<div class="cartao-sub">💰 Valor sugerido: ${formatarBRL(v.valor_sugerido)}</div>` : ""}
       ${!pendente && (!v.status || v.status === "Agendada") ? `
         <div class="cartao-rodape">
           <button class="botao botao--secundario botao--mini" data-realizar="${v.id}">✅ Realizada</button>
           <button class="botao botao--secundario botao--mini" data-cancelar="${v.id}">❌ Cancelar</button>
         </div>` : ""}
+      ${!pendente ? `
+        <button class="botao botao--secundario botao--mini" data-responder="${v.id}" style="margin-top:8px;">💬 Comentar / Valor / Fotos</button>
+        <div id="resposta-${v.id}" style="display:none; margin-top:10px;">
+          <label>Comentário pro Breno</label>
+          <textarea id="resp-obs-${v.id}" rows="2" placeholder="Ex: cliente confirmou, precisa de X material...">${escapeHTML(v.comentario_instalador || "")}</textarea>
+          <label>Valor sugerido (opcional)</label>
+          <input type="number" id="resp-valor-${v.id}" min="0" step="0.01" value="${v.valor_sugerido || ""}" placeholder="R$" />
+          <button class="botao botao--principal botao--mini" data-salvar-resposta="${v.id}" style="margin-top:8px;">💾 Enviar pro Breno</button>
+          <div id="midias-visita-${v.id}" class="midias-grade" style="margin-top:10px;"><p class="dica">Carregando...</p></div>
+          <input type="file" id="midia-visita-${v.id}" accept="image/*,video/*,audio/*" multiple style="display:none" />
+          <button class="botao botao--secundario botao--mini" data-add-midia-visita="${v.id}">📷 Foto/Vídeo</button>
+          <button class="botao botao--secundario botao--mini" data-gravar-audio-visita="${v.id}">🎤 Áudio</button>
+        </div>
+      ` : ""}
     </div>
   `;
 
@@ -570,6 +712,54 @@ async function viewAgenda() {
       const v = visitas.find((x) => x.id === Number(btn.dataset.cancelar));
       if (v) { await atualizarStatusVisita(v, "Cancelada"); sincronizarTudo(sessao.instaladorVinculado); await viewAgenda(); }
     });
+  });
+
+  raiz.querySelectorAll("[data-responder]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const vid = btn.dataset.responder;
+      const bloco = document.getElementById(`resposta-${vid}`);
+      const vaiAbrir = bloco.style.display === "none";
+      bloco.style.display = vaiAbrir ? "block" : "none";
+      formularioAbertoAgendaOuMateriais = vaiAbrir;
+      if (vaiAbrir) {
+        renderizarMidias({ visita_id: Number(vid) }, `midias-visita-${vid}`);
+      }
+    });
+  });
+  raiz.querySelectorAll("[data-salvar-resposta]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const vid = btn.dataset.salvarResposta;
+      const v = visitas.find((x) => x.id === Number(vid));
+      if (!v) return;
+      const comentario = document.getElementById(`resp-obs-${vid}`).value.trim();
+      const valorTxt = document.getElementById(`resp-valor-${vid}`).value;
+      const valor = valorTxt ? Number(valorTxt) : null;
+      await salvarRespostaInstalador(v, comentario, valor);
+      btn.textContent = "✅ Enviado";
+      sincronizarTudo(sessao.instaladorVinculado);
+      setTimeout(() => { btn.textContent = "💾 Enviar pro Breno"; }, 1500);
+    });
+  });
+  raiz.querySelectorAll("[data-add-midia-visita]").forEach((btn) => {
+    const vid = btn.dataset.addMidiaVisita;
+    btn.addEventListener("click", () => document.getElementById(`midia-visita-${vid}`).click());
+  });
+  raiz.querySelectorAll("input[id^='midia-visita-']").forEach((input) => {
+    const vid = input.id.replace("midia-visita-", "");
+    input.addEventListener("change", async (e) => {
+      const arquivos = Array.from(e.target.files || []);
+      const el = document.getElementById(`midias-visita-${vid}`);
+      if (el) el.innerHTML = `<p class="dica">Enviando...</p>`;
+      for (const arquivo of arquivos) {
+        await adicionarMidia({ visita_id: Number(vid) }, arquivo, sessao.instaladorVinculado);
+      }
+      e.target.value = "";
+      await renderizarMidias({ visita_id: Number(vid) }, `midias-visita-${vid}`);
+    });
+  });
+  raiz.querySelectorAll("[data-gravar-audio-visita]").forEach((btn) => {
+    const vid = btn.dataset.gravarAudioVisita;
+    ligarBotaoGravarAudio(btn, { visita_id: Number(vid) }, `midias-visita-${vid}`);
   });
   ligarNav();
 
@@ -720,16 +910,32 @@ async function viewMateriais() {
 // ---------- Financeiro (a receber x recebido, por mês) ----------
 async function viewFinanceiro() {
   telaAtual = "financeiro";
-  const todos = await lerServicos();
+  const [todos, adiantamentos] = await Promise.all([
+    lerServicos(),
+    puxarAdiantamentos(sessao.instaladorVinculado),
+  ]);
   const grupos = agruparPorMes(todos);
+  const semPrevisao = servicosSemPrevisao(todos);
   const totalAReceber = grupos.reduce((acc, g) => acc + g.aReceber, 0);
   const totalRecebido = grupos.reduce((acc, g) => acc + g.recebido, 0);
+  const totalAdiantado = totalAdiantadoAberto(adiantamentos);
+  const liquidoAReceber = totalAReceber - totalAdiantado;
+
+  const linhaCliente = (s, cor) => `
+    <div class="campo" style="font-size:0.88rem;">
+      <span>${escapeHTML(s.nome_cliente || "Sem nome")}${!estaConcluida(s) ? " (em andamento)" : ""}</span>
+      <span style="color:${cor};font-weight:700;">${formatarBRL(s.custo_terceirizados)}</span>
+    </div>`;
 
   const cartaoMes = (g) => `
-    <div class="cartao">
+    <div class="cartao cartao--clicavel" data-mes="${g.mes}">
       <div class="cartao-titulo">${formatarMes(g.mes)}</div>
       <div class="campo"><span class="rotulo">A Receber</span><span style="color:var(--warn);font-weight:700;">${formatarBRL(g.aReceber)}</span></div>
       <div class="campo"><span class="rotulo">Recebido</span><span style="color:var(--ok);font-weight:700;">${formatarBRL(g.recebido)}</span></div>
+    </div>
+    <div id="detalhe-mes-${g.mes}" class="cartao" style="display:none; margin-top:-6px; margin-bottom:12px;">
+      ${g.itensRecebido.length ? `<h3 class="cartao-secao">✅ Recebidos</h3>${g.itensRecebido.map((s) => linhaCliente(s, "var(--ok)")).join("")}` : ""}
+      ${g.itensReceber.length ? `<h3 class="cartao-secao">🔧 A Receber (concluído ou previsto p/ este mês)</h3>${g.itensReceber.map((s) => linhaCliente(s, "var(--warn)")).join("")}` : ""}
     </div>`;
 
   raiz.innerHTML = `
@@ -739,13 +945,44 @@ async function viewFinanceiro() {
       <div class="cartao">
         <div class="campo"><span class="rotulo">Total a Receber</span><span style="color:var(--warn);font-weight:800;font-size:1.15rem;">${formatarBRL(totalAReceber)}</span></div>
         <div class="campo"><span class="rotulo">Total Recebido</span><span style="color:var(--ok);font-weight:800;font-size:1.15rem;">${formatarBRL(totalRecebido)}</span></div>
+        ${totalAdiantado > 0 ? `
+          <div class="campo"><span class="rotulo">💵 Adiantamento (em aberto)</span><span style="color:var(--danger);font-weight:700;">− ${formatarBRL(totalAdiantado)}</span></div>
+          <div class="campo" style="border-top:1px dashed var(--line); padding-top:8px; margin-top:4px;"><span class="rotulo"><b>Líquido a Receber</b></span><span style="color:var(--ink);font-weight:800;">${formatarBRL(liquidoAReceber)}</span></div>
+        ` : ""}
       </div>
-      <h2 class="secao-titulo">Por mês</h2>
+
+      ${semPrevisao.length ? `
+        <div class="cartao" style="border-color:var(--warn);">
+          <h3 class="cartao-secao">⚠️ Sem previsão de data (${semPrevisao.length})</h3>
+          <p class="dica">Preencha a "Data Prevista de Instalação" nesses clientes pra eles entrarem na previsão do mês certo.</p>
+          ${semPrevisao.map((s) => `<div class="campo" style="font-size:0.88rem;"><span>${escapeHTML(s.nome_cliente || "")}</span><span>${formatarBRL(s.custo_terceirizados)}</span></div>`).join("")}
+        </div>
+      ` : ""}
+
+      <h2 class="secao-titulo">Por mês (clique pra ver os clientes)</h2>
       ${grupos.length ? grupos.map(cartaoMes).join("") : `<p class="vazio">Nenhum valor de instalação registrado ainda.</p>`}
+
+      ${adiantamentos.length ? `
+        <h2 class="secao-titulo">💵 Histórico de Adiantamentos</h2>
+        ${adiantamentos.map((a) => {
+          let dataFmt = "";
+          try { dataFmt = formatarData(String(a.data)); } catch (e) { dataFmt = String(a.data || ""); }
+          return `<div class="cartao">
+            <div class="campo"><span>${dataFmt} — ${escapeHTML(a.motivo || "sem motivo informado")}</span><span style="font-weight:700;">${formatarBRL(a.valor)}</span></div>
+            <span class="etiqueta ${a.pago ? "etiqueta--ok" : "etiqueta--pendente"}">${a.pago ? "✅ Compensado" : "⏳ Em aberto"}</span>
+          </div>`;
+        }).join("")}
+      ` : ""}
     </div>
     ${navBarHTML("financeiro")}
   `;
 
+  raiz.querySelectorAll("[data-mes]").forEach((el) => {
+    el.addEventListener("click", () => {
+      const det = document.getElementById(`detalhe-mes-${el.dataset.mes}`);
+      det.style.display = det.style.display === "none" ? "block" : "none";
+    });
+  });
   ligarNav();
 
   const { pendentes } = await statusAtual();

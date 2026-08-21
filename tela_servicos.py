@@ -128,7 +128,20 @@ def renderizar_pagamento_instaladores(df_subset, supabase, key_suffix, titulo):
 
     n_pendentes = int((~df_pag_base['pago_instalador']).sum())
     valor_total_pendente = df_pag_base.loc[~df_pag_base['pago_instalador'], 'custo_terceirizados'].sum()
-    with st.expander(f"💰 {titulo} — {utils.to_br_currency(valor_total_pendente)} pendente ({n_pendentes})", expanded=False):
+
+    # Adiantamentos ainda não compensados dos instaladores que aparecem
+    # nesta lista — descontados do total pendente (pedido do Breno).
+    instaladores_aqui = [i for i in df_pag_base['instalador'].dropna().unique().tolist() if str(i).strip()]
+    total_adiantado = 0.0
+    try:
+        if instaladores_aqui:
+            res_ad = supabase.table('adiantamentos_instalador').select('valor').in_('instalador', instaladores_aqui).eq('pago', False).execute()
+            total_adiantado = sum(float(a.get('valor') or 0) for a in (res_ad.data or []))
+    except Exception:
+        pass
+    valor_liquido = valor_total_pendente - total_adiantado
+
+    with st.expander(f"💰 {titulo} — {utils.to_br_currency(valor_liquido)} líquido pendente ({n_pendentes})", expanded=False):
         df_pag_view = df_pag_base.rename(columns={
             'nome_cliente': 'Cliente', 'instalador': 'Instalador',
             'custo_terceirizados': 'Valor Instalação', 'pago_instalador': 'Pago?',
@@ -145,9 +158,13 @@ def renderizar_pagamento_instaladores(df_subset, supabase, key_suffix, titulo):
 
         total_pendente_pag = df_pag_ed.loc[~df_pag_ed['Pago?'].astype(bool), 'Valor Instalação'].sum()
         total_pago_pag = df_pag_ed.loc[df_pag_ed['Pago?'].astype(bool), 'Valor Instalação'].sum()
-        mp1, mp2 = st.columns(2)
-        mp1.metric("💰 Pendente de Pagamento", utils.to_br_currency(total_pendente_pag))
+        mp1, mp2, mp3, mp4 = st.columns(4)
+        mp1.metric("💰 Pendente", utils.to_br_currency(total_pendente_pag))
         mp2.metric("✅ Já Pago", utils.to_br_currency(total_pago_pag))
+        mp3.metric("💵 Adiantamento", utils.to_br_currency(total_adiantado))
+        mp4.metric("🧮 Líquido a Pagar", utils.to_br_currency(total_pendente_pag - total_adiantado))
+        if total_adiantado > 0:
+            st.caption("Líquido a Pagar = Pendente − Adiantamento (ainda não marcado como compensado). Marque um adiantamento como pago/compensado no popup 💵 Adiantamento.")
 
         if st.button("💾 Salvar Pagamentos", key=f"btn_salvar_pag_{key_suffix}"):
             hoje_str = datetime.date.today().strftime('%Y-%m-%d')
@@ -169,7 +186,9 @@ def renderizar_pagamento_instaladores(df_subset, supabase, key_suffix, titulo):
 @st.dialog("💵 Adiantamento ao Instalador")
 def _modal_adiantamento_instalador(supabase, lista_instaladores):
     st.caption("Registra um adiantamento dado ao instalador (fora do valor normal da instalação). Não altera nenhum serviço — só fica no histórico dele.")
-    instalador_sel = st.selectbox("Instalador", lista_instaladores, key="ad_instalador")
+    # Valdimar é o instalador principal — já vem pré-selecionado.
+    _idx_padrao = lista_instaladores.index("Valdimar") if "Valdimar" in lista_instaladores else 0
+    instalador_sel = st.selectbox("Instalador", lista_instaladores, index=_idx_padrao, key="ad_instalador")
 
     try:
         res_receber = supabase.table('servicos_andamento').select('custo_terceirizados').eq('instalador', instalador_sel).eq('pago_instalador', False).execute()
@@ -182,8 +201,11 @@ def _modal_adiantamento_instalador(supabase, lista_instaladores):
         adiantamentos = res_adiant.data or []
     except Exception:
         adiantamentos = []
-    total_adiantado = sum(float(a.get('valor') or 0) for a in adiantamentos)
-    saldo_pendente = total_a_receber - total_adiantado
+    # Só adiantamentos ainda NÃO marcados como pagos/compensados descontam
+    # do saldo — um que já foi compensado não deve continuar puxando o
+    # saldo pra baixo pra sempre.
+    total_adiantado_aberto = sum(float(a.get('valor') or 0) for a in adiantamentos if not a.get('pago', False))
+    saldo_pendente = total_a_receber - total_adiantado_aberto
 
     c1, c2 = st.columns(2)
     c1.metric("A Receber (instalações não pagas)", utils.to_br_currency(total_a_receber))
@@ -207,20 +229,30 @@ def _modal_adiantamento_instalador(supabase, lista_instaladores):
                     "valor": valor_adiant,
                     "motivo": motivo_adiant.strip(),
                     "data": data_adiant.strftime('%Y-%m-%d'),
+                    "pago": False,
                 }).execute()
                 st.success("✅ Adiantamento registrado!")
                 st.rerun()
             except Exception as e:
-                st.error(f"Erro ao registrar. Certifique-se de que a tabela 'adiantamentos_instalador' existe no Supabase. Detalhe: {e}")
+                st.error(f"Erro ao registrar. Confirme se a tabela 'adiantamentos_instalador' e sua coluna 'pago' existem no Supabase (rode o SQL pendente). Detalhe: {e}")
 
     if adiantamentos:
         st.markdown("##### 🕓 Histórico de Adiantamentos")
+        st.caption("Marque como Pago quando esse adiantamento já tiver sido descontado/compensado — ele deixa de reduzir o saldo pendente.")
         for a in adiantamentos:
             try:
                 data_fmt = pd.to_datetime(a.get('data')).strftime('%d/%m/%Y')
             except Exception:
                 data_fmt = str(a.get('data') or '')
-            st.markdown(f"- **{data_fmt}** — {utils.to_br_currency(a.get('valor'))} — {a.get('motivo') or 'sem motivo informado'}")
+            _ca1, _ca2 = st.columns([4, 1])
+            _ca1.markdown(f"**{data_fmt}** — {utils.to_br_currency(a.get('valor'))} — {a.get('motivo') or 'sem motivo informado'}")
+            _pago_novo = _ca2.checkbox("Pago", value=bool(a.get('pago', False)), key=f"ad_pago_{a['id']}")
+            if _pago_novo != bool(a.get('pago', False)):
+                try:
+                    supabase.table('adiantamentos_instalador').update({"pago": _pago_novo}).eq('id', a['id']).execute()
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro ao atualizar: {e}")
 
 
 @st.dialog("📅 Agendar Tarefa/Visita para o Instalador")
@@ -280,7 +312,34 @@ def renderizar():
         st.markdown("## 📋 Gestão de Serviços")
         
     supabase = st.session_state.supabase
-    
+
+    # ---------------------------------------------------------------
+    # Notificação: instalador deixou comentário/valor sugerido numa
+    # tarefa de agenda (respondendo o que o Breno pediu pelo app dele).
+    # ---------------------------------------------------------------
+    try:
+        res_notif = supabase.table('agenda_visitas').select('*').eq('visto_pelo_admin', False).not_.is_('comentario_instalador', 'null').execute()
+        notificacoes_instalador = [n for n in (res_notif.data or []) if str(n.get('comentario_instalador') or '').strip()]
+    except Exception:
+        notificacoes_instalador = []
+
+    if notificacoes_instalador:
+        with st.container(border=True):
+            st.markdown(f"##### 🔔 {len(notificacoes_instalador)} resposta(s) do(s) instalador(es) na Agenda")
+            for n in notificacoes_instalador:
+                _partes = [f"**{n.get('instalador', '')}** sobre **{n.get('cliente_nome', '')}**:"]
+                _partes.append(f"> {n.get('comentario_instalador')}")
+                if n.get('valor_sugerido'):
+                    _partes.append(f"💰 Valor sugerido: {utils.to_br_currency(n.get('valor_sugerido'))}")
+                st.markdown("\n\n".join(_partes))
+                if st.button("✅ Marcar como visto", key=f"notif_visto_{n['id']}"):
+                    try:
+                        supabase.table('agenda_visitas').update({"visto_pelo_admin": True}).eq('id', n['id']).execute()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro: {e}")
+                st.markdown("---")
+
     try:
         res = supabase.table('servicos_andamento').select("*").order("id", desc=True).execute()
         df = pd.DataFrame(res.data)
@@ -353,16 +412,10 @@ def renderizar():
 
     df['Instalador Reportou'] = df.apply(descobrir_report_instalador, axis=1)
 
-    def descobrir_pendencia_recebimento(row):
-        # Instalador já confirmou pelo app que o serviço está pronto, mas o
-        # Breno ainda não fechou como Concluído PIX/CARTÃO — ou seja, o
-        # cliente ainda não pagou a Ecoclim, mesmo com o trabalho já feito.
-        pronto_pelo_instalador = bool(row.get('instalacao_concluida_instalador', False))
-        ja_fechado_com_cliente = str(row.get('status_projeto', '')) in ('Concluído PIX', 'Concluído CARTÃO')
-        return "pendente recebimento" if (pronto_pelo_instalador and not ja_fechado_com_cliente) else ""
-
-    df['Pendência'] = df.apply(descobrir_pendencia_recebimento, axis=1)
-
+    # "pendente recebimento" NÃO aparece mais na grade principal — esse aviso
+    # agora vive só no total do bloco "💰 Pagamento aos Instaladores" dentro
+    # de Finalizados (renderizar_pagamento_instaladores), pra não duplicar a
+    # informação em dois lugares.
     ativos_status = ["Em Andamento", "Aguardando Pagamento", "Aguardando Peças", "Concluído PIX", "Concluído CARTÃO"]
 
     df_orc = df[(~df['status_projeto'].isin(ativos_status)) & (df['status_projeto'] != 'Rascunho') & (df['status_projeto'] != 'Rascunho Rápido')].reset_index(drop=True)
@@ -371,11 +424,10 @@ def renderizar():
 
     aba1, aba2, aba3 = st.tabs(["🚀 Em Andamento", "📝 Orçamentos", "✅ Finalizados"])
 
-    colunas_visiveis = ['Cliente', 'Pendência', 'Status', 'Valor Total', 'Lucro Líquido', 'Data de término', 'Instalador', '($) Fornecedor', 'Instalador Reportou']
+    colunas_visiveis = ['Cliente', 'Status', 'Valor Total', 'Lucro Líquido', 'Data de término', 'Instalador', '($) Fornecedor', 'Instalador Reportou']
 
     config_colunas = {
         "Cliente": "Cliente", "Status": "Status",
-        "Pendência": st.column_config.TextColumn("Pendência", width="small"),
         "Valor Total": st.column_config.TextColumn("Valor Total"),
         "Lucro Líquido": st.column_config.TextColumn("Lucro Líquido"),
         "Data de término": st.column_config.TextColumn("Data de término"),
@@ -383,22 +435,13 @@ def renderizar():
         "($) Fornecedor": st.column_config.TextColumn("($) Fornecedor"),
         "Instalador Reportou": st.column_config.TextColumn("App Instalador"),
     }
-
-    def estilizar_pendencia(df_para_estilizar):
-        """Deixa o texto 'pendente recebimento' em vermelho e pequeno, sem
-        mexer no resto da linha. Usa .map (não .applymap — removido no
-        pandas 2.1+) numa cópia estilizada, o dado clicável continua igual."""
-        return df_para_estilizar.style.map(
-            lambda v: 'color:#dc2626; font-size:0.78em; font-style:italic;' if v == 'pendente recebimento' else '',
-            subset=['Pendência']
-        )
     
     with aba1:
         cad_c1, cad_c2 = st.columns([1, 4])
         if cad_c1.button("➕ Cadastrar Venda", type="primary", use_container_width=True, key="btn_cad_venda"):
             _modal_cadastrar_venda(supabase, lista_instaladores)
         df_atv = barra_busca_servicos(df_atv, "atv")
-        sel = st.dataframe(estilizar_pendencia(df_atv[colunas_visiveis]), use_container_width=True, on_select="rerun", selection_mode="single-row", hide_index=True, column_config=config_colunas, key="g_atv")
+        sel = st.dataframe(df_atv[colunas_visiveis], use_container_width=True, on_select="rerun", selection_mode="single-row", hide_index=True, column_config=config_colunas, key="g_atv")
         total_bruto_atv = pd.to_numeric(df_atv['valor_venda_total'], errors='coerce').fillna(0).sum()
         total_lucro_atv = pd.to_numeric(df_atv['lucro_estimado'], errors='coerce').fillna(0).sum()
         st.markdown(f"<div style='text-align: right; font-size: 18px; font-weight: bold; margin-bottom: 20px;'><span style='color: #555; margin-right: 20px;'>Faturamento Bruto: {utils.to_br_currency(total_bruto_atv)}</span> <span style='color: #004488;'>Lucro Líquido Estimado: {utils.to_br_currency(total_lucro_atv)}</span></div>", unsafe_allow_html=True)
@@ -408,7 +451,7 @@ def renderizar():
     
     with aba2:
         df_orc = barra_busca_servicos(df_orc, "orc")
-        sel = st.dataframe(estilizar_pendencia(df_orc[colunas_visiveis]), use_container_width=True, on_select="rerun", selection_mode="single-row", hide_index=True, column_config=config_colunas, key="g_orc")
+        sel = st.dataframe(df_orc[colunas_visiveis], use_container_width=True, on_select="rerun", selection_mode="single-row", hide_index=True, column_config=config_colunas, key="g_orc")
         total_bruto_orc = pd.to_numeric(df_orc['valor_venda_total'], errors='coerce').fillna(0).sum()
         total_lucro_orc = pd.to_numeric(df_orc['lucro_estimado'], errors='coerce').fillna(0).sum()
         st.markdown(f"<div style='text-align: right; font-size: 18px; font-weight: bold; margin-bottom: 20px;'><span style='color: #555; margin-right: 20px;'>Faturamento Bruto: {utils.to_br_currency(total_bruto_orc)}</span> <span style='color: #004488;'>Lucro Líquido Estimado: {utils.to_br_currency(total_lucro_orc)}</span></div>", unsafe_allow_html=True)
@@ -456,7 +499,7 @@ def renderizar():
             st.info(f"Nenhum serviço finalizado registrado em {mes_sel} de {ano_sel}.")
         else:
             if not df_fin_mes.empty:
-                sel_fin = st.dataframe(estilizar_pendencia(df_fin_mes[colunas_visiveis]), use_container_width=True, on_select="rerun", selection_mode="single-row", hide_index=True, column_config=config_colunas, key=f"g_fin_{ano_sel}_{mes_sel_idx}")
+                sel_fin = st.dataframe(df_fin_mes[colunas_visiveis], use_container_width=True, on_select="rerun", selection_mode="single-row", hide_index=True, column_config=config_colunas, key=f"g_fin_{ano_sel}_{mes_sel_idx}")
                 total_bruto_fin_mes = pd.to_numeric(df_fin_mes['valor_venda_total'], errors='coerce').fillna(0).sum()
                 total_lucro_fin_mes = pd.to_numeric(df_fin_mes['lucro_estimado'], errors='coerce').fillna(0).sum()
                 st.markdown(f"<div style='text-align: right; font-size: 18px; font-weight: bold; margin-bottom: 20px;'><span style='color: #555; margin-right: 20px;'>Faturamento Bruto ({mes_sel}): {utils.to_br_currency(total_bruto_fin_mes)}</span> <span style='color: #004488;'>Lucro Líquido Realizado: {utils.to_br_currency(total_lucro_fin_mes)}</span></div>", unsafe_allow_html=True)

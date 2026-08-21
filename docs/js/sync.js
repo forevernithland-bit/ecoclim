@@ -4,13 +4,23 @@ import {
   lerCriacoesOutbox, removerDaCriacoesOutbox,
 } from "./db.js";
 
-const COLUNAS_SEGURAS = [
+// Colunas já garantidas no banco há tempo — se o select com as colunas novas
+// (abaixo) falhar porque alguma ainda não existe (SQL pendente de rodar),
+// caímos pra essa base em vez de deixar o app inteiro parecer offline.
+const COLUNAS_BASE = [
   "id", "numero_orcamento", "nome_cliente", "telefone_cliente", "endereco_cliente",
   "status_projeto", "produtos_adquiridos", "servicos_adquiridos", "data_conclusao",
   "instalador", "custo_terceirizados",
   "observacao_instalador", "instalacao_concluida_instalador", "data_conclusao_instalador",
   "pago_instalador", "data_pagamento_instalador", "data_inicio_garantia",
 ].join(",");
+
+// Colunas recém-criadas nesta sessão — dependem do SQL pendente. Ficam numa
+// lista separada de propósito: uma coluna nova faltando não pode derrubar a
+// sincronização das colunas antigas, que já funcionam em produção.
+const COLUNAS_NOVAS = ["data_prevista_instalacao"];
+
+const COLUNAS_SEGURAS = [COLUNAS_BASE, ...COLUNAS_NOVAS].join(",");
 
 let ouvintes = [];
 export function aoMudarStatusSync(fn) {
@@ -24,8 +34,8 @@ function avisar(status) {
 // Nunca busca valor_venda_total / lucro_estimado / detalhamento_itens /
 // dados_contrato — essas colunas simplesmente não entram na consulta.
 export async function puxarServicos(instaladorVinculado) {
+  const supabase = getSupabase();
   try {
-    const supabase = getSupabase();
     const { data, error } = await supabase
       .from("servicos_andamento")
       .select(COLUNAS_SEGURAS)
@@ -35,7 +45,20 @@ export async function puxarServicos(instaladorVinculado) {
     await salvarServicos(data || []);
     return { ok: true, online: true };
   } catch (e) {
-    return { ok: false, online: false };
+    // Uma coluna nova (SQL ainda não rodado) não pode travar as colunas
+    // antigas, que já funcionam em produção — tenta de novo só com a base.
+    try {
+      const { data, error } = await supabase
+        .from("servicos_andamento")
+        .select(COLUNAS_BASE)
+        .eq("instalador", instaladorVinculado)
+        .order("id", { ascending: false });
+      if (error) throw error;
+      await salvarServicos(data || []);
+      return { ok: true, online: true };
+    } catch (e2) {
+      return { ok: false, online: false };
+    }
   }
 }
 

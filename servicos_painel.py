@@ -145,12 +145,16 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         # Andamento) + fotos/vídeos que o instalador já enviou. Roda só pro
         # item aberto agora (não a lista inteira), pra não pesar a página.
         # ---------------------------------------------------------------
-        _pasta_drive_id = utils.garantir_pasta_drive_cliente(projeto_selecionado)
+        _pasta_drive_id, _erro_pasta = utils.garantir_pasta_drive_cliente(projeto_selecionado)
         if _pasta_drive_id:
-            utils.sincronizar_midias_pendentes_drive(id_projeto, _pasta_drive_id)
+            _n_sync, _erro_sync = utils.sincronizar_midias_pendentes_drive(id_projeto, _pasta_drive_id)
             st.markdown(
                 f"📁 <a href='https://drive.google.com/drive/folders/{_pasta_drive_id}' target='_blank'>Abrir pasta do cliente no Drive</a>",
                 unsafe_allow_html=True)
+            if _erro_sync:
+                st.warning(f"⚠️ Nem todas as fotos/vídeos sincronizaram com o Drive ainda: {_erro_sync}")
+        elif _erro_pasta:
+            st.warning(f"⚠️ Não deu pra criar a pasta do cliente no Drive: {_erro_pasta}")
 
         try:
             _res_midias = supabase.table('servico_midias').select('*').eq('servico_id', id_projeto).order('criado_em').execute()
@@ -160,16 +164,21 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
 
         if _midias:
             with st.container(border=True):
-                st.markdown(f"##### 📷 Fotos e Vídeos do Instalador ({len(_midias)})")
+                st.markdown(f"##### 📷 Fotos, Vídeos e Áudios do Instalador ({len(_midias)})")
                 _url_base = st.secrets["SUPABASE_URL"].rstrip('/')
+                _midias_audio = [m for m in _midias if m.get('tipo') == 'audio']
+                _midias_visuais = [m for m in _midias if m.get('tipo') != 'audio']
                 _cols_midia = st.columns(3)
-                for _i_m, _m in enumerate(_midias):
+                for _i_m, _m in enumerate(_midias_visuais):
                     _url_m = f"{_url_base}/storage/v1/object/public/instalacao-midias/{_m['storage_path']}"
                     with _cols_midia[_i_m % 3]:
                         if _m.get('tipo') == 'video':
                             st.video(_url_m)
                         else:
                             st.image(_url_m, use_container_width=True)
+                for _m in _midias_audio:
+                    _url_m = f"{_url_base}/storage/v1/object/public/instalacao-midias/{_m['storage_path']}"
+                    st.audio(_url_m)
 
         st.markdown("#### 🛒 Itens Vendidos (Ajuste Quantidades e Custos)")
         
