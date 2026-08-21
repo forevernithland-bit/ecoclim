@@ -9,7 +9,7 @@ const COLUNAS_SEGURAS = [
   "status_projeto", "produtos_adquiridos", "servicos_adquiridos", "data_conclusao",
   "instalador", "custo_terceirizados",
   "observacao_instalador", "instalacao_concluida_instalador", "data_conclusao_instalador",
-  "pago_instalador", "data_pagamento_instalador",
+  "pago_instalador", "data_pagamento_instalador", "data_inicio_garantia",
 ].join(",");
 
 let ouvintes = [];

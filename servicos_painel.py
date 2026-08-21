@@ -101,6 +101,46 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     st.markdown(f"> {_obs_inst}")
 
         # ---------------------------------------------------------------
+        # Garantia — a contagem começa, por padrão, no dia em que o
+        # instalador marca "concluída" pelo app. Editável aqui pra casos
+        # como obra em construção, onde o cliente pede pra garantia só
+        # começar quando ele se mudar pra casa.
+        # ---------------------------------------------------------------
+        nova_data_garantia = None
+        _garantia_banco = projeto_selecionado.get('data_inicio_garantia')
+        _tem_garantia_salva = pd.notna(_garantia_banco) and str(_garantia_banco).lower() not in ('none', 'nan', 'nat', '')
+        # Só mostra depois que existe algum sinal real de conclusão — nunca
+        # antes disso, pra não carimbar a data de hoje num serviço que ainda
+        # está "Em Andamento" só porque o painel foi salvo por outro motivo.
+        _tem_sinal_conclusao = (
+            bool(projeto_selecionado.get('instalacao_concluida_instalador', False))
+            or str(projeto_selecionado.get('status_projeto', '')) in ('Concluído PIX', 'Concluído CARTÃO')
+            or _tem_garantia_salva
+        )
+        if _tem_sinal_conclusao:
+            with st.container(border=True):
+                st.markdown("##### 🛡️ Garantia")
+                _garantia_inicial = None
+                if _tem_garantia_salva:
+                    try: _garantia_inicial = pd.to_datetime(_garantia_banco).date()
+                    except Exception: pass
+                if _garantia_inicial is None:
+                    for _fallback in (projeto_selecionado.get('data_conclusao_instalador'), projeto_selecionado.get('data_conclusao')):
+                        if pd.notna(_fallback) and str(_fallback).lower() not in ('none', 'nan', 'nat', ''):
+                            try:
+                                _garantia_inicial = pd.to_datetime(_fallback).date()
+                                break
+                            except Exception:
+                                pass
+                if _garantia_inicial is None:
+                    _garantia_inicial = datetime.date.today()
+                nova_data_garantia = st.date_input(
+                    "Início da contagem da garantia", value=_garantia_inicial, format="DD/MM/YYYY",
+                    key=f"garantia_{prefix_key}",
+                    help="Padrão: dia em que o instalador marcou como concluída. Ajuste aqui se o cliente pediu pra garantia começar em outra data (ex.: casa em construção, garantia só a partir da mudança).")
+                st.caption("Salvo junto com o botão 💾 SALVAR PROJETO, no final da página.")
+
+        # ---------------------------------------------------------------
         # Pasta do cliente no Drive (criada automaticamente ao entrar Em
         # Andamento) + fotos/vídeos que o instalador já enviou. Roda só pro
         # item aberto agora (não a lista inteira), pra não pesar a página.
@@ -707,6 +747,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     "custo_terceirizados": custo_mo,
                     "pago_instalador": novo_pago_instalador,
                     "data_pagamento_instalador": nova_data_pag_inst.strftime('%Y-%m-%d') if nova_data_pag_inst else None,
+                    "data_inicio_garantia": nova_data_garantia.strftime('%Y-%m-%d') if nova_data_garantia else None,
                     "custo_comissao": valor_comissao, 
                     "custo_impostos": valor_nf,
                     "custo_cartao": valor_cartao_taxa, 

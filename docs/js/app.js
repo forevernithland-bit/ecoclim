@@ -147,11 +147,34 @@ function dataConclusaoExibir(s) {
   return s.data_conclusao_instalador || s.data_conclusao || "";
 }
 
+// Agrupa concluídas por mês (mais recente primeiro) — usa a mesma data que
+// já aparece no selo "✅" do cartão (instalador ou, na falta, admin).
+function agruparConcluidosPorMes(lista) {
+  const ordenados = [...lista].sort((a, b) => {
+    const da = dataConclusaoExibir(a) || "";
+    const db = dataConclusaoExibir(b) || "";
+    return db.localeCompare(da); // datas ISO (YYYY-MM-DD) ordenam certo como texto
+  });
+  const grupos = [];
+  const porChave = {};
+  for (const s of ordenados) {
+    const data = dataConclusaoExibir(s);
+    const chave = data ? String(data).slice(0, 7) : "sem-data";
+    if (!porChave[chave]) {
+      porChave[chave] = { chave, itens: [] };
+      grupos.push(porChave[chave]);
+    }
+    porChave[chave].itens.push(s);
+  }
+  return grupos;
+}
+
 async function viewLista() {
   telaAtual = "lista";
   const todos = await lerServicos();
   const abertos = todos.filter((s) => !estaConcluida(s));
   const concluidos = todos.filter((s) => estaConcluida(s));
+  const gruposConcluidos = agruparConcluidosPorMes(concluidos);
 
   const cartao = (s) => `
     <button class="cartao cartao--clicavel" data-id="${s.id}">
@@ -178,9 +201,15 @@ async function viewLista() {
     <div class="conteudo">
       <h2 class="secao-titulo">📋 Em Aberto (${abertos.length})</h2>
       ${abertos.length ? abertos.map(cartao).join("") : `<p class="vazio">Nenhuma instalação em aberto.</p>`}
+
       ${concluidos.length ? `
-        <h2 class="secao-titulo">✅ Concluídas (${concluidos.length})</h2>
-        ${concluidos.map(cartao).join("")}
+        <button id="btn-toggle-concluidos" class="botao botao--secundario">✅ Ver Concluídas (${concluidos.length})</button>
+        <div id="secao-concluidos" style="display:none; margin-top:12px;">
+          ${gruposConcluidos.map((g) => `
+            <h2 class="secao-titulo">${g.chave === "sem-data" ? "Sem data registrada" : formatarMes(g.chave)} (${g.itens.length})</h2>
+            ${g.itens.map(cartao).join("")}
+          `).join("")}
+        </div>
       ` : ""}
     </div>
     ${navBarHTML("instalacoes")}
@@ -194,6 +223,17 @@ async function viewLista() {
   raiz.querySelectorAll(".cartao--clicavel").forEach((el) => {
     el.addEventListener("click", () => viewDetalhe(Number(el.dataset.id)));
   });
+  const btnToggleConcluidos = document.getElementById("btn-toggle-concluidos");
+  if (btnToggleConcluidos) {
+    btnToggleConcluidos.addEventListener("click", () => {
+      const sec = document.getElementById("secao-concluidos");
+      const estaAberto = sec.style.display !== "none";
+      sec.style.display = estaAberto ? "none" : "block";
+      btnToggleConcluidos.textContent = estaAberto
+        ? `✅ Ver Concluídas (${concluidos.length})`
+        : `🔼 Ocultar Concluídas`;
+    });
+  }
   ligarNav();
 
   const { pendentes } = await statusAtual();
@@ -326,10 +366,18 @@ async function viewDetalhe(id) {
         <button id="btn-cancelar-conclusao" class="botao botao--secundario">Cancelar</button>
       `;
       document.getElementById("btn-confirmar-conclusao").addEventListener("click", async () => {
-        await enfileirar(id, {
+        const hoje = hojeLocalISO();
+        const patch = {
           instalacao_concluida_instalador: true,
-          data_conclusao_instalador: hojeLocalISO(),
-        });
+          data_conclusao_instalador: hoje,
+        };
+        // Início da garantia é registrado automaticamente na data em que o
+        // instalador confirma — só na primeira vez (se o Breno já tiver
+        // ajustado antes, ex.: obra em construção, não sobrescreve).
+        if (!s.data_inicio_garantia) {
+          patch.data_inicio_garantia = hoje;
+        }
+        await enfileirar(id, patch);
         sincronizarTudo(sessao.instaladorVinculado);
         await viewDetalhe(id);
       });
@@ -342,10 +390,18 @@ async function viewDetalhe(id) {
   const btnDesfazer = document.getElementById("btn-desfazer-conclusao");
   if (btnDesfazer) {
     btnDesfazer.addEventListener("click", async () => {
-      await enfileirar(id, {
+      const patch = {
         instalacao_concluida_instalador: false,
         data_conclusao_instalador: null,
-      });
+      };
+      // Só limpa a data de início de garantia se ela ainda estiver no valor
+      // automático (igual à data de conclusão) — se o Breno já mudou essa
+      // data (ex.: pra começar a contar quando o cliente se mudar), o
+      // "desfazer" do instalador não pode apagar esse ajuste dele.
+      if (s.data_inicio_garantia === s.data_conclusao_instalador) {
+        patch.data_inicio_garantia = null;
+      }
+      await enfileirar(id, patch);
       sincronizarTudo(sessao.instaladorVinculado);
       await viewDetalhe(id);
     });
