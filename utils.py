@@ -271,13 +271,25 @@ def garantir_pasta_drive_cliente(servico):
     if status in ('', 'Orçamento Enviado', 'Orçamento Cancelado', 'Rascunho', 'Rascunho Rápido'):
         return None, None
     pasta_existente = servico.get('drive_pasta_id')
-    if pasta_existente and str(pasta_existente).strip():
+    # `servico` costuma ser uma linha de pandas DataFrame — quando a coluna
+    # tem uma mistura de valores reais e vazios entre os projetos, o pandas
+    # troca o vazio por NaN (float) em vez de None. `pd.notna` pega os dois
+    # casos; sem isso, `NaN` virava string "nan" e era usado como se fosse
+    # um ID de pasta de verdade (daí o link quebrado pra .../folders/nan).
+    if pd.notna(pasta_existente) and str(pasta_existente).strip():
         return pasta_existente, None
     try:
         service = get_drive_service()
         if not service: return None, "Serviço do Drive indisponível (verifique os secrets do Google OAuth)."
-        numero = str(servico.get('numero_orcamento') or '').strip()
-        nome_cliente = str(servico.get('nome_cliente') or 'cliente').strip()
+        # Mesmo cuidado do drive_pasta_id acima: `or` não pega NaN (é
+        # "verdadeiro" pro Python), só None/"" — sem o pd.notna, um
+        # numero_orcamento vazio virava a string literal "nan" e a busca do
+        # atalho do orçamento falhava calada (procurava por um arquivo
+        # chamado "nan", nunca achava, e não avisava ninguém).
+        _numero_raw = servico.get('numero_orcamento')
+        numero = str(_numero_raw).strip() if pd.notna(_numero_raw) else ''
+        _nome_raw = servico.get('nome_cliente')
+        nome_cliente = str(_nome_raw).strip() if pd.notna(_nome_raw) and str(_nome_raw).strip() else 'cliente'
         nome_pasta = f"{numero}_{nome_cliente}" if numero else nome_cliente
         pasta_id = get_or_create_nested_folder(service, MAIN_DRIVE_FOLDER_ID, ["Clientes", nome_pasta])
 

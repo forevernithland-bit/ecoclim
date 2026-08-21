@@ -490,7 +490,7 @@ def _modal_editar_visita_agenda(supabase, visita, lista_instaladores):
         _midias = []
     if _midias:
         st.markdown(f"##### 📷 Mídia anexada ({len(_midias)})")
-        servicos_painel.renderizar_galeria_midias(_midias)
+        servicos_painel.renderizar_galeria_midias(supabase, _midias)
 
     st.markdown("---")
     cb1, cb2 = st.columns(2)
@@ -607,7 +607,7 @@ def renderizar():
                     _midias_visita = []
                 if _midias_visita:
                     with st.expander(f"📷 Ver mídia anexada ({len(_midias_visita)})"):
-                        servicos_painel.renderizar_galeria_midias(_midias_visita)
+                        servicos_painel.renderizar_galeria_midias(supabase, _midias_visita)
                 if st.button("✅ Marcar como visto", key=f"notif_agenda_{n['id']}"):
                     try:
                         supabase.table('agenda_visitas').update({"visto_pelo_admin": True}).eq('id', n['id']).execute()
@@ -630,7 +630,7 @@ def renderizar():
                 _n_itens = len(n['itens'])
                 st.markdown(f"📷 **{n.get('instalador', '')}** anexou {_n_itens} mídia(s) em **{n['nome_cliente']}**")
                 with st.expander(f"📷 Ver mídia anexada ({_n_itens})"):
-                    servicos_painel.renderizar_galeria_midias(n['itens'])
+                    servicos_painel.renderizar_galeria_midias(supabase, n['itens'])
                 if st.button("✅ Marcar como visto", key=f"notif_midia_{n['servico_id']}"):
                     try:
                         _ids = [m['id'] for m in n['itens']]

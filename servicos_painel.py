@@ -14,14 +14,28 @@ def safe_float(val):
     except:
         return 0.0
 
-def renderizar_galeria_midias(midias):
+def renderizar_galeria_midias(supabase, midias, permitir_excluir=True):
     """Mostra fotos/vídeos em grade de 3 colunas e áudios em lista embaixo —
     reaproveitado tanto no painel do cliente quanto na notificação de Agenda,
     pra sempre dar pra ver/ouvir o que o instalador anexou sem precisar caçar
-    em outro lugar do sistema."""
+    em outro lugar do sistema. Com `permitir_excluir`, cada mídia ganha um
+    botão de excluir (apaga do Storage e do registro — não dá pra desfazer)."""
     _url_base = st.secrets["SUPABASE_URL"].rstrip('/')
     _midias_audio = [m for m in midias if m.get('tipo') == 'audio']
     _midias_visuais = [m for m in midias if m.get('tipo') != 'audio']
+
+    def _excluir_midia(m):
+        try:
+            supabase.storage.from_('instalacao-midias').remove([m['storage_path']])
+        except Exception:
+            pass  # se já não existir no Storage por algum motivo, remove o registro do mesmo jeito
+        try:
+            supabase.table('servico_midias').delete().eq('id', m['id']).execute()
+            st.success("🗑️ Mídia excluída.")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Erro ao excluir: {e}")
+
     _cols_midia = st.columns(3)
     for _i_m, _m in enumerate(_midias_visuais):
         _url_m = f"{_url_base}/storage/v1/object/public/instalacao-midias/{_m['storage_path']}"
@@ -30,9 +44,17 @@ def renderizar_galeria_midias(midias):
                 st.video(_url_m)
             else:
                 st.image(_url_m, use_container_width=True)
+            if permitir_excluir and st.button("🗑️ Excluir", key=f"del_midia_{_m['id']}", use_container_width=True):
+                _excluir_midia(_m)
     for _m in _midias_audio:
         _url_m = f"{_url_base}/storage/v1/object/public/instalacao-midias/{_m['storage_path']}"
-        st.audio(_url_m)
+        if permitir_excluir:
+            _ca, _cb = st.columns([6, 1])
+            _ca.audio(_url_m)
+            if _cb.button("🗑️", key=f"del_midia_{_m['id']}"):
+                _excluir_midia(_m)
+        else:
+            st.audio(_url_m)
 
 
 def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_produtos, prefix_key, lista_instaladores):
@@ -186,7 +208,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         if _midias:
             with st.container(border=True):
                 st.markdown(f"##### 📷 Fotos, Vídeos e Áudios do Instalador ({len(_midias)})")
-                renderizar_galeria_midias(_midias)
+                renderizar_galeria_midias(supabase, _midias)
 
         st.markdown("#### 🛒 Itens Vendidos (Ajuste Quantidades e Custos)")
         
