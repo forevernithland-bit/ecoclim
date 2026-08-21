@@ -799,6 +799,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             if not listas_mat:
                 st.info("Nenhuma lista de materiais registrada pra este cliente ainda.")
             else:
+                _editando_key = f"editando_lista_mat_{prefix_key}"
                 for lm in listas_mat:
                     with st.container(border=True):
                         _data_lm = ""
@@ -808,12 +809,102 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                             pass
                         st.markdown(f"**{lm.get('instalador', 'Instalador')}** — {_data_lm}")
                         _itens_lm = lm.get('itens') or []
+                        _cols_lm = ['item', 'qtd', 'unidade']
                         if _itens_lm:
                             df_lm = pd.DataFrame(_itens_lm)
-                            _cols_lm = [c for c in ['item', 'qtd', 'unidade', 'obs'] if c in df_lm.columns]
-                            st.dataframe(df_lm[_cols_lm] if _cols_lm else df_lm, use_container_width=True, hide_index=True)
+                            _cols_presentes = [c for c in _cols_lm + ['obs'] if c in df_lm.columns]
+                            st.dataframe(df_lm[_cols_presentes] if _cols_presentes else df_lm, use_container_width=True, hide_index=True)
                         else:
                             st.caption("Lista sem itens.")
+
+                        col_ed, col_ex = st.columns(2)
+                        if col_ed.button("✏️ Editar", key=f"btn_edit_mat_{lm['id']}_{prefix_key}", use_container_width=True):
+                            st.session_state[_editando_key] = lm['id'] if st.session_state.get(_editando_key) != lm['id'] else None
+                            st.rerun()
+                        if col_ex.button("🗑️ Excluir lista", key=f"btn_del_mat_{lm['id']}_{prefix_key}", use_container_width=True):
+                            try:
+                                supabase.table('listas_materiais').delete().eq('id', lm['id']).execute()
+                                st.success("Lista excluída.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Erro ao excluir: {e}")
+
+                        if st.session_state.get(_editando_key) == lm['id']:
+                            df_edit_base = pd.DataFrame(_itens_lm)[_cols_lm] if _itens_lm else pd.DataFrame(columns=_cols_lm)
+                            df_editado = st.data_editor(
+                                df_edit_base, num_rows="dynamic", use_container_width=True,
+                                key=f"editor_mat_{lm['id']}_{prefix_key}",
+                            )
+                            if st.button("💾 Salvar alterações", key=f"btn_save_edit_mat_{lm['id']}_{prefix_key}"):
+                                _itens_novos = df_editado.dropna(subset=['item']).to_dict('records')
+                                try:
+                                    supabase.table('listas_materiais').update({
+                                        "itens": _itens_novos,
+                                        "atualizado_em": datetime.datetime.utcnow().isoformat(),
+                                    }).eq('id', lm['id']).execute()
+                                    st.success("Lista atualizada.")
+                                    st.session_state[_editando_key] = None
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Erro ao salvar: {e}")
+
+            st.markdown("---")
+            with st.expander("➕ Adicionar lista de materiais", expanded=False):
+                _novos_itens_key = f"novos_itens_mat_{prefix_key}"
+                if _novos_itens_key not in st.session_state:
+                    st.session_state[_novos_itens_key] = []
+
+                try:
+                    res_padrao = supabase.table('materiais_padrao').select('*').order('categoria').order('ordem').execute()
+                    catalogo_mat = res_padrao.data or []
+                except Exception:
+                    catalogo_mat = []
+
+                opcoes_catalogo = {f"{c['item']} ({c.get('categoria', '')})": c for c in catalogo_mat}
+                col_cat, col_man = st.columns(2)
+                with col_cat:
+                    sel_catalogo = st.multiselect(
+                        "Buscar no catálogo", options=list(opcoes_catalogo.keys()),
+                        key=f"multisel_mat_{prefix_key}",
+                    )
+                    if st.button("➕ Adicionar selecionados", key=f"btn_add_sel_mat_{prefix_key}"):
+                        for _label in sel_catalogo:
+                            _c = opcoes_catalogo[_label]
+                            st.session_state[_novos_itens_key].append({"item": _c['item'], "qtd": 1, "unidade": _c.get('unidade', 'un')})
+                        del st.session_state[f"multisel_mat_{prefix_key}"]
+                        st.rerun()
+                with col_man:
+                    _item_manual = st.text_input("Ou item manual (fora do catálogo)", key=f"input_manual_mat_{prefix_key}")
+                    if st.button("➕ Adicionar item manual", key=f"btn_add_manual_mat_{prefix_key}") and _item_manual.strip():
+                        st.session_state[_novos_itens_key].append({"item": _item_manual.strip(), "qtd": 1, "unidade": "un"})
+                        st.rerun()
+
+                if st.session_state[_novos_itens_key]:
+                    df_novo = pd.DataFrame(st.session_state[_novos_itens_key])
+                    df_novo_editado = st.data_editor(
+                        df_novo, num_rows="dynamic", use_container_width=True,
+                        key=f"editor_novo_mat_{prefix_key}",
+                    )
+                    if st.button("💾 Salvar nova lista de materiais", key=f"btn_save_novo_mat_{prefix_key}"):
+                        _itens_final = df_novo_editado.dropna(subset=['item']).to_dict('records')
+                        if not _itens_final:
+                            st.warning("Adicione pelo menos um item.")
+                        else:
+                            try:
+                                supabase.table('listas_materiais').insert({
+                                    "servico_id": id_projeto,
+                                    "instalador": "Admin",
+                                    "cliente_nome": projeto_selecionado.get('nome_cliente'),
+                                    "itens": _itens_final,
+                                    "atualizado_em": datetime.datetime.utcnow().isoformat(),
+                                }).execute()
+                                st.success("Lista criada com sucesso!")
+                                st.session_state[_novos_itens_key] = []
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Erro ao salvar: {e}")
+                else:
+                    st.caption("Nenhum item adicionado ainda — busque no catálogo ou digite um item manual acima.")
 
         st.markdown("<br>", unsafe_allow_html=True)
         
