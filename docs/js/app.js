@@ -1163,17 +1163,18 @@ async function viewFinanceiro() {
   const grupos = agruparPorMes(todos);
   const finalizadosAReceber = servicosFinalizadosAReceber(todos);
   const emAndamentoSemData = servicosEmAndamentoSemData(todos);
-  const totalAReceber = totalGeralAReceber(todos);
   const totalAdiantado = totalAdiantadoAberto(adiantamentos);
-  const liquidoAReceber = totalAReceber - totalAdiantado;
   const totalFinalizadosAReceber = finalizadosAReceber.reduce((acc, s) => acc + Number(s.custo_terceirizados), 0);
   const totalEmAndamentoSemData = emAndamentoSemData.reduce((acc, s) => acc + Number(s.custo_terceirizados), 0);
+  const liquidoFinalizados = totalFinalizadosAReceber - totalAdiantado;
 
-  // Filtro de mês do "Recebido" — sem isso, o número lá em cima somava tudo
-  // desde o início e parecia fora de contexto. Sempre inclui o mês atual
-  // na lista, mesmo sem nada recebido nele ainda, pra já vir selecionado.
+  // Filtro de mês do "Recebidos" — vem pré-selecionado no mês anterior (o
+  // mês atual normalmente ainda não fechou os recebimentos todos). Sempre
+  // inclui o mês atual e o anterior na lista, mesmo sem nada recebido
+  // neles ainda, pra sempre dar pra escolher os dois.
   const mesAtualChave = chaveMesHoje();
-  const mesesDisponiveis = Array.from(new Set([mesAtualChave, ...grupos.map((g) => g.mes)])).sort((a, b) => b.localeCompare(a));
+  const mesAnteriorChave = chaveMesAnterior();
+  const mesesDisponiveis = Array.from(new Set([mesAtualChave, mesAnteriorChave, ...grupos.map((g) => g.mes)])).sort((a, b) => b.localeCompare(a));
   const grupoDoMes = (mes) => grupos.find((g) => g.mes === mes) || { recebido: 0, itensRecebido: [] };
 
   const linhaCliente = (s, cor) => `
@@ -1200,69 +1201,42 @@ async function viewFinanceiro() {
       ${itens.length ? itens.map((s) => linhaClienteClicavel(s, cor)).join("") : `<p class="vazio">Nenhum cliente aqui no momento.</p>`}
     </div>`;
 
-  const gruposComReceber = grupos.filter((g) => g.aReceber > 0);
-  const gruposComRecebido = grupos.filter((g) => g.recebido > 0);
-
-  const cartaoMesReceber = (g) => `
-    <div class="cartao cartao--clicavel" data-mes-r="${g.mes}">
-      <div class="cartao-titulo">${formatarMes(g.mes)}</div>
-      <div class="campo"><span class="rotulo">A Receber</span><span style="color:var(--warn);font-weight:800;font-size:1.05rem;">${formatarBRL(g.aReceber)}</span></div>
-    </div>
-    <div id="detalhe-mes-r-${g.mes}" class="cartao" style="display:none; margin-top:-6px; margin-bottom:12px;">
-      ${g.itensReceber.map((s) => linhaCliente(s, "var(--warn)")).join("")}
-    </div>`;
-
-  const cartaoMesRecebido = (g) => `
-    <div class="cartao cartao--clicavel" data-mes-rec="${g.mes}">
-      <div class="cartao-titulo">${formatarMes(g.mes)}</div>
-      <div class="campo"><span class="rotulo">Recebido</span><span style="color:var(--ok);font-weight:800;font-size:1.05rem;">${formatarBRL(g.recebido)}</span></div>
-    </div>
-    <div id="detalhe-mes-rec-${g.mes}" class="cartao" style="display:none; margin-top:-6px; margin-bottom:12px;">
-      ${g.itensRecebido.map((s) => linhaCliente(s, "var(--ok)")).join("")}
-    </div>`;
-
   raiz.innerHTML = `
     <div class="topo"><div class="topo-titulo">💰 Financeiro</div></div>
     <div id="faixa-sync" class="faixa-sync"></div>
     <div class="conteudo">
       <div class="abas-segmento">
-        <button type="button" class="ativa" data-aba-fin="receber">💰 A Receber</button>
-        <button type="button" data-aba-fin="recebido">✅ Recebido</button>
+        <button type="button" class="ativa" data-aba-fin="receber">A Receber</button>
+        <button type="button" data-aba-fin="recebido">Recebidos</button>
       </div>
 
-      <div id="aba-fin-receber">
-        <div class="cartao" style="margin-top:12px;">
-          <div class="campo"><span class="rotulo">Total a Receber</span><span style="color:var(--warn);font-weight:800;font-size:1.15rem;">${formatarBRL(totalAReceber)}</span></div>
+      <div id="aba-fin-receber" style="margin-top:12px;">
+        <div class="cartao cartao--destaque">
+          <div class="cartao-titulo">✅ Serviços Finalizados a Receber</div>
+          <div class="campo"><span class="rotulo">${finalizadosAReceber.length} cliente(s)</span><span style="color:var(--brand-dark);font-weight:800;font-size:1.15rem;">${formatarBRL(totalFinalizadosAReceber)}</span></div>
           ${totalAdiantado > 0 ? `
             <div class="campo"><span class="rotulo">💵 Adiantamento (em aberto)</span><span style="color:var(--danger);font-weight:700;">− ${formatarBRL(totalAdiantado)}</span></div>
-            <div class="campo" style="border-top:1px dashed var(--line); padding-top:8px; margin-top:4px;"><span class="rotulo"><b>Líquido a Receber</b></span><span style="color:var(--ink);font-weight:800;">${formatarBRL(liquidoAReceber)}</span></div>
+            <div class="campo" style="border-top:1px dashed var(--brand-mid); padding-top:8px; margin-top:4px;"><span class="rotulo"><b>Líquido a Receber</b></span><span style="color:var(--ink);font-weight:800;">${formatarBRL(liquidoFinalizados)}</span></div>
           ` : ""}
+          <div style="margin-top:12px; border-top:1px solid var(--brand-mid); padding-top:10px;">
+            ${finalizadosAReceber.length ? finalizadosAReceber.map((s) => linhaClienteClicavel(s, "var(--brand-dark)")).join("") : `<p class="vazio">Nenhum serviço finalizado aguardando pagamento.</p>`}
+          </div>
         </div>
 
         <h2 class="secao-titulo">Clique pra ver os clientes</h2>
-        ${cartaoQuadrante(
-          "finalizados", "✅ Serviços Finalizados a Receber", "var(--warn)",
-          totalFinalizadosAReceber, finalizadosAReceber, null,
-        )}
         ${cartaoQuadrante(
           "semdata", "🔧 Serviços em Andamento a Receber (sem data)", "var(--warn)",
           totalEmAndamentoSemData, emAndamentoSemData,
           "Preencha a \"Data Prevista de Instalação\" desses clientes (toque no nome pra abrir) pra eles entrarem na previsão do mês certo.",
         )}
-
-        <h2 class="secao-titulo">Por mês (clique pra ver os clientes)</h2>
-        ${gruposComReceber.length ? gruposComReceber.map(cartaoMesReceber).join("") : `<p class="vazio">Nada a receber no momento.</p>`}
       </div>
 
-      <div id="aba-fin-recebido" style="display:none;">
-        <label style="margin-top:12px;">📅 Ver recebimento do mês</label>
+      <div id="aba-fin-recebido" style="display:none; margin-top:12px;">
+        <label style="margin-top:0;">📅 Ver recebimento do mês</label>
         <select id="filtro-mes-financeiro">
-          ${mesesDisponiveis.map((m) => `<option value="${m}" ${m === mesAtualChave ? "selected" : ""}>${formatarMes(m)}</option>`).join("")}
+          ${mesesDisponiveis.map((m) => `<option value="${m}" ${m === mesAnteriorChave ? "selected" : ""}>${formatarMes(m)}</option>`).join("")}
         </select>
         <div id="cartao-recebido-mes" style="margin-top:12px;"></div>
-
-        <h2 class="secao-titulo">Por mês (clique pra ver os clientes)</h2>
-        ${gruposComRecebido.length ? gruposComRecebido.map(cartaoMesRecebido).join("") : `<p class="vazio">Nada recebido ainda.</p>`}
 
         ${adiantamentos.length ? `
           <h2 class="secao-titulo">💵 Histórico de Adiantamentos</h2>
@@ -1321,21 +1295,9 @@ async function viewFinanceiro() {
       });
     });
   };
-  renderRecebidoMes(mesAtualChave);
+  renderRecebidoMes(mesAnteriorChave);
   document.getElementById("filtro-mes-financeiro").addEventListener("change", (e) => renderRecebidoMes(e.target.value));
 
-  raiz.querySelectorAll("[data-mes-r]").forEach((el) => {
-    el.addEventListener("click", () => {
-      const det = document.getElementById(`detalhe-mes-r-${el.dataset.mesR}`);
-      det.style.display = det.style.display === "none" ? "block" : "none";
-    });
-  });
-  raiz.querySelectorAll("[data-mes-rec]").forEach((el) => {
-    el.addEventListener("click", () => {
-      const det = document.getElementById(`detalhe-mes-rec-${el.dataset.mesRec}`);
-      det.style.display = det.style.display === "none" ? "block" : "none";
-    });
-  });
   raiz.querySelectorAll("[data-quad]").forEach((el) => {
     el.addEventListener("click", () => {
       const det = document.getElementById(`detalhe-quad-${el.dataset.quad}`);

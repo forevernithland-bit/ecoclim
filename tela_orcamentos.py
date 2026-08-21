@@ -7,6 +7,7 @@ import math
 import orcamento_personalizado
 import orcamento_lote
 import orcamento_rapido
+import materiais_hid
 
 @st.dialog("💡 Calculadoras de Dimensionamento e Lembretes")
 def abrir_lembretes():
@@ -198,7 +199,7 @@ def renderizar():
     cat_produtos = st.session_state.db_produtos
     lista_nomes_produtos = cat_produtos['Item'].dropna().tolist() if not cat_produtos.empty else []
     
-    aba_personalizado, aba_lote, aba_rapido = st.tabs(["📝 Orçamento Personalizado", "📦 Gerador em Lote (Tabelas)", "⚡ Orçamento Rápido"])
+    aba_personalizado, aba_lote, aba_rapido, aba_materiais_hid = st.tabs(["📝 Orçamento Personalizado", "📦 Gerador em Lote (Tabelas)", "⚡ Orçamento Rápido", "🧰 MATERIAIS HID"])
 
     # Roteador chamando as abas separadas em arquivos
     with aba_personalizado:
@@ -212,6 +213,9 @@ def renderizar():
     with aba_rapido:
         if orcamento_rapido.renderizar(lista_nomes_produtos, limpar_tela_orcamento):
             deve_rerun = True
+
+    with aba_materiais_hid:
+        materiais_hid.renderizar()
 
     if deve_rerun:
         st.rerun()
