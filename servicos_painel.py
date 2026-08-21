@@ -175,7 +175,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         
         id_projeto = int(projeto_selecionado.get('id', 0))
 
-        aba_eq, aba_midia, aba_mat = st.tabs(["🛠️ Equipamento/Serviços", "📷 Mídia/Fotos/Contrato", "📋 Lista de Materiais"])
+        aba_eq, aba_fiscal, aba_midia, aba_mat = st.tabs(["🛠️ Equipamento/Serviços", "🧾 Fiscal/Boletos", "📷 Mídia/Fotos/Contrato", "📋 Lista de Materiais"])
 
         with aba_eq:
             c_cad1, c_cad2 = st.columns(2)
@@ -230,69 +230,6 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             opcoes_inst = [""] + lista_instaladores
             idx_inst = opcoes_inst.index(instalador_atual) if instalador_atual in opcoes_inst else 0
             novo_instalador = col_dir.selectbox("Instalador Responsável", opcoes_inst, index=idx_inst, key=f"inst_{prefix_key}")
-
-            # ---------------------------------------------------------------
-            # Reportado pelo Instalador (app do instalador) — só leitura aqui.
-            # Ajustes são feitos direto no orçamento/painel, não por este campo.
-            # ---------------------------------------------------------------
-            _concluida_inst = bool(projeto_selecionado.get('instalacao_concluida_instalador', False))
-            _obs_inst = str(projeto_selecionado.get('observacao_instalador', '') or '').strip()
-            if _obs_inst.lower() in ('nan', 'none'): _obs_inst = ''
-            if _concluida_inst or _obs_inst:
-                with st.container(border=True):
-                    st.markdown("##### 📲 Reportado pelo Instalador")
-                    if _concluida_inst:
-                        _data_ci = projeto_selecionado.get('data_conclusao_instalador')
-                        _data_ci_str = ""
-                        try:
-                            if pd.notna(_data_ci) and str(_data_ci).lower() not in ('none', 'nan', 'nat', ''):
-                                _data_ci_str = pd.to_datetime(_data_ci).strftime('%d/%m/%Y')
-                        except Exception:
-                            pass
-                        st.success(f"✅ Instalação marcada como concluída pelo instalador{f' em {_data_ci_str}' if _data_ci_str else ''}.")
-                    if _obs_inst:
-                        st.caption("Observação do instalador:")
-                        st.markdown(f"> {_obs_inst}")
-
-            # ---------------------------------------------------------------
-            # Garantia — a contagem começa, por padrão, no dia em que o
-            # instalador marca "concluída" pelo app. Editável aqui pra casos
-            # como obra em construção, onde o cliente pede pra garantia só
-            # começar quando ele se mudar pra casa.
-            # ---------------------------------------------------------------
-            nova_data_garantia = None
-            _garantia_banco = projeto_selecionado.get('data_inicio_garantia')
-            _tem_garantia_salva = pd.notna(_garantia_banco) and str(_garantia_banco).lower() not in ('none', 'nan', 'nat', '')
-            # Só mostra depois que existe algum sinal real de conclusão — nunca
-            # antes disso, pra não carimbar a data de hoje num serviço que ainda
-            # está "Em Andamento" só porque o painel foi salvo por outro motivo.
-            _tem_sinal_conclusao = (
-                bool(projeto_selecionado.get('instalacao_concluida_instalador', False))
-                or str(projeto_selecionado.get('status_projeto', '')) in ('Concluído PIX', 'Concluído CARTÃO')
-                or _tem_garantia_salva
-            )
-            if _tem_sinal_conclusao:
-                with st.container(border=True):
-                    st.markdown("##### 🛡️ Garantia")
-                    _garantia_inicial = None
-                    if _tem_garantia_salva:
-                        try: _garantia_inicial = pd.to_datetime(_garantia_banco).date()
-                        except Exception: pass
-                    if _garantia_inicial is None:
-                        for _fallback in (projeto_selecionado.get('data_conclusao_instalador'), projeto_selecionado.get('data_conclusao')):
-                            if pd.notna(_fallback) and str(_fallback).lower() not in ('none', 'nan', 'nat', ''):
-                                try:
-                                    _garantia_inicial = pd.to_datetime(_fallback).date()
-                                    break
-                                except Exception:
-                                    pass
-                    if _garantia_inicial is None:
-                        _garantia_inicial = datetime.date.today()
-                    nova_data_garantia = st.date_input(
-                        "Início da contagem da garantia", value=_garantia_inicial, format="DD/MM/YYYY",
-                        key=f"garantia_{prefix_key}",
-                        help="Padrão: dia em que o instalador marcou como concluída. Ajuste aqui se o cliente pediu pra garantia começar em outra data (ex.: casa em construção, garantia só a partir da mudança).")
-                    st.caption("Salvo junto com o botão 💾 SALVAR PROJETO, no final da página.")
 
             st.markdown("#### 🛒 Itens Vendidos (Ajuste Quantidades e Custos)")
 
@@ -402,6 +339,71 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                 margem_r = (lucro_final / venda_final * 100) if venda_final > 0 else 0
                 r2.metric("LUCRO LÍQUIDO FINAL", utils.to_br_currency(lucro_final), delta=f"{margem_r:.1f}% Margem")
 
+            # ---------------------------------------------------------------
+            # Reportado pelo Instalador (app do instalador) — só leitura aqui.
+            # Ajustes são feitos direto no orçamento/painel, não por este campo.
+            # ---------------------------------------------------------------
+            _concluida_inst = bool(projeto_selecionado.get('instalacao_concluida_instalador', False))
+            _obs_inst = str(projeto_selecionado.get('observacao_instalador', '') or '').strip()
+            if _obs_inst.lower() in ('nan', 'none'): _obs_inst = ''
+            if _concluida_inst or _obs_inst:
+                with st.container(border=True):
+                    st.markdown("##### 📲 Reportado pelo Instalador")
+                    if _concluida_inst:
+                        _data_ci = projeto_selecionado.get('data_conclusao_instalador')
+                        _data_ci_str = ""
+                        try:
+                            if pd.notna(_data_ci) and str(_data_ci).lower() not in ('none', 'nan', 'nat', ''):
+                                _data_ci_str = pd.to_datetime(_data_ci).strftime('%d/%m/%Y')
+                        except Exception:
+                            pass
+                        st.success(f"✅ Instalação marcada como concluída pelo instalador{f' em {_data_ci_str}' if _data_ci_str else ''}.")
+                    if _obs_inst:
+                        st.caption("Observação do instalador:")
+                        st.markdown(f"> {_obs_inst}")
+
+            # ---------------------------------------------------------------
+            # Garantia — a contagem começa, por padrão, no dia em que o
+            # instalador marca "concluída" pelo app. Editável aqui pra casos
+            # como obra em construção, onde o cliente pede pra garantia só
+            # começar quando ele se mudar pra casa.
+            # ---------------------------------------------------------------
+            nova_data_garantia = None
+            _garantia_banco = projeto_selecionado.get('data_inicio_garantia')
+            _tem_garantia_salva = pd.notna(_garantia_banco) and str(_garantia_banco).lower() not in ('none', 'nan', 'nat', '')
+            # Só mostra depois que existe algum sinal real de conclusão — nunca
+            # antes disso, pra não carimbar a data de hoje num serviço que ainda
+            # está "Em Andamento" só porque o painel foi salvo por outro motivo.
+            _tem_sinal_conclusao = (
+                bool(projeto_selecionado.get('instalacao_concluida_instalador', False))
+                or str(projeto_selecionado.get('status_projeto', '')) in ('Concluído PIX', 'Concluído CARTÃO')
+                or _tem_garantia_salva
+            )
+            if _tem_sinal_conclusao:
+                with st.container(border=True):
+                    st.markdown("##### 🛡️ Garantia")
+                    _garantia_inicial = None
+                    if _tem_garantia_salva:
+                        try: _garantia_inicial = pd.to_datetime(_garantia_banco).date()
+                        except Exception: pass
+                    if _garantia_inicial is None:
+                        for _fallback in (projeto_selecionado.get('data_conclusao_instalador'), projeto_selecionado.get('data_conclusao')):
+                            if pd.notna(_fallback) and str(_fallback).lower() not in ('none', 'nan', 'nat', ''):
+                                try:
+                                    _garantia_inicial = pd.to_datetime(_fallback).date()
+                                    break
+                                except Exception:
+                                    pass
+                    if _garantia_inicial is None:
+                        _garantia_inicial = datetime.date.today()
+                    nova_data_garantia = st.date_input(
+                        "Início da contagem da garantia", value=_garantia_inicial, format="DD/MM/YYYY",
+                        key=f"garantia_{prefix_key}",
+                        help="Padrão: dia em que o instalador marcou como concluída. Ajuste aqui se o cliente pediu pra garantia começar em outra data (ex.: casa em construção, garantia só a partir da mudança).")
+                    st.caption("Salvo junto com o botão 💾 SALVAR PROJETO, no final da página.")
+
+
+        with aba_fiscal:
             nova_nf_entrada = ""
             novo_venc_boleto = None
             pago_avista = bool(projeto_selecionado.get('pago_avista_fornecedor', False))
