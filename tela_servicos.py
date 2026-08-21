@@ -457,7 +457,7 @@ def renderizar():
         </style>
     """, unsafe_allow_html=True)
 
-    col_tit, col_btn = st.columns([1.6, 2.2])
+    col_tit, col_btn = st.columns([1.2, 2.8])
     with col_tit:
         st.markdown("## 📋 Gestão de Serviços")
         
@@ -509,13 +509,15 @@ def renderizar():
 
     with col_btn:
         st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
-        cb1, cb2, cb3 = st.columns(3)
+        cb1, cb2, cb3, cb4 = st.columns(4)
         if cb1.button("📅 Cronograma", use_container_width=True, type="secondary"):
             cronograma.modal_cronograma(df, lista_instaladores)
         if cb2.button("💵 Adiantamento", use_container_width=True, type="secondary"):
             _modal_adiantamento_instalador(supabase, lista_instaladores)
         if cb3.button("📅+ Agendar Tarefa", use_container_width=True, type="secondary"):
             _modal_agendar_tarefa_instalador(supabase, lista_instaladores)
+        if cb4.button("➕ Cadastrar Venda", use_container_width=True, type="primary"):
+            _modal_cadastrar_venda(supabase, lista_instaladores)
 
     if 'instalador' not in df.columns:
         df['instalador'] = ""
@@ -587,9 +589,6 @@ def renderizar():
     }
     
     with aba1:
-        cad_c1, cad_c2 = st.columns([1, 4])
-        if cad_c1.button("➕ Cadastrar Venda", type="primary", use_container_width=True, key="btn_cad_venda"):
-            _modal_cadastrar_venda(supabase, lista_instaladores)
         df_atv = barra_busca_servicos(df_atv, "atv")
         sel = st.dataframe(df_atv[colunas_visiveis], use_container_width=True, on_select="rerun", selection_mode="single-row", hide_index=True, column_config=config_colunas, key="g_atv")
         total_bruto_atv = pd.to_numeric(df_atv['valor_venda_total'], errors='coerce').fillna(0).sum()
