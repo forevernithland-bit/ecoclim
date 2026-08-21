@@ -408,7 +408,9 @@ def _modal_adiantamento_instalador(supabase, lista_instaladores):
 @st.dialog("📅 Agendar Tarefa/Visita para o Instalador")
 def _modal_agendar_tarefa_instalador(supabase, lista_instaladores):
     st.caption("Cria uma tarefa que aparece direto no app do instalador (com aviso de notificação). Ex.: ligar pra um cliente e agendar uma manutenção.")
-    instalador_sel = st.selectbox("Instalador", lista_instaladores, key="at_instalador")
+    # Valdimar é o instalador principal — já vem pré-selecionado.
+    _idx_padrao_at = lista_instaladores.index("Valdimar") if "Valdimar" in lista_instaladores else 0
+    instalador_sel = st.selectbox("Instalador", lista_instaladores, index=_idx_padrao_at, key="at_instalador")
     c1, c2 = st.columns(2)
     tipo_sel = c1.selectbox("Tipo", ["Manutenção", "Orçamento", "Tarefa"], key="at_tipo")
     cliente_nome = c2.text_input("Cliente", key="at_cliente")
@@ -444,12 +446,15 @@ def _modal_agendar_tarefa_instalador(supabase, lista_instaladores):
                 st.error(f"Erro ao agendar. Certifique-se de que as colunas 'visto_pelo_instalador' e 'criado_por' existem na tabela 'agenda_visitas'. Detalhe: {e}")
 
 
-@st.dialog("📅 Tarefa da Agenda")
-def _modal_editar_visita_agenda(supabase, visita, lista_instaladores):
-    """Acesso completo do admin a UMA tarefa da Agenda — reatribuir
-    instalador, mudar status, editar qualquer campo, ver a resposta/mídia do
-    instalador e apagar. Antes disso o admin só conseguia CRIAR tarefas."""
-    st.caption(f"Criada em {visita.get('criado_em', '')[:10]} por {visita.get('criado_por', 'admin')}")
+def _painel_visita_agenda(supabase, visita, lista_instaladores):
+    """Painel inline (igual ao de Em Andamento/Orçamentos/Finalizados — abre
+    embaixo da tabela ao selecionar uma linha, não em popup) com acesso
+    completo do admin a UMA tarefa da Agenda: reatribuir instalador, mudar
+    status, editar qualquer campo, ver a resposta/mídia do instalador,
+    apagar, e — se for o caso — promover o cliente pra "Em Andamento" com
+    valor/custo/produtos, já criando o registro de venda de verdade."""
+    st.markdown(f"##### 📅 {visita.get('cliente_nome') or 'Sem nome'}")
+    st.caption(f"Criada em {str(visita.get('criado_em', ''))[:10]} por {visita.get('criado_por', 'admin')}")
 
     _idx_inst = lista_instaladores.index(visita['instalador']) if visita.get('instalador') in lista_instaladores else 0
     c1, c2 = st.columns(2)
@@ -524,6 +529,43 @@ def _modal_editar_visita_agenda(supabase, visita, lista_instaladores):
         if cc2.button("Cancelar", use_container_width=True, key=f"ev_excluir_nao_{visita['id']}"):
             st.session_state.pop(f"ev_confirma_excluir_{visita['id']}", None)
             st.rerun()
+
+    # Visita de orçamento/manutenção que virou venda de verdade — cria o
+    # registro em "Em Andamento" com os dados já conhecidos do cliente, sem
+    # precisar redigitar nada no Cadastrar Venda.
+    st.markdown("---")
+    with st.expander("🚀 Mover Cliente para Em Andamento", expanded=(visita.get('tipo') == 'Orçamento')):
+        st.caption("Cria um serviço de verdade em 'Em Andamento' com os dados desse cliente — preencha valor, custo e produtos pra fechar a venda.")
+        mv1, mv2 = st.columns(2)
+        mv_valor = mv1.number_input("Valor Total da venda (R$)", min_value=0.0, value=float(visita.get('valor_sugerido') or 0), format="%.2f", key=f"mv_valor_{visita['id']}")
+        mv_lucro = mv2.number_input("Lucro Líquido estimado (R$)", min_value=0.0, format="%.2f", key=f"mv_lucro_{visita['id']}")
+        mv_prod = st.text_input("Produtos / Serviços (resumo, opcional)", key=f"mv_prod_{visita['id']}")
+        mv_data = st.date_input("Data prevista de término", value=datetime.date.today(), format="DD/MM/YYYY", key=f"mv_data_{visita['id']}")
+        if st.button("🚀 Mover para Em Andamento", type="primary", use_container_width=True, key=f"mv_btn_{visita['id']}"):
+            _nome_mv = (visita.get('cliente_nome') or '').strip()
+            if not _nome_mv:
+                st.error("Essa tarefa não tem nome de cliente preenchido.")
+            else:
+                try:
+                    payload = {
+                        "numero_orcamento": f"VENDA-{datetime.datetime.now().strftime('%y%m%d-%H%M')}",
+                        "nome_cliente": _nome_mv,
+                        "telefone_cliente": (visita.get('telefone') or '').strip(),
+                        "endereco_cliente": (visita.get('endereco') or '').strip(),
+                        "produtos_adquiridos": mv_prod.strip(),
+                        "valor_venda_total": float(mv_valor),
+                        "lucro_estimado": float(mv_lucro),
+                        "status_projeto": "Em Andamento",
+                        "instalador": instalador_novo,
+                        "data_conclusao": mv_data.strftime('%Y-%m-%d'),
+                        "dados_contrato": {},
+                    }
+                    supabase.table('servicos_andamento').insert(payload).execute()
+                    supabase.table('agenda_visitas').update({"status": "Realizada"}).eq('id', visita['id']).execute()
+                    st.success(f"✅ {_nome_mv} agora está em Em Andamento!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro ao mover pra Em Andamento: {e}")
 
 
 def renderizar():
@@ -861,4 +903,4 @@ def renderizar():
             if sel_agenda.selection.rows and len(df_ag_filtrado) > sel_agenda.selection.rows[0]:
                 _id_sel = int(df_ag_filtrado.iloc[sel_agenda.selection.rows[0]]['id'])
                 if _id_sel in visitas_por_id:
-                    _modal_editar_visita_agenda(supabase, visitas_por_id[_id_sel], lista_instaladores)
+                    _painel_visita_agenda(supabase, visitas_por_id[_id_sel], lista_instaladores)
