@@ -57,6 +57,114 @@ def renderizar_galeria_midias(supabase, midias, permitir_excluir=True):
             st.audio(_url_m)
 
 
+def selecionar_itens_produtos(df_produtos, session_key, itens_iniciais=None):
+    """Editor de itens com busca no catálogo de produtos — mesmo motor usado
+    no fechamento de Em Andamento/Orçamentos/Finalizados: escolhe o produto
+    numa lista (ao invés de digitar à mão), já traz o custo/venda cadastrado,
+    calcula o total por linha e o agregado. Reaproveitado também no "Mover
+    Cliente para Em Andamento" da Agenda, pra não duplicar essa lógica.
+    Retorna (df_itens_final, custo_total, venda_total, lucro_total)."""
+    lista_prod = df_produtos['Item'].dropna().tolist() if not df_produtos.empty and 'Item' in df_produtos.columns else []
+
+    colunas_padrao = ['Item', 'Descrição', 'Qtd', 'Custo Un.', 'Venda Un.', 'Custo Total', 'Venda Total']
+    itens_json = itens_iniciais or []
+
+    clean_data = []
+    if isinstance(itens_json, list):
+        for linha in itens_json:
+            if isinstance(linha, dict):
+                clean_data.append({
+                    'Item': str(linha.get('Item', '')),
+                    'Descrição': str(linha.get('Descrição', '')),
+                    'Qtd': safe_float(linha.get('Qtd', 0)),
+                    'Custo Un.': safe_float(linha.get('Custo Un.', 0)),
+                    'Venda Un.': safe_float(linha.get('Venda Un.', 0)),
+                    'Custo Total': safe_float(linha.get('Custo Total', 0)),
+                    'Venda Total': safe_float(linha.get('Venda Total', 0)),
+                })
+
+    df_itens = pd.DataFrame(clean_data, columns=colunas_padrao)
+
+    if session_key not in st.session_state:
+        if not df_produtos.empty and 'Item' in df_produtos.columns:
+            for idx in df_itens.index:
+                if safe_float(df_itens.loc[idx, 'Custo Un.']) == 0.0:
+                    nome_procurado = str(df_itens.loc[idx, 'Item']).strip().upper()
+                    match = df_produtos[df_produtos['Item'].astype(str).str.strip().str.upper() == nome_procurado]
+                    if not match.empty:
+                        df_itens.loc[idx, 'Custo Un.'] = safe_float(match.iloc[0].get('Custo (R$)', 0))
+                if safe_float(df_itens.loc[idx, 'Venda Un.']) == 0.0:
+                    nome_procurado = str(df_itens.loc[idx, 'Item']).strip().upper()
+                    match = df_produtos[df_produtos['Item'].astype(str).str.strip().str.upper() == nome_procurado]
+                    if not match.empty:
+                        df_itens.loc[idx, 'Venda Un.'] = safe_float(match.iloc[0].get('Venda (R$)', 0))
+        st.session_state[session_key] = df_itens.copy()
+
+    config_itens = {
+        "Item": st.column_config.SelectboxColumn("Produto", options=[""] + lista_prod + ["OUTRO"], width="large"),
+        "Descrição": st.column_config.TextColumn("Descrição", width="medium"),
+        "Qtd": st.column_config.NumberColumn("Qtd", min_value=0, width="small"),
+        "Custo Un.": st.column_config.NumberColumn("Custo Fábrica", format="R$ %.2f", width="small"),
+        "Venda Un.": st.column_config.NumberColumn("Venda Unt.", format="R$ %.2f", width="small"),
+        "Custo Total": st.column_config.NumberColumn("Custo Total", format="R$ %.2f", disabled=True, width="small"),
+        "Venda Total": st.column_config.NumberColumn("Venda Total", format="R$ %.2f", disabled=True, width="small"),
+    }
+
+    df_itens_editavel = st.data_editor(
+        st.session_state[session_key],
+        column_config=config_itens,
+        column_order=colunas_padrao,
+        num_rows="dynamic",
+        use_container_width=True,
+        key=f"edit_{session_key}",
+    )
+
+    precisa_atualizar = False
+    for idx in df_itens_editavel.index:
+        item_atual = str(df_itens_editavel.loc[idx, 'Item']).strip() if 'Item' in df_itens_editavel.columns and pd.notna(df_itens_editavel.loc[idx, 'Item']) else ""
+        item_ant = ""
+        if idx in st.session_state[session_key].index:
+            item_ant = str(st.session_state[session_key].loc[idx, 'Item']).strip() if 'Item' in st.session_state[session_key].columns and pd.notna(st.session_state[session_key].loc[idx, 'Item']) else ""
+
+        if item_atual != item_ant and item_atual != "" and item_atual != "OUTRO":
+            if not df_produtos.empty and 'Item' in df_produtos.columns:
+                match = df_produtos[df_produtos['Item'].astype(str).str.strip().str.upper() == item_atual.upper()]
+                if not match.empty:
+                    df_itens_editavel.loc[idx, 'Custo Un.'] = safe_float(match.iloc[0].get('Custo (R$)', 0))
+                    df_itens_editavel.loc[idx, 'Venda Un.'] = safe_float(match.iloc[0].get('Venda (R$)', 0))
+                    qtd_atual = df_itens_editavel.loc[idx, 'Qtd'] if 'Qtd' in df_itens_editavel.columns else 0
+                    if pd.isna(qtd_atual) or safe_float(qtd_atual) <= 0:
+                        df_itens_editavel.loc[idx, 'Qtd'] = 1
+                    precisa_atualizar = True
+
+        qtd_calc = safe_float(df_itens_editavel.loc[idx, 'Qtd']) if 'Qtd' in df_itens_editavel.columns else 0.0
+        c_un_calc = safe_float(df_itens_editavel.loc[idx, 'Custo Un.']) if 'Custo Un.' in df_itens_editavel.columns else 0.0
+        v_un_calc = safe_float(df_itens_editavel.loc[idx, 'Venda Un.']) if 'Venda Un.' in df_itens_editavel.columns else 0.0
+
+        tot_c = qtd_calc * c_un_calc
+        tot_v = qtd_calc * v_un_calc
+
+        c_tot_atual = safe_float(df_itens_editavel.loc[idx, 'Custo Total']) if 'Custo Total' in df_itens_editavel.columns else 0.0
+        v_tot_atual = safe_float(df_itens_editavel.loc[idx, 'Venda Total']) if 'Venda Total' in df_itens_editavel.columns else 0.0
+
+        if abs(tot_c - c_tot_atual) > 0.01 or abs(tot_v - v_tot_atual) > 0.01:
+            df_itens_editavel.loc[idx, 'Custo Total'] = tot_c
+            df_itens_editavel.loc[idx, 'Venda Total'] = tot_v
+            precisa_atualizar = True
+
+    if precisa_atualizar:
+        st.session_state[session_key] = df_itens_editavel
+        if f"edit_{session_key}" in st.session_state:
+            del st.session_state[f"edit_{session_key}"]
+        st.rerun()
+
+    df_itens_final = df_itens_editavel
+    custo_total = pd.to_numeric(df_itens_final['Custo Total'], errors='coerce').fillna(0).sum() if 'Custo Total' in df_itens_final.columns else 0.0
+    venda_total = pd.to_numeric(df_itens_final['Venda Total'], errors='coerce').fillna(0).sum() if 'Venda Total' in df_itens_final.columns else 0.0
+    lucro_total = venda_total - custo_total
+    return df_itens_final, custo_total, venda_total, lucro_total
+
+
 def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_produtos, prefix_key, lista_instaladores):
     # =========================================================================
     # ARMADURA ANTI-CRASH GLOBAL DO PAINEL
@@ -211,113 +319,10 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                 renderizar_galeria_midias(supabase, _midias)
 
         st.markdown("#### 🛒 Itens Vendidos (Ajuste Quantidades e Custos)")
-        
-        lista_prod = df_produtos['Item'].dropna().tolist() if not df_produtos.empty and 'Item' in df_produtos.columns else []
-        
-        # =========================================================================
-        # NOVO MOTOR DE TABELA 100% BLINDADO CONTRA KEYERRORS
-        # =========================================================================
-        colunas_padrao = ['Item', 'Descrição', 'Qtd', 'Custo Un.', 'Venda Un.', 'Custo Total', 'Venda Total']
-        itens_json = projeto_selecionado.get('detalhamento_itens', [])
-        
-        clean_data = []
-        if isinstance(itens_json, list):
-            for linha in itens_json:
-                if isinstance(linha, dict):
-                    clean_data.append({
-                        'Item': str(linha.get('Item', '')),
-                        'Descrição': str(linha.get('Descrição', '')),
-                        'Qtd': safe_float(linha.get('Qtd', 0)),
-                        'Custo Un.': safe_float(linha.get('Custo Un.', 0)),
-                        'Venda Un.': safe_float(linha.get('Venda Un.', 0)),
-                        'Custo Total': safe_float(linha.get('Custo Total', 0)),
-                        'Venda Total': safe_float(linha.get('Venda Total', 0))
-                    })
-        
-        df_itens = pd.DataFrame(clean_data, columns=colunas_padrao)
 
-        session_key = f"itens_state_{prefix_key}"
-        if session_key not in st.session_state:
-            if not df_produtos.empty and 'Item' in df_produtos.columns:
-                for idx in df_itens.index:
-                    if safe_float(df_itens.loc[idx, 'Custo Un.']) == 0.0:
-                        nome_procurado = str(df_itens.loc[idx, 'Item']).strip().upper()
-                        match = df_produtos[df_produtos['Item'].astype(str).str.strip().str.upper() == nome_procurado]
-                        if not match.empty:
-                            df_itens.loc[idx, 'Custo Un.'] = safe_float(match.iloc[0].get('Custo (R$)', 0))
-                    if safe_float(df_itens.loc[idx, 'Venda Un.']) == 0.0:
-                        nome_procurado = str(df_itens.loc[idx, 'Item']).strip().upper()
-                        match = df_produtos[df_produtos['Item'].astype(str).str.strip().str.upper() == nome_procurado]
-                        if not match.empty:
-                            df_itens.loc[idx, 'Venda Un.'] = safe_float(match.iloc[0].get('Venda (R$)', 0))
-            st.session_state[session_key] = df_itens.copy()
-
-        config_itens = {
-            "Item": st.column_config.SelectboxColumn("Produto", options=[""] + lista_prod + ["OUTRO"], width="large"),
-            "Descrição": st.column_config.TextColumn("Descrição", width="medium"),
-            "Qtd": st.column_config.NumberColumn("Qtd", min_value=0, width="small"),
-            "Custo Un.": st.column_config.NumberColumn("Custo Fábrica", format="R$ %.2f", width="small"),
-            "Venda Un.": st.column_config.NumberColumn("Venda Unt.", format="R$ %.2f", width="small"),
-            "Custo Total": st.column_config.NumberColumn("Custo Total", format="R$ %.2f", disabled=True, width="small"),
-            "Venda Total": st.column_config.NumberColumn("Venda Total", format="R$ %.2f", disabled=True, width="small")
-        }
-        
-        df_itens_editavel = st.data_editor(
-            st.session_state[session_key], 
-            column_config=config_itens, 
-            column_order=colunas_padrao,
-            num_rows="dynamic", 
-            use_container_width=True, 
-            key=f"edit_itens_{prefix_key}"
+        df_itens_final, custo_total_produtos, venda_total_produtos, lucro_total_produtos = selecionar_itens_produtos(
+            df_produtos, f"itens_state_{prefix_key}", projeto_selecionado.get('detalhamento_itens', [])
         )
-        
-        precisa_atualizar = False
-        
-        # Iteração blindada usando .loc e verificação explícita de colunas
-        for idx in df_itens_editavel.index:
-            item_atual = str(df_itens_editavel.loc[idx, 'Item']).strip() if 'Item' in df_itens_editavel.columns and pd.notna(df_itens_editavel.loc[idx, 'Item']) else ""
-            
-            item_ant = ""
-            if idx in st.session_state[session_key].index:
-                item_ant = str(st.session_state[session_key].loc[idx, 'Item']).strip() if 'Item' in st.session_state[session_key].columns and pd.notna(st.session_state[session_key].loc[idx, 'Item']) else ""
-                
-            if item_atual != item_ant and item_atual != "" and item_atual != "OUTRO":
-                if not df_produtos.empty and 'Item' in df_produtos.columns:
-                    match = df_produtos[df_produtos['Item'].astype(str).str.strip().str.upper() == item_atual.upper()]
-                    if not match.empty:
-                        df_itens_editavel.loc[idx, 'Custo Un.'] = safe_float(match.iloc[0].get('Custo (R$)', 0))
-                        df_itens_editavel.loc[idx, 'Venda Un.'] = safe_float(match.iloc[0].get('Venda (R$)', 0))
-                        qtd_atual = df_itens_editavel.loc[idx, 'Qtd'] if 'Qtd' in df_itens_editavel.columns else 0
-                        if pd.isna(qtd_atual) or safe_float(qtd_atual) <= 0:
-                            df_itens_editavel.loc[idx, 'Qtd'] = 1
-                        precisa_atualizar = True
-
-            qtd_calc = safe_float(df_itens_editavel.loc[idx, 'Qtd']) if 'Qtd' in df_itens_editavel.columns else 0.0
-            c_un_calc = safe_float(df_itens_editavel.loc[idx, 'Custo Un.']) if 'Custo Un.' in df_itens_editavel.columns else 0.0
-            v_un_calc = safe_float(df_itens_editavel.loc[idx, 'Venda Un.']) if 'Venda Un.' in df_itens_editavel.columns else 0.0
-            
-            tot_c = qtd_calc * c_un_calc
-            tot_v = qtd_calc * v_un_calc
-            
-            c_tot_atual = safe_float(df_itens_editavel.loc[idx, 'Custo Total']) if 'Custo Total' in df_itens_editavel.columns else 0.0
-            v_tot_atual = safe_float(df_itens_editavel.loc[idx, 'Venda Total']) if 'Venda Total' in df_itens_editavel.columns else 0.0
-            
-            if abs(tot_c - c_tot_atual) > 0.01 or abs(tot_v - v_tot_atual) > 0.01:
-                df_itens_editavel.loc[idx, 'Custo Total'] = tot_c
-                df_itens_editavel.loc[idx, 'Venda Total'] = tot_v
-                precisa_atualizar = True
-
-        if precisa_atualizar:
-            st.session_state[session_key] = df_itens_editavel
-            if f"edit_itens_{prefix_key}" in st.session_state:
-                del st.session_state[f"edit_itens_{prefix_key}"]
-            st.rerun()
-            
-        df_itens_final = df_itens_editavel
-        
-        custo_total_produtos = pd.to_numeric(df_itens_final['Custo Total'], errors='coerce').fillna(0).sum() if 'Custo Total' in df_itens_final.columns else 0.0
-        venda_total_produtos = pd.to_numeric(df_itens_final['Venda Total'], errors='coerce').fillna(0).sum() if 'Venda Total' in df_itens_final.columns else 0.0
-        lucro_total_produtos = venda_total_produtos - custo_total_produtos
 
         st.markdown(f"""
             <div style='display: flex; justify-content: flex-end; gap: 25px; margin-top: -10px; margin-bottom: 25px;'>

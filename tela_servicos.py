@@ -446,7 +446,7 @@ def _modal_agendar_tarefa_instalador(supabase, lista_instaladores):
                 st.error(f"Erro ao agendar. Certifique-se de que as colunas 'visto_pelo_instalador' e 'criado_por' existem na tabela 'agenda_visitas'. Detalhe: {e}")
 
 
-def _painel_visita_agenda(supabase, visita, lista_instaladores):
+def _painel_visita_agenda(supabase, visita, lista_instaladores, df_produtos):
     """Painel inline (igual ao de Em Andamento/Orçamentos/Finalizados — abre
     embaixo da tabela ao selecionar uma linha, não em popup) com acesso
     completo do admin a UMA tarefa da Agenda: reatribuir instalador, mudar
@@ -535,11 +535,16 @@ def _painel_visita_agenda(supabase, visita, lista_instaladores):
     # precisar redigitar nada no Cadastrar Venda.
     st.markdown("---")
     with st.expander("🚀 Mover Cliente para Em Andamento", expanded=(visita.get('tipo') == 'Orçamento')):
-        st.caption("Cria um serviço de verdade em 'Em Andamento' com os dados desse cliente — preencha valor, custo e produtos pra fechar a venda.")
-        mv1, mv2 = st.columns(2)
-        mv_valor = mv1.number_input("Valor Total da venda (R$)", min_value=0.0, value=float(visita.get('valor_sugerido') or 0), format="%.2f", key=f"mv_valor_{visita['id']}")
-        mv_lucro = mv2.number_input("Lucro Líquido estimado (R$)", min_value=0.0, format="%.2f", key=f"mv_lucro_{visita['id']}")
-        mv_prod = st.text_input("Produtos / Serviços (resumo, opcional)", key=f"mv_prod_{visita['id']}")
+        st.caption("Cria um serviço de verdade em 'Em Andamento' com os dados desse cliente — busque os produtos no catálogo, igual em Orçamentos e Em Andamento.")
+        mv_df_itens, mv_custo, mv_venda, mv_lucro = servicos_painel.selecionar_itens_produtos(
+            df_produtos, f"mv_itens_{visita['id']}", []
+        )
+        st.markdown(
+            f"<div style='display:flex; justify-content:flex-end; gap:25px; margin-top:-10px; margin-bottom:15px;'>"
+            f"<span style='color:#cc0000; font-size:15px;'><b>Custo Total:</b> {utils.to_br_currency_md(mv_custo)}</span>"
+            f"<span style='color:#006600; font-size:15px;'><b>Lucro Total:</b> {utils.to_br_currency_md(mv_lucro)}</span>"
+            f"</div>", unsafe_allow_html=True,
+        )
         mv_data = st.date_input("Data prevista de término", value=datetime.date.today(), format="DD/MM/YYYY", key=f"mv_data_{visita['id']}")
         if st.button("🚀 Mover para Em Andamento", type="primary", use_container_width=True, key=f"mv_btn_{visita['id']}"):
             _nome_mv = (visita.get('cliente_nome') or '').strip()
@@ -547,14 +552,17 @@ def _painel_visita_agenda(supabase, visita, lista_instaladores):
                 st.error("Essa tarefa não tem nome de cliente preenchido.")
             else:
                 try:
+                    _nomes_itens = mv_df_itens['Item'].dropna().astype(str).str.strip()
+                    _resumo_prod = ", ".join([n for n in _nomes_itens if n and n != "OUTRO"])
                     payload = {
                         "numero_orcamento": f"VENDA-{datetime.datetime.now().strftime('%y%m%d-%H%M')}",
                         "nome_cliente": _nome_mv,
                         "telefone_cliente": (visita.get('telefone') or '').strip(),
                         "endereco_cliente": (visita.get('endereco') or '').strip(),
-                        "produtos_adquiridos": mv_prod.strip(),
-                        "valor_venda_total": float(mv_valor),
+                        "produtos_adquiridos": _resumo_prod,
+                        "valor_venda_total": float(mv_venda),
                         "lucro_estimado": float(mv_lucro),
+                        "detalhamento_itens": mv_df_itens.fillna("").to_dict('records'),
                         "status_projeto": "Em Andamento",
                         "instalador": instalador_novo,
                         "data_conclusao": mv_data.strftime('%Y-%m-%d'),
@@ -562,6 +570,8 @@ def _painel_visita_agenda(supabase, visita, lista_instaladores):
                     }
                     supabase.table('servicos_andamento').insert(payload).execute()
                     supabase.table('agenda_visitas').update({"status": "Realizada"}).eq('id', visita['id']).execute()
+                    if f"mv_itens_{visita['id']}" in st.session_state:
+                        del st.session_state[f"mv_itens_{visita['id']}"]
                     st.success(f"✅ {_nome_mv} agora está em Em Andamento!")
                     st.rerun()
                 except Exception as e:
@@ -903,4 +913,4 @@ def renderizar():
             if sel_agenda.selection.rows and len(df_ag_filtrado) > sel_agenda.selection.rows[0]:
                 _id_sel = int(df_ag_filtrado.iloc[sel_agenda.selection.rows[0]]['id'])
                 if _id_sel in visitas_por_id:
-                    _painel_visita_agenda(supabase, visitas_por_id[_id_sel], lista_instaladores)
+                    _painel_visita_agenda(supabase, visitas_por_id[_id_sel], lista_instaladores, df_produtos)
