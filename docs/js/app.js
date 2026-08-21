@@ -2,7 +2,7 @@ import { login, sessaoAtual, logout } from "./auth.js";
 import { lerServicos, lerServico, enfileirar } from "./db.js";
 import { sincronizarTudo, iniciarSyncAutomatico, statusAtual, aoMudarStatusSync } from "./sync.js";
 import { adicionarMidia, enviarMidiasPendentes, puxarMidias, urlPublicaMidia, listarPendentesLocal } from "./midias.js";
-import { puxarVisitas, visitasPendentesNovas, criarVisita, atualizarStatusVisita } from "./agenda.js";
+import { puxarVisitas, visitasPendentesNovas, criarVisita, atualizarStatusVisita, contarNaoVistas, marcarTodasComoVistas } from "./agenda.js";
 import { puxarMinhasListas, puxarMateriaisPadrao, salvarLista, adicionarItemAoPadrao, listasPendentesNovas } from "./materiais.js";
 import { agruparPorMes, formatarMes } from "./financeiro.js";
 
@@ -13,6 +13,24 @@ let sessao = null;
 // o instalador pode estar digitando uma observação, e um sync automático no
 // meio disso não pode apagar o que ele ainda não terminou de escrever).
 let telaAtual = null;
+// Quantas tarefas o Breno cadastrou que o instalador ainda não viu (selinho
+// no ícone Agenda da barra inferior).
+let badgeAgenda = 0;
+// Verdadeiro enquanto o formulário de "Nova Visita" (Agenda) ou "Nova Lista"
+// (Materiais) está aberto — a atualização automática de 10 em 10 minutos
+// nunca redesenha a tela nesse caso, senão apagaria o que ele já digitou
+// ali mas ainda não salvou.
+let formularioAbertoAgendaOuMateriais = false;
+
+// Segunda camada de proteção: se o toque estiver em cima de QUALQUER campo
+// de texto/seleção no momento da atualização automática (mesmo fora de um
+// formulário "grande"), também não mexe na tela nesse ciclo.
+function usuarioEstaDigitando() {
+  const el = document.activeElement;
+  if (!el) return false;
+  const tag = el.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+}
 
 function hojeLocalISO() {
   const d = new Date();
@@ -82,9 +100,28 @@ const ITENS_NAV = [
 function navBarHTML(ativo) {
   return `<nav class="nav-inferior">${ITENS_NAV.map((i) => `
     <button class="nav-item ${i.id === ativo ? "nav-item--ativo" : ""}" data-nav="${i.id}">
-      <span class="nav-icone">${i.icone}</span><span class="nav-label">${i.label}</span>
+      <span class="nav-icone-wrap">
+        <span class="nav-icone">${i.icone}</span>
+        ${i.id === "agenda" ? `<span class="nav-badge" id="nav-badge-agenda" style="display:${badgeAgenda > 0 ? "flex" : "none"}">${badgeAgenda > 9 ? "9+" : badgeAgenda}</span>` : ""}
+      </span>
+      <span class="nav-label">${i.label}</span>
     </button>
   `).join("")}</nav>`;
+}
+
+// Atualiza só o número do selinho no DOM (sem redesenhar nenhuma tela) —
+// seguro chamar a qualquer momento, mesmo com um formulário aberto.
+function atualizarBadgeDOM() {
+  const el = document.getElementById("nav-badge-agenda");
+  if (!el) return;
+  el.style.display = badgeAgenda > 0 ? "flex" : "none";
+  el.textContent = badgeAgenda > 9 ? "9+" : String(badgeAgenda);
+}
+
+async function atualizarContadorAgenda() {
+  if (!sessao) return;
+  badgeAgenda = await contarNaoVistas(sessao.instaladorVinculado);
+  atualizarBadgeDOM();
 }
 
 function ligarNav() {
@@ -428,6 +465,10 @@ function formatarDataHora(iso) {
 
 async function viewAgenda() {
   telaAtual = "agenda";
+  formularioAbertoAgendaOuMateriais = false;
+  // Abrir a Agenda já conta como "visto" — some o selinho de notificação.
+  await marcarTodasComoVistas(sessao.instaladorVinculado);
+  badgeAgenda = 0;
   const [visitas, pendentesNovas] = await Promise.all([
     puxarVisitas(sessao.instaladorVinculado),
     visitasPendentesNovas(),
@@ -438,6 +479,7 @@ async function viewAgenda() {
   const cartaoVisita = (v, pendente) => `
     <div class="cartao">
       <div class="cartao-rodape" style="margin-top:0;margin-bottom:8px;">
+        ${v.criado_por === "admin" ? `<span class="etiqueta etiqueta--destaque">📋 Tarefa do Breno</span>` : ""}
         <span class="etiqueta">${escapeHTML(v.tipo || "")}</span>
         ${pendente ? `<span class="etiqueta etiqueta--pendente">⏳ pendente</span>` : ""}
         ${v.status && v.status !== "Agendada" ? `<span class="etiqueta ${v.status === "Realizada" ? "etiqueta--ok" : ""}">${escapeHTML(v.status)}</span>` : ""}
@@ -492,7 +534,9 @@ async function viewAgenda() {
 
   document.getElementById("btn-nova-visita").addEventListener("click", () => {
     const f = document.getElementById("form-nova-visita");
-    f.style.display = f.style.display === "none" ? "block" : "none";
+    const vaiAbrir = f.style.display === "none";
+    f.style.display = vaiAbrir ? "block" : "none";
+    formularioAbertoAgendaOuMateriais = vaiAbrir;
   });
   document.getElementById("btn-salvar-visita").addEventListener("click", async (e) => {
     const cliente = document.getElementById("nv-cliente").value.trim();
@@ -582,6 +626,7 @@ function lerItensDoFormulario() {
 
 async function viewMateriais() {
   telaAtual = "materiais";
+  formularioAbertoAgendaOuMateriais = false;
   const [minhasListas, padrao, pendentesNovas] = await Promise.all([
     puxarMinhasListas(sessao.instaladorVinculado),
     puxarMateriaisPadrao(),
@@ -625,7 +670,9 @@ async function viewMateriais() {
 
   document.getElementById("btn-nova-lista").addEventListener("click", () => {
     const f = document.getElementById("form-nova-lista");
-    f.style.display = f.style.display === "none" ? "block" : "none";
+    const vaiAbrir = f.style.display === "none";
+    f.style.display = vaiAbrir ? "block" : "none";
+    formularioAbertoAgendaOuMateriais = vaiAbrir;
   });
 
   document.getElementById("btn-carregar-padrao").addEventListener("click", () => {
@@ -705,10 +752,31 @@ async function viewFinanceiro() {
   renderFaixaSync(navigator.onLine ? "sincronizado" : "offline", pendentes);
 }
 
+// Atualização automática de 10 em 10 minutos (ex.: pega tarefas novas que o
+// Breno cadastrou). O selinho de notificação é sempre atualizado — é só um
+// número, nunca atrapalha nada. Já redesenhar a TELA só acontece se: (a)
+// não tem formulário de Agenda/Materiais aberto, e (b) o toque não está em
+// cima de nenhum campo de texto/seleção agora — ou seja, nunca no meio de
+// uma observação sendo digitada, um formulário em preenchimento, etc.
+function iniciarAtualizacaoPeriodica(instaladorVinculado) {
+  setInterval(async () => {
+    await atualizarContadorAgenda();
+
+    if (usuarioEstaDigitando() || formularioAbertoAgendaOuMateriais) return;
+    if (telaAtual === "lista") await viewLista();
+    else if (telaAtual === "agenda") await viewAgenda();
+    else if (telaAtual === "materiais") await viewMateriais();
+    else if (telaAtual === "financeiro") await viewFinanceiro();
+    // "detalhe" (tem observação/fotos em edição) e "login" nunca atualizam sozinhos.
+  }, 10 * 60 * 1000);
+}
+
 // ---------- Boot ----------
 async function iniciarApp() {
   await viewLista();
   iniciarSyncAutomatico(sessao.instaladorVinculado);
+  await atualizarContadorAgenda();
+  iniciarAtualizacaoPeriodica(sessao.instaladorVinculado);
 }
 
 async function boot() {

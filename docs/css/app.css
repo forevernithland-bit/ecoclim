@@ -136,7 +136,13 @@ textarea:focus { outline: none; border-color: var(--brand); }
   flex: 1; background: none; border: none; display: flex; flex-direction: column;
   align-items: center; gap: 2px; padding: 6px 2px; color: var(--muted); cursor: pointer;
 }
+.nav-icone-wrap { position: relative; display: inline-block; }
 .nav-icone { font-size: 1.25rem; }
+.nav-badge {
+  position: absolute; top: -4px; right: -8px; min-width: 16px; height: 16px; padding: 0 3px;
+  background: var(--danger); color: #fff; border-radius: 999px; font-size: 0.62rem; font-weight: 800;
+  align-items: center; justify-content: center; line-height: 1; border: 2px solid var(--card);
+}
 .nav-label { font-size: 0.68rem; font-weight: 600; }
 .nav-item--ativo { color: var(--brand); }
 

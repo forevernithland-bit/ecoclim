@@ -223,6 +223,45 @@ def _modal_adiantamento_instalador(supabase, lista_instaladores):
             st.markdown(f"- **{data_fmt}** — {utils.to_br_currency(a.get('valor'))} — {a.get('motivo') or 'sem motivo informado'}")
 
 
+@st.dialog("📅 Agendar Tarefa/Visita para o Instalador")
+def _modal_agendar_tarefa_instalador(supabase, lista_instaladores):
+    st.caption("Cria uma tarefa que aparece direto no app do instalador (com aviso de notificação). Ex.: ligar pra um cliente e agendar uma manutenção.")
+    instalador_sel = st.selectbox("Instalador", lista_instaladores, key="at_instalador")
+    c1, c2 = st.columns(2)
+    tipo_sel = c1.selectbox("Tipo", ["Manutenção", "Orçamento", "Tarefa"], key="at_tipo")
+    cliente_nome = c2.text_input("Cliente", key="at_cliente")
+    c3, c4 = st.columns(2)
+    telefone = c3.text_input("Telefone", key="at_telefone")
+    endereco = c4.text_input("Endereço (opcional)", key="at_endereco")
+    c5, c6 = st.columns(2)
+    data_visita = c5.date_input("Data prevista", value=datetime.date.today(), format="DD/MM/YYYY", key="at_data")
+    hora_visita = c6.time_input("Hora", value=datetime.time(9, 0), key="at_hora")
+    observacoes = st.text_area("O que ele precisa fazer", key="at_obs", placeholder="Ex: ligar pro cliente Fulano e agendar uma manutenção do sistema")
+
+    if st.button("📅 Agendar para o Instalador", type="primary", use_container_width=True):
+        if not cliente_nome.strip():
+            st.warning("Informe pelo menos o nome do cliente.")
+        else:
+            try:
+                data_hora_iso = datetime.datetime.combine(data_visita, hora_visita).isoformat()
+                supabase.table('agenda_visitas').insert({
+                    "instalador": instalador_sel,
+                    "tipo": tipo_sel,
+                    "cliente_nome": cliente_nome.strip(),
+                    "telefone": telefone.strip(),
+                    "endereco": endereco.strip(),
+                    "data_hora": data_hora_iso,
+                    "status": "Agendada",
+                    "observacoes": observacoes.strip(),
+                    "visto_pelo_instalador": False,
+                    "criado_por": "admin",
+                }).execute()
+                st.success(f"✅ Tarefa agendada para {instalador_sel}! Vai aparecer no app dele com aviso de notificação.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Erro ao agendar. Certifique-se de que as colunas 'visto_pelo_instalador' e 'criado_por' existem na tabela 'agenda_visitas'. Detalhe: {e}")
+
+
 def renderizar():
     st.markdown("""
         <style>
@@ -236,7 +275,7 @@ def renderizar():
         </style>
     """, unsafe_allow_html=True)
 
-    col_tit, col_btn = st.columns([2, 1.6])
+    col_tit, col_btn = st.columns([1.6, 2.2])
     with col_tit:
         st.markdown("## 📋 Gestão de Serviços")
         
@@ -261,11 +300,13 @@ def renderizar():
 
     with col_btn:
         st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
-        cb1, cb2 = st.columns(2)
+        cb1, cb2, cb3 = st.columns(3)
         if cb1.button("📅 Cronograma", use_container_width=True, type="secondary"):
             cronograma.modal_cronograma(df, lista_instaladores)
         if cb2.button("💵 Adiantamento", use_container_width=True, type="secondary"):
             _modal_adiantamento_instalador(supabase, lista_instaladores)
+        if cb3.button("📅+ Agendar Tarefa", use_container_width=True, type="secondary"):
+            _modal_agendar_tarefa_instalador(supabase, lista_instaladores)
 
     if 'instalador' not in df.columns:
         df['instalador'] = ""
@@ -362,17 +403,6 @@ def renderizar():
         total_lucro_atv = pd.to_numeric(df_atv['lucro_estimado'], errors='coerce').fillna(0).sum()
         st.markdown(f"<div style='text-align: right; font-size: 18px; font-weight: bold; margin-bottom: 20px;'><span style='color: #555; margin-right: 20px;'>Faturamento Bruto: {utils.to_br_currency(total_bruto_atv)}</span> <span style='color: #004488;'>Lucro Líquido Estimado: {utils.to_br_currency(total_lucro_atv)}</span></div>", unsafe_allow_html=True)
 
-        # Serviço já executado (instalador confirmou pelo app) mas o cliente
-        # ainda não pagou — o status continua "Em Andamento", então não cai
-        # na aba Finalizados. Mesmo assim já dá pra pagar o instalador, já
-        # que o trabalho dele está pronto independente de quando o cliente
-        # fechar a conta com a Ecoclim.
-        df_pronto_p_pagar = df_atv[df_atv['instalacao_concluida_instalador'].fillna(False).astype(bool)]
-        if not df_pronto_p_pagar.empty:
-            renderizar_pagamento_instaladores(
-                df_pronto_p_pagar, supabase, "andamento",
-                "Pagamento aos Instaladores (serviço pronto, cliente ainda não pagou)")
-
         if sel.selection.rows and len(df_atv) > sel.selection.rows[0]:
             servicos_painel.exibir_painel_detalhado(df_atv.iloc[sel.selection.rows[0]], supabase, df_taxas, df_produtos, f"atv_{df_atv.iloc[sel.selection.rows[0]]['id']}", lista_instaladores)
     
@@ -394,7 +424,23 @@ def renderizar():
 
         df_fin['Ano'] = df_fin['data_conclusao'].dt.year.fillna(ano_atual).astype(int)
         df_fin['Mes_idx'] = df_fin['data_conclusao'].dt.month.fillna(mes_atual_idx).astype(int)
-        anos_disponiveis = sorted(list(set(df_fin['Ano'].unique()) | {ano_atual}), reverse=True)
+
+        # Serviço que o instalador já confirmou como pronto pelo app, mas
+        # que o Breno ainda não fechou como Concluído PIX/CARTÃO (cliente
+        # ainda não pagou). Continua aparecendo lá em cima em "Em Andamento"
+        # normalmente — aqui ele só entra na parte de Pagamento aos
+        # Instaladores do mês (nunca na grade principal de Finalizados),
+        # agrupado pela data em que o INSTALADOR marcou como concluída
+        # (já que ainda não existe uma data de fechamento do admin).
+        df_pronto_nao_pago = df[
+            df['instalacao_concluida_instalador'].fillna(False).astype(bool)
+            & (~df['status_projeto'].isin(['Concluído PIX', 'Concluído CARTÃO']))
+        ].copy()
+        _data_conc_inst = pd.to_datetime(df_pronto_nao_pago['data_conclusao_instalador'], errors='coerce')
+        df_pronto_nao_pago['Ano'] = _data_conc_inst.dt.year.fillna(ano_atual).astype(int)
+        df_pronto_nao_pago['Mes_idx'] = _data_conc_inst.dt.month.fillna(mes_atual_idx).astype(int)
+
+        anos_disponiveis = sorted(list(set(df_fin['Ano'].unique()) | set(df_pronto_nao_pago['Ano'].unique()) | {ano_atual}), reverse=True)
 
         c_ano, c_mes, c_vazio = st.columns([1.5, 1.5, 7])
         with c_ano:
@@ -404,16 +450,22 @@ def renderizar():
             mes_sel_idx = utils.meses_pt.index(mes_sel) + 1
 
         df_fin_mes = df_fin[(df_fin['Ano'] == ano_sel) & (df_fin['Mes_idx'] == mes_sel_idx)].reset_index(drop=True)
+        df_pronto_mes = df_pronto_nao_pago[(df_pronto_nao_pago['Ano'] == ano_sel) & (df_pronto_nao_pago['Mes_idx'] == mes_sel_idx)].reset_index(drop=True)
 
-        if df_fin_mes.empty:
+        if df_fin_mes.empty and df_pronto_mes.empty:
             st.info(f"Nenhum serviço finalizado registrado em {mes_sel} de {ano_sel}.")
         else:
-            sel_fin = st.dataframe(estilizar_pendencia(df_fin_mes[colunas_visiveis]), use_container_width=True, on_select="rerun", selection_mode="single-row", hide_index=True, column_config=config_colunas, key=f"g_fin_{ano_sel}_{mes_sel_idx}")
-            total_bruto_fin_mes = pd.to_numeric(df_fin_mes['valor_venda_total'], errors='coerce').fillna(0).sum()
-            total_lucro_fin_mes = pd.to_numeric(df_fin_mes['lucro_estimado'], errors='coerce').fillna(0).sum()
-            st.markdown(f"<div style='text-align: right; font-size: 18px; font-weight: bold; margin-bottom: 20px;'><span style='color: #555; margin-right: 20px;'>Faturamento Bruto ({mes_sel}): {utils.to_br_currency(total_bruto_fin_mes)}</span> <span style='color: #004488;'>Lucro Líquido Realizado: {utils.to_br_currency(total_lucro_fin_mes)}</span></div>", unsafe_allow_html=True)
+            if not df_fin_mes.empty:
+                sel_fin = st.dataframe(estilizar_pendencia(df_fin_mes[colunas_visiveis]), use_container_width=True, on_select="rerun", selection_mode="single-row", hide_index=True, column_config=config_colunas, key=f"g_fin_{ano_sel}_{mes_sel_idx}")
+                total_bruto_fin_mes = pd.to_numeric(df_fin_mes['valor_venda_total'], errors='coerce').fillna(0).sum()
+                total_lucro_fin_mes = pd.to_numeric(df_fin_mes['lucro_estimado'], errors='coerce').fillna(0).sum()
+                st.markdown(f"<div style='text-align: right; font-size: 18px; font-weight: bold; margin-bottom: 20px;'><span style='color: #555; margin-right: 20px;'>Faturamento Bruto ({mes_sel}): {utils.to_br_currency(total_bruto_fin_mes)}</span> <span style='color: #004488;'>Lucro Líquido Realizado: {utils.to_br_currency(total_lucro_fin_mes)}</span></div>", unsafe_allow_html=True)
+            else:
+                sel_fin = None
+                st.info(f"Nenhum serviço fechado com o cliente ainda em {mes_sel} de {ano_sel} — só pagamento de instalador pendente abaixo.")
 
-            renderizar_pagamento_instaladores(df_fin_mes, supabase, f"{ano_sel}_{mes_sel_idx}", f"Pagamento aos Instaladores — {mes_sel}")
+            df_pagamento_mes = pd.concat([df_fin_mes, df_pronto_mes], ignore_index=True) if not df_pronto_mes.empty else df_fin_mes
+            renderizar_pagamento_instaladores(df_pagamento_mes, supabase, f"{ano_sel}_{mes_sel_idx}", f"Pagamento aos Instaladores — {mes_sel}")
 
-            if sel_fin.selection.rows and len(df_fin_mes) > sel_fin.selection.rows[0]:
+            if sel_fin is not None and sel_fin.selection.rows and len(df_fin_mes) > sel_fin.selection.rows[0]:
                 servicos_painel.exibir_painel_detalhado(df_fin_mes.iloc[sel_fin.selection.rows[0]], supabase, df_taxas, df_produtos, f"fin_{df_fin_mes.iloc[sel_fin.selection.rows[0]]['id']}", lista_instaladores)
