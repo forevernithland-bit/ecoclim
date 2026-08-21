@@ -955,7 +955,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     df_novo = pd.DataFrame(st.session_state[_novos_itens_key])
                     df_novo_editado = st.data_editor(
                         df_novo, num_rows="dynamic", use_container_width=True,
-                        key=f"editor_novo_mat_{prefix_key}",
+                        key=f"editor_novo_mat_{prefix_key}_{len(st.session_state[_novos_itens_key])}",
                     )
                     if st.button("💾 Salvar nova lista de materiais", key=f"btn_save_novo_mat_{prefix_key}"):
                         _itens_final = df_novo_editado.dropna(subset=['item']).to_dict('records')

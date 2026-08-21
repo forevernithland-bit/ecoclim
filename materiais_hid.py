@@ -1,7 +1,9 @@
 import streamlit as st
 import pandas as pd
 import datetime
+import urllib.parse
 import servicos_painel
+import utils
 
 
 def renderizar():
@@ -40,6 +42,12 @@ def renderizar():
                         _df = pd.DataFrame(_itens_lm)
                         _cols = [c for c in ['item', 'qtd', 'unidade'] if c in _df.columns]
                         st.dataframe(_df[_cols] if _cols else _df, use_container_width=True, hide_index=True)
+
+                        with st.expander("📋 Ver texto formatado (copiar, print ou WhatsApp)"):
+                            _texto_lm = utils.gerar_texto_lista_materiais(lm.get('cliente_nome'), _itens_lm)
+                            st.code(_texto_lm, language=None)
+                            _url_wa = "https://wa.me/?text=" + urllib.parse.quote(_texto_lm)
+                            st.markdown(f"[📤 Abrir no WhatsApp]({_url_wa})")
 
                     col_ed, col_ex = st.columns(2)
                     if col_ed.button("✏️ Editar", key=f"btn_edit_lista_hid_{lm['id']}", use_container_width=True):
@@ -100,9 +108,16 @@ def renderizar():
 
         if st.session_state[_itens_nova_lista_key]:
             df_nova = pd.DataFrame(st.session_state[_itens_nova_lista_key])
+            # A chave inclui a quantidade de itens de propósito: sempre que
+            # um item entra por fora (colar WhatsApp, catálogo, modelo), a
+            # lista muda de tamanho e a chave muda junto — isso força o
+            # editor a recarregar do zero com os itens novos. Sem isso, o
+            # Streamlit mantém o estado antigo da tabela (mesma chave fixa
+            # entre reruns) e os itens adicionados depois da primeira vez
+            # não apareciam pra salvar de verdade.
             df_nova_edit = st.data_editor(
                 df_nova, num_rows="dynamic", use_container_width=True,
-                key="editor_nova_lista_hid",
+                key=f"editor_nova_lista_hid_{len(st.session_state[_itens_nova_lista_key])}",
             )
             if st.button("💾 Salvar lista de materiais", type="primary", key="btn_save_nova_lista_hid"):
                 _itens_final = df_nova_edit.dropna(subset=['item']).to_dict('records')
@@ -191,7 +206,7 @@ def renderizar():
             df_novo_modelo = pd.DataFrame(st.session_state[_itens_novo_modelo_key])
             df_novo_modelo_edit = st.data_editor(
                 df_novo_modelo, num_rows="dynamic", use_container_width=True,
-                key="editor_novo_modelo_mat",
+                key=f"editor_novo_modelo_mat_{len(st.session_state[_itens_novo_modelo_key])}",
             )
             if st.button("💾 Salvar lista padrão", type="primary", key="btn_save_novo_modelo_mat"):
                 _itens_final_modelo = df_novo_modelo_edit.dropna(subset=['item']).to_dict('records')

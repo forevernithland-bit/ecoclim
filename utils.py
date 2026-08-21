@@ -580,6 +580,41 @@ def interpretar_lista_whatsapp(texto, catalogo):
             nao_reconhecidos.append({"texto_original": descricao, "qtd": qtd})
     return reconhecidos, nao_reconhecidos
 
+# Nomes de exibição das categorias na lista formatada — mesma ordem/rótulo
+# usados no app do instalador (NOMES_CATEGORIA_MATERIAL em app.js), pra ficar
+# igual não importa se a lista foi gerada lá ou aqui no admin.
+NOMES_CATEGORIA_MATERIAL = {
+    "agua_quente": "Material Água Quente - CPVC",
+    "agua_fria": "Material Água Fria - PVC",
+    "bronze_cobre": "Material Bronze/Cobre",
+}
+ORDEM_CATEGORIAS_MATERIAL = ["agua_quente", "agua_fria", "bronze_cobre", "geral_hidraulico"]
+
+def gerar_texto_lista_materiais(cliente_nome, itens):
+    """Monta o texto formatado (negrito estilo WhatsApp) da lista de
+    materiais — pra encaminhar por mensagem ou tirar print e mandar pro
+    cliente. Título fixo, itens agrupados por categoria em ordem alfabética
+    dentro de cada uma; item sem categoria reconhecida cai em "Outros"."""
+    por_categoria = {}
+    for it in itens or []:
+        cat = it.get("categoria") if it.get("categoria") in ORDEM_CATEGORIAS_MATERIAL else "geral_hidraulico"
+        por_categoria.setdefault(cat, []).append(it)
+
+    blocos = []
+    for cat in ORDEM_CATEGORIAS_MATERIAL:
+        lista = por_categoria.get(cat)
+        if not lista:
+            continue
+        titulo = NOMES_CATEGORIA_MATERIAL.get(cat, "Outros")
+        ordenados = sorted(lista, key=lambda it: str(it.get("item", "")).lower())
+        linhas = [f"{it.get('qtd', 1)} {it.get('item', '')}" for it in ordenados]
+        blocos.append(f"*{titulo}*\n" + "\n".join(linhas))
+
+    cabecalho = "*Lista de Materiais Padrão*"
+    if cliente_nome:
+        cabecalho += f"\nCliente: {cliente_nome}"
+    return "\n\n".join([cabecalho] + blocos)
+
 def load_taxas():
     supabase = get_supabase_client()
     try:

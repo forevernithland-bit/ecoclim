@@ -270,7 +270,6 @@ async function viewLista() {
       </div>
       <button id="btn-sair" class="botao-icone" title="Sair">🚪</button>
     </div>
-    <div id="faixa-sync" class="faixa-sync"></div>
     <div class="conteudo">
       ${badgeAgenda > 0 ? `
         <button id="banner-notif-agenda" class="banner-notificacao">
@@ -278,12 +277,18 @@ async function viewLista() {
           <span class="banner-notificacao-ver">Ver agora →</span>
         </button>
       ` : ""}
-      <h2 class="secao-titulo">📋 Em Aberto (${abertos.length})</h2>
-      ${abertos.length ? abertos.map(cartao).join("") : `<p class="vazio">Nenhuma instalação em aberto.</p>`}
 
-      ${concluidos.length ? `
-        <button id="btn-toggle-concluidos" class="botao botao--secundario">✅ Ver Concluídas (${concluidos.length})</button>
-        <div id="secao-concluidos" style="display:none; margin-top:12px;">
+      <div class="abas-segmento">
+        <button type="button" class="ativa" data-aba-lista="andamento">Em Andamento</button>
+        <button type="button" data-aba-lista="finalizadas">Finalizadas</button>
+      </div>
+
+      <div id="aba-lista-andamento" style="margin-top:12px;">
+        ${abertos.length ? abertos.map(cartao).join("") : `<p class="vazio">Nenhuma instalação em andamento.</p>`}
+      </div>
+
+      <div id="aba-lista-finalizadas" style="display:none; margin-top:12px;">
+        ${concluidos.length ? `
           <select id="filtro-mes-concluidos" class="campo-select" style="margin-bottom:10px;">
             <option value="recentes">Mês atual + anterior</option>
             <option value="todos">Todos os meses</option>
@@ -292,8 +297,10 @@ async function viewLista() {
           <div id="lista-concluidos-filtrada">
             ${renderConcluidosFiltrado(gruposConcluidos, "recentes", cartao)}
           </div>
-        </div>
-      ` : ""}
+        ` : `<p class="vazio">Nenhuma instalação finalizada ainda.</p>`}
+      </div>
+
+      <div id="faixa-sync" class="faixa-sync"></div>
     </div>
     ${navBarHTML("instalacoes")}
   `;
@@ -310,17 +317,15 @@ async function viewLista() {
   };
   ligarCliquesCartoes();
 
-  const btnToggleConcluidos = document.getElementById("btn-toggle-concluidos");
-  if (btnToggleConcluidos) {
-    btnToggleConcluidos.addEventListener("click", () => {
-      const sec = document.getElementById("secao-concluidos");
-      const estaAberto = sec.style.display !== "none";
-      sec.style.display = estaAberto ? "none" : "block";
-      btnToggleConcluidos.textContent = estaAberto
-        ? `✅ Ver Concluídas (${concluidos.length})`
-        : `🔼 Ocultar Concluídas`;
+  raiz.querySelectorAll("[data-aba-lista]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const alvo = btn.dataset.abaLista;
+      raiz.querySelectorAll("[data-aba-lista]").forEach((b) => b.classList.toggle("ativa", b === btn));
+      document.getElementById("aba-lista-andamento").style.display = alvo === "andamento" ? "block" : "none";
+      document.getElementById("aba-lista-finalizadas").style.display = alvo === "finalizadas" ? "block" : "none";
     });
-  }
+  });
+
   const filtroMesConcluidos = document.getElementById("filtro-mes-concluidos");
   if (filtroMesConcluidos) {
     filtroMesConcluidos.addEventListener("change", () => {
@@ -432,7 +437,6 @@ async function viewDetalhe(id) {
       <div class="topo-titulo">${escapeHTML(s.nome_cliente || "")}</div>
       <div style="width:34px"></div>
     </div>
-    <div id="faixa-sync" class="faixa-sync"></div>
     <div class="conteudo">
       <div class="cartao">
         <div class="campo"><span class="rotulo">Telefone</span><span>${escapeHTML(s.telefone_cliente || "-")}</span></div>
@@ -501,6 +505,8 @@ async function viewDetalhe(id) {
             : `<p class="dica">Fechada pelo Breno no sistema — fale com ele se precisar mudar.</p>`}
         ` : `<button id="btn-concluir" class="botao botao--principal">✅ Marcar Instalação Concluída</button>`}
       </div>
+
+      <div id="faixa-sync" class="faixa-sync"></div>
     </div>
     ${navBarHTML("instalacoes")}
   `;
@@ -729,7 +735,6 @@ async function viewAgenda() {
 
   raiz.innerHTML = `
     <div class="topo"><div class="topo-titulo">📅 Agenda</div></div>
-    <div id="faixa-sync" class="faixa-sync"></div>
     <div class="conteudo">
       <button id="btn-nova-visita" class="botao botao--principal">+ Nova Visita</button>
       <div id="form-nova-visita" class="cartao" style="display:none; margin-top:12px;">
@@ -758,6 +763,8 @@ async function viewAgenda() {
         <h2 class="secao-titulo">🕓 Histórico (${historico.length})</h2>
         ${historico.map((v) => cartaoVisita(v, false)).join("")}
       ` : ""}
+
+      <div id="faixa-sync" class="faixa-sync"></div>
     </div>
     ${navBarHTML("agenda")}
   `;
@@ -1003,7 +1010,7 @@ function gerarTextoListaMateriais(clienteNome, itens) {
     const linhas = ordenados.map((it) => `${it.qtd} ${it.item}`);
     blocos.push(`*${titulo}*\n${linhas.join("\n")}`);
   }
-  const cabecalho = `*Lista de Materiais - ${clienteNome || "Cliente"}*`;
+  const cabecalho = `*Lista de Materiais Padrão*` + (clienteNome ? `\nCliente: ${clienteNome}` : "");
   return [cabecalho, ...blocos].join("\n\n");
 }
 
@@ -1068,7 +1075,6 @@ async function viewMateriais() {
 
   raiz.innerHTML = `
     <div class="topo"><div class="topo-titulo">📋 Materiais</div></div>
-    <div id="faixa-sync" class="faixa-sync"></div>
     <div class="conteudo">
       <button id="btn-nova-lista" class="botao botao--principal">+ Nova Lista</button>
       <div id="form-nova-lista" class="cartao" style="display:none; margin-top:12px;">
@@ -1089,6 +1095,8 @@ async function viewMateriais() {
       <h2 class="secao-titulo">📄 Minhas Listas (${minhasListas.length + pendentesNovas.length})</h2>
       ${pendentesNovas.map((p) => cartaoLista(p.dados, true)).join("")}
       ${minhasListas.length ? minhasListas.map((l, idx) => cartaoLista(l, false, idx)).join("") : (pendentesNovas.length ? "" : `<p class="vazio">Nenhuma lista criada ainda.</p>`)}
+
+      <div id="faixa-sync" class="faixa-sync"></div>
     </div>
     ${navBarHTML("materiais")}
   `;
@@ -1203,7 +1211,6 @@ async function viewFinanceiro() {
 
   raiz.innerHTML = `
     <div class="topo"><div class="topo-titulo">💰 Financeiro</div></div>
-    <div id="faixa-sync" class="faixa-sync"></div>
     <div class="conteudo">
       <div class="abas-segmento">
         <button type="button" class="ativa" data-aba-fin="receber">A Receber</button>
@@ -1212,14 +1219,16 @@ async function viewFinanceiro() {
 
       <div id="aba-fin-receber" style="margin-top:12px;">
         <div class="cartao cartao--destaque">
-          <div class="cartao-titulo">✅ Serviços Finalizados a Receber</div>
-          <div class="campo"><span class="rotulo">${finalizadosAReceber.length} cliente(s)</span><span style="color:var(--brand-dark);font-weight:800;font-size:1.15rem;">${formatarBRL(totalFinalizadosAReceber)}</span></div>
-          ${totalAdiantado > 0 ? `
-            <div class="campo"><span class="rotulo">💵 Adiantamento (em aberto)</span><span style="color:var(--danger);font-weight:700;">− ${formatarBRL(totalAdiantado)}</span></div>
-            <div class="campo" style="border-top:1px dashed var(--brand-mid); padding-top:8px; margin-top:4px;"><span class="rotulo"><b>Líquido a Receber</b></span><span style="color:var(--ink);font-weight:800;">${formatarBRL(liquidoFinalizados)}</span></div>
-          ` : ""}
-          <div style="margin-top:12px; border-top:1px solid var(--brand-mid); padding-top:10px;">
-            ${finalizadosAReceber.length ? finalizadosAReceber.map((s) => linhaClienteClicavel(s, "var(--brand-dark)")).join("") : `<p class="vazio">Nenhum serviço finalizado aguardando pagamento.</p>`}
+          <div class="cartao--destaque-topo">✅ Serviços Finalizados a Receber</div>
+          <div class="cartao--destaque-corpo">
+            <div class="campo"><span class="rotulo">${finalizadosAReceber.length} cliente(s)</span><span style="color:var(--brand-dark);font-weight:800;font-size:1.15rem;">${formatarBRL(totalFinalizadosAReceber)}</span></div>
+            ${totalAdiantado > 0 ? `
+              <div class="campo"><span class="rotulo">💵 Adiantamento (em aberto)</span><span style="color:var(--danger);font-weight:700;">− ${formatarBRL(totalAdiantado)}</span></div>
+              <div class="campo" style="border-top:1px dashed var(--line); padding-top:8px; margin-top:4px;"><span class="rotulo"><b>Líquido a Receber</b></span><span style="color:var(--ink);font-weight:800;">${formatarBRL(liquidoFinalizados)}</span></div>
+            ` : ""}
+            <div style="margin-top:12px; border-top:1px solid var(--line); padding-top:10px;">
+              ${finalizadosAReceber.length ? finalizadosAReceber.map((s) => linhaClienteClicavel(s, "var(--brand-dark)")).join("") : `<p class="vazio">Nenhum serviço finalizado aguardando pagamento.</p>`}
+            </div>
           </div>
         </div>
 
@@ -1261,6 +1270,8 @@ async function viewFinanceiro() {
           }).join("")}
         ` : ""}
       </div>
+
+      <div id="faixa-sync" class="faixa-sync"></div>
     </div>
     ${navBarHTML("financeiro")}
   `;
