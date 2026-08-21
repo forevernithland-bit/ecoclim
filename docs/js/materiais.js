@@ -20,6 +20,26 @@ export async function puxarMinhasListas(instaladorVinculado) {
   }
 }
 
+// Listas de materiais de UM cliente específico (tela de detalhe da
+// instalação) — diferente de puxarMinhasListas, que traz TODAS as listas do
+// instalador (avulsas ou não) pra tela geral de Materiais.
+export async function puxarListaDoServico(servicoId) {
+  const contexto = `${T_LISTAS}_servico_${servicoId}`;
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from(T_LISTAS)
+      .select("*")
+      .eq("servico_id", servicoId)
+      .order("atualizado_em", { ascending: false });
+    if (error) throw error;
+    await salvarCacheTabela(contexto, data || []);
+    return data || [];
+  } catch (e) {
+    return await lerCacheTabela(contexto);
+  }
+}
+
 export async function puxarMateriaisPadrao() {
   try {
     const supabase = getSupabase();

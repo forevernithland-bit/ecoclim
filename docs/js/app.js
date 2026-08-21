@@ -3,7 +3,7 @@ import { lerServicos, lerServico, enfileirar } from "./db.js";
 import { sincronizarTudo, iniciarSyncAutomatico, statusAtual, aoMudarStatusSync } from "./sync.js";
 import { adicionarMidia, enviarMidiasPendentes, puxarMidias, urlPublicaMidia, listarPendentesLocal } from "./midias.js";
 import { puxarVisitas, visitasPendentesNovas, criarVisita, atualizarStatusVisita, contarNaoVistas, marcarTodasComoVistas, salvarRespostaInstalador } from "./agenda.js";
-import { puxarMinhasListas, puxarMateriaisPadrao, salvarLista, adicionarItemAoPadrao, listasPendentesNovas } from "./materiais.js";
+import { puxarMinhasListas, puxarMateriaisPadrao, salvarLista, adicionarItemAoPadrao, listasPendentesNovas, puxarListaDoServico } from "./materiais.js";
 import {
   agruparPorMes, formatarMes, servicosFinalizadosAReceber, servicosEmAndamentoSemData, totalGeralAReceber,
 } from "./financeiro.js";
@@ -462,6 +462,22 @@ async function viewDetalhe(id) {
       </div>
 
       <div class="cartao">
+        <h3 class="cartao-secao">📋 Lista de Materiais</h3>
+        <div id="materiais-lista-cliente"><p class="dica">Carregando...</p></div>
+        <button id="btn-toggle-nova-lista-cliente" class="botao botao--secundario">+ Nova Lista de Materiais</button>
+        <div id="form-nova-lista-cliente" style="display:none; margin-top:10px;">
+          <label>Categoria (pra carregar itens padrão)</label>
+          <select id="ml-categoria" class="campo-select">
+            ${CATEGORIAS_MATERIAIS.map((c) => `<option value="${c}">${c}</option>`).join("")}
+          </select>
+          <button type="button" id="btn-carregar-padrao" class="botao botao--secundario">📥 Carregar itens padrão desta categoria</button>
+          <div id="ml-itens" style="margin-top:10px;"></div>
+          <button type="button" id="btn-add-item" class="botao botao--secundario">+ Item em branco</button>
+          <button type="button" id="btn-salvar-lista" class="botao botao--principal">💾 Salvar Lista deste Cliente</button>
+        </div>
+      </div>
+
+      <div class="cartao">
         <h3 class="cartao-secao">📝 Observação</h3>
         <textarea id="in-obs" rows="4" placeholder="Deixe aqui alguma observação sobre esta instalação...">${escapeHTML(s.observacao_instalador || "")}</textarea>
         <button id="btn-salvar-obs" class="botao botao--secundario">💾 Salvar Observação</button>
@@ -497,6 +513,47 @@ async function viewDetalhe(id) {
   });
   renderizarMidias({ servico_id: id }, "midias-lista");
   ligarBotaoGravarAudio(document.getElementById("btn-gravar-audio"), { servico_id: id }, "midias-lista");
+
+  renderizarListaMateriaisCliente(id, "materiais-lista-cliente");
+  itensListaAtual = [];
+  document.getElementById("btn-toggle-nova-lista-cliente").addEventListener("click", () => {
+    const f = document.getElementById("form-nova-lista-cliente");
+    const vaiAbrir = f.style.display === "none";
+    f.style.display = vaiAbrir ? "block" : "none";
+    formularioAbertoAgendaOuMateriais = vaiAbrir;
+    if (vaiAbrir) renderizarItensLista();
+  });
+  document.getElementById("btn-carregar-padrao").addEventListener("click", async () => {
+    const cat = document.getElementById("ml-categoria").value;
+    const padrao = await puxarMateriaisPadrao();
+    const itensCategoria = padrao.filter((p) => p.categoria === cat);
+    itensListaAtual = itensCategoria.map((p) => ({ item: p.item, qtd: 1, unidade: p.unidade || "un" }));
+    renderizarItensLista();
+  });
+  document.getElementById("btn-add-item").addEventListener("click", () => {
+    itensListaAtual = lerItensDoFormularioBruto();
+    itensListaAtual.push({ item: "", qtd: 1, unidade: "un" });
+    renderizarItensLista();
+  });
+  document.getElementById("btn-salvar-lista").addEventListener("click", async () => {
+    const itens = lerItensDoFormulario();
+    if (!itens.length) { alert("Adicione pelo menos um item."); return; }
+    await salvarLista({
+      instalador: sessao.instaladorVinculado,
+      cliente_nome: s.nome_cliente || null,
+      servico_id: id,
+      itens,
+    });
+    document.getElementById("materiais-lista-cliente").innerHTML = `<p class="dica">Salvando...</p>`;
+    // Espera a sincronização de verdade antes de recarregar — senão o
+    // resumo consulta o servidor rápido demais e mostra "nenhuma lista"
+    // por um instante, mesmo já tendo salvo certinho.
+    await sincronizarTudo(sessao.instaladorVinculado);
+    document.getElementById("form-nova-lista-cliente").style.display = "none";
+    formularioAbertoAgendaOuMateriais = false;
+    itensListaAtual = [];
+    await renderizarListaMateriaisCliente(id, "materiais-lista-cliente");
+  });
 
   const btnSalvarDataPrevista = document.getElementById("btn-salvar-data-prevista");
   if (btnSalvarDataPrevista) {
@@ -816,6 +873,26 @@ function lerItensDoFormulario() {
   return lerItensDoFormularioBruto()
     .map((i) => ({ ...i, item: i.item.trim() }))
     .filter((i) => i.item);
+}
+
+// Lista de materiais de UM cliente específico, mostrada dentro da tela de
+// detalhe da instalação — diferente da lista "avulsa" da aba Materiais.
+async function renderizarListaMateriaisCliente(servicoId, elId) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  const listas = await puxarListaDoServico(servicoId);
+  const elAtual = document.getElementById(elId);
+  if (!elAtual) return;
+  if (!listas.length) {
+    elAtual.innerHTML = `<p class="vazio">Nenhuma lista de materiais registrada ainda.</p>`;
+    return;
+  }
+  elAtual.innerHTML = listas.map((l) => `
+    <div class="cartao" style="margin-bottom:8px;">
+      <div class="cartao-sub">${(l.itens || []).length} item(ns)</div>
+      <div class="cartao-sub">${(l.itens || []).map((i) => `${i.qtd}x ${escapeHTML(i.item)} (${escapeHTML(i.unidade || "un")})`).join(", ")}</div>
+    </div>
+  `).join("");
 }
 
 async function viewMateriais() {
