@@ -60,6 +60,14 @@ function escapeHTML(s) {
   return d.innerHTML;
 }
 
+// escapeHTML sozinho não escapa aspas — ok dentro de texto, mas quebra
+// quando o valor vai dentro de um atributo (ex: item com " no nome, tipo
+// 32x1", fecha o value="..." no meio e derruba o HTML). Usar esta função
+// pra tudo que vira valor de atributo.
+function escapeAttr(s) {
+  return escapeHTML(s).replace(/"/g, "&quot;");
+}
+
 // ---------- Faixa de status de sincronização ----------
 function renderFaixaSync(status, pendentes) {
   const el = document.getElementById("faixa-sync");
@@ -840,34 +848,55 @@ function normalizarBuscaTexto(s) {
 
 // Busca por substring em qualquer parte do nome (não só no começo) — digitar
 // "22" acha tudo que tem 22 em algum lugar do nome, "joel" acha todo joelho.
+// Limita a tela (poucos resultados por vez, bem legíveis) em vez de jogar
+// dezenas de botões espremidos — celular tem pouco espaço pra ler.
+const LIMITE_RESULTADOS_BUSCA_MATERIAL = 8;
 function buscarMateriaisFiltrados(query, todosOsPadrao) {
   const q = normalizarBuscaTexto(query).trim();
-  if (!q) return [];
-  return todosOsPadrao
+  if (!q) return { resultados: [], total: 0 };
+  const todos = todosOsPadrao
     .filter((m) => normalizarBuscaTexto(m.item).includes(q))
-    .sort((a, b) => a.item.localeCompare(b.item, "pt-BR"))
-    .slice(0, 30);
+    .sort((a, b) => a.item.localeCompare(b.item, "pt-BR"));
+  return { resultados: todos.slice(0, LIMITE_RESULTADOS_BUSCA_MATERIAL), total: todos.length };
 }
 
-// Desenha os resultados da busca embaixo do campo, com um botão por item
-// achado + sempre uma opção no fim pra adicionar manualmente o que foi
-// digitado, caso não esteja no catálogo. `onAdicionar` recebe
-// {item, categoria, unidade, manual}.
+// Deixa em negrito o trecho que bateu com a busca, pra ficar fácil de achar
+// visualmente na lista. Só funciona quando o texto digitado aparece igual
+// (sem acento removido) no item — se não achar, mostra o nome normal, sem
+// quebrar nada.
+function destacarTrechoBusca(nomeItem, query) {
+  const idx = nomeItem.toLowerCase().indexOf(query.trim().toLowerCase());
+  if (idx === -1) return escapeHTML(nomeItem);
+  const antes = nomeItem.slice(0, idx);
+  const meio = nomeItem.slice(idx, idx + query.trim().length);
+  const depois = nomeItem.slice(idx + query.trim().length);
+  return `${escapeHTML(antes)}<mark>${escapeHTML(meio)}</mark>${escapeHTML(depois)}`;
+}
+
+// Desenha os resultados da busca embaixo do campo, cada um numa linha
+// própria (fácil de ler e de acertar o toque no celular) com a categoria
+// como legenda e o trecho buscado destacado. Sempre tem, no fim, a opção de
+// adicionar manualmente o que foi digitado, caso não esteja no catálogo.
+// `onAdicionar` recebe {item, categoria, unidade, manual}.
 function renderizarResultadosBuscaMaterial(query, todosOsPadrao, elId, onAdicionar) {
   const el = document.getElementById(elId);
   if (!el) return;
   const texto = query.trim();
   if (!texto) { el.innerHTML = ""; return; }
-  const resultados = buscarMateriaisFiltrados(texto, todosOsPadrao);
+  const { resultados, total } = buscarMateriaisFiltrados(texto, todosOsPadrao);
   const botoesResultado = resultados.map((m) => `
-    <button type="button" class="resultado-busca" data-item="${escapeHTML(m.item)}" data-categoria="${escapeHTML(m.categoria || "")}" data-unidade="${escapeHTML(m.unidade || "un")}">
-      ${escapeHTML(m.item)}
+    <button type="button" class="resultado-busca" data-item="${escapeAttr(m.item)}" data-categoria="${escapeAttr(m.categoria || "")}" data-unidade="${escapeAttr(m.unidade || "un")}">
+      <span class="resultado-busca-nome">${destacarTrechoBusca(m.item, texto)}</span>
+      ${m.categoria ? `<span class="resultado-busca-cat">${escapeHTML(NOMES_CATEGORIA_MATERIAL[m.categoria] || "Outros")}</span>` : ""}
     </button>`);
+  const avisoMais = total > resultados.length
+    ? `<p class="resultado-busca-aviso">Mostrando ${resultados.length} de ${total} — digite mais letras pra achar exatamente o que precisa</p>`
+    : "";
   const botaoManual = `
     <button type="button" class="resultado-busca resultado-busca--manual" data-manual="1">
       ➕ Adicionar "${escapeHTML(texto)}" (não achei na lista)
     </button>`;
-  el.innerHTML = botoesResultado.join("") + botaoManual;
+  el.innerHTML = botoesResultado.join("") + avisoMais + botaoManual;
   el.querySelectorAll("[data-item]").forEach((btn) => {
     btn.addEventListener("click", () => onAdicionar({
       item: btn.dataset.item, categoria: btn.dataset.categoria || null, unidade: btn.dataset.unidade || "un", manual: false,
@@ -881,10 +910,10 @@ function renderizarResultadosBuscaMaterial(query, todosOsPadrao, elId, onAdicion
 
 function linhaItemHTML(it, idx) {
   return `
-    <div class="linha-item" data-idx="${idx}" data-categoria="${escapeHTML(it.categoria || "")}" data-manual="${it.manual ? "1" : ""}">
-      <input type="text" class="li-item" value="${escapeHTML(it.item || "")}" placeholder="Item" />
+    <div class="linha-item" data-idx="${idx}" data-categoria="${escapeAttr(it.categoria || "")}" data-manual="${it.manual ? "1" : ""}">
+      <input type="text" class="li-item" value="${escapeAttr(it.item || "")}" placeholder="Item" />
       <input type="number" class="li-qtd" value="${it.qtd ?? 1}" min="0" step="1" />
-      <input type="text" class="li-unidade" value="${escapeHTML(it.unidade || "un")}" placeholder="un" />
+      <input type="text" class="li-unidade" value="${escapeAttr(it.unidade || "un")}" placeholder="un" />
       <button type="button" class="botao-icone" data-remover-item="${idx}">🗑️</button>
     </div>`;
 }

@@ -861,6 +861,53 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     catalogo_mat = []
 
                 opcoes_catalogo = {f"{c['item']} ({c.get('categoria', '')})": c for c in catalogo_mat}
+
+                st.markdown("###### 📋 Colar lista do WhatsApp")
+                st.caption("Cole aqui o texto que o instalador manda no WhatsApp. O sistema tenta achar cada item no catálogo e já preenche a quantidade — o que não reconhecer, pergunta pra você escolher.")
+                _pendentes_whats_key = f"pendentes_whats_mat_{prefix_key}"
+                if _pendentes_whats_key not in st.session_state:
+                    st.session_state[_pendentes_whats_key] = []
+
+                texto_whats = st.text_area(
+                    "Cole aqui a lista", key=f"texto_whats_mat_{prefix_key}", height=140,
+                    placeholder="Material Água Quente - CPVC\n2 joelhos cpvc 22mm 90°\n3 conectores 22x3/4\n...",
+                )
+                if st.button("🔍 Interpretar lista", key=f"btn_interpretar_whats_{prefix_key}"):
+                    _reconhecidos, _nao_reconhecidos = utils.interpretar_lista_whatsapp(texto_whats, catalogo_mat)
+                    st.session_state[_novos_itens_key].extend(_reconhecidos)
+                    st.session_state[_pendentes_whats_key] = _nao_reconhecidos
+                    if _reconhecidos:
+                        st.success(f"{len(_reconhecidos)} item(ns) reconhecido(s) e adicionado(s) à lista abaixo.")
+                    if _nao_reconhecidos:
+                        st.warning(f"{len(_nao_reconhecidos)} item(ns) eu não reconheci — escolha abaixo o que cada um é.")
+                    if not _reconhecidos and not _nao_reconhecidos:
+                        st.info("Não achei nenhuma linha com quantidade + item nesse texto.")
+                    st.rerun()
+
+                if st.session_state[_pendentes_whats_key]:
+                    st.markdown("**❓ Não reconheci estes itens — escolha manualmente:**")
+                    _opcoes_pendente = ["-- escolher no catálogo --"] + list(opcoes_catalogo.keys())
+                    _pendentes_restantes = []
+                    for _i, _p in enumerate(st.session_state[_pendentes_whats_key]):
+                        with st.container(border=True):
+                            st.caption(f"Texto original: \"{_p['qtd']} {_p['texto_original']}\"")
+                            _escolha = st.selectbox("O que é este item?", _opcoes_pendente, key=f"whats_pend_sel_{prefix_key}_{_i}")
+                            _col_ok, _col_manual = st.columns(2)
+                            _confirmado = False
+                            if _col_ok.button("✅ Usar este", key=f"whats_pend_ok_{prefix_key}_{_i}", disabled=(_escolha == "-- escolher no catálogo --")):
+                                _c = opcoes_catalogo[_escolha]
+                                st.session_state[_novos_itens_key].append({"item": _c['item'], "qtd": _p['qtd'], "unidade": _c.get('unidade', 'un')})
+                                _confirmado = True
+                            if _col_manual.button("📝 Manter como veio", key=f"whats_pend_manual_{prefix_key}_{_i}"):
+                                st.session_state[_novos_itens_key].append({"item": _p['texto_original'], "qtd": _p['qtd'], "unidade": "un"})
+                                _confirmado = True
+                            if not _confirmado:
+                                _pendentes_restantes.append(_p)
+                    if len(_pendentes_restantes) != len(st.session_state[_pendentes_whats_key]):
+                        st.session_state[_pendentes_whats_key] = _pendentes_restantes
+                        st.rerun()
+
+                st.markdown("###### 🔎 Ou busque item por item")
                 col_cat, col_man = st.columns(2)
                 with col_cat:
                     sel_catalogo = st.multiselect(

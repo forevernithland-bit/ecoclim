@@ -12,6 +12,7 @@ from reportlab.lib.enums import TA_JUSTIFY, TA_CENTER, TA_RIGHT, TA_LEFT
 import urllib.request
 import json
 import re
+import unicodedata
 
 try:
     import PyPDF2
@@ -474,6 +475,106 @@ def parse_br_currency(texto_valor):
     s = str(texto_valor).replace("R$", "").strip().replace(".", "").replace(",", ".")
     try: return float(s)
     except: return 0.0
+
+# ---------------------------------------------------------------
+# Interpretador de lista de materiais colada do WhatsApp — o instalador
+# manda um texto tipo "2 joelhos cpvc 22mm 90*" por linha, às vezes agrupado
+# sob um título de categoria ("Material Água Quente - CPVC"). A função casa
+# cada linha com um item do catálogo padrão (materiais_padrao) por
+# sobreposição de palavras-chave (não precisa bater o texto exato) e só
+# marca como "não reconhecido" quando não acha nada com confiança — nesses
+# casos o admin escolhe manualmente na tela.
+# ---------------------------------------------------------------
+_SINONIMOS_MATERIAL = {
+    "registros": "registro", "conectores": "conector", "joelhos": "joelho",
+    "luvas": "luva", "buchas": "bucha", "valvulas": "valvula",
+    "tampoes": "tampao", "tampao": "tampao", "flanges": "flange",
+    "boias": "boia", "barras": "tubo", "barra": "tubo", "tubos": "tubo",
+    "ts": "te", "t": "te", "te": "te",
+    "unioes": "uniao", "adaptadores": "adaptador",
+    "transicoes": "transicao", "transicao": "transicao",
+    "reducoes": "reducao", "reducao": "reducao",
+    "caixinha": "caixa", "caixinhas": "caixa",
+    "plugs": "plug", "esferas": "esfera", "gavetas": "gaveta",
+}
+_STOPWORDS_MATERIAL = {"de", "da", "do", "das", "dos", "e", "com", "um", "uma", "pra", "para"}
+
+def _normalizar_texto_material(texto):
+    t = str(texto or "").strip().lower()
+    t = unicodedata.normalize("NFD", t)
+    t = "".join(c for c in t if unicodedata.category(c) != "Mn")
+    t = t.replace("°", " ").replace("*", " ").replace('"', " ")
+    # "22x34"/"22x12" quase sempre é erro de digitação de "22x3/4"/"22x1/2"
+    # (não existe medida "34mm"/"12mm" no catálogo).
+    t = re.sub(r"x34\b", "x3/4", t)
+    t = re.sub(r"x12\b", "x1/2", t)
+    t = t.replace("mm", " ")
+    t = re.sub(r"(?<=[0-9])x(?=[0-9])", " ", t)  # "22x3/4" -> "22 3/4"
+    t = re.sub(r"(?<=[0-9/])(?=[a-z])", " ", t)  # "3/4gaveta" -> "3/4 gaveta"
+    t = re.sub(r"(?<=[a-z])(?=[0-9])", " ", t)
+    t = re.sub(r"[^a-z0-9/ ]", " ", t)
+    return re.sub(r"\s+", " ", t).strip()
+
+def _tokens_material(texto):
+    tokens = _normalizar_texto_material(texto).split(" ")
+    return {_SINONIMOS_MATERIAL.get(tk, tk) for tk in tokens if tk and tk not in _STOPWORDS_MATERIAL}
+
+def _mapear_categoria_titulo(titulo_normalizado):
+    if "quente" in titulo_normalizado or ("cpvc" in titulo_normalizado and "fria" not in titulo_normalizado):
+        return "agua_quente"
+    if "fria" in titulo_normalizado or ("pvc" in titulo_normalizado and "cpvc" not in titulo_normalizado):
+        return "agua_fria"
+    if "bronze" in titulo_normalizado or "cobre" in titulo_normalizado:
+        return "bronze_cobre"
+    return None
+
+def _melhor_match_catalogo(desc_tokens, catalogo_indexado, categoria_secao):
+    melhor, melhor_score, empatou = None, 0.0, False
+    for item, cat_tokens, categoria_item in catalogo_indexado:
+        if not cat_tokens or not (desc_tokens & cat_tokens):
+            continue
+        score = len(desc_tokens & cat_tokens) / len(cat_tokens)
+        if categoria_secao and categoria_item == categoria_secao:
+            score += 0.15
+        if score > melhor_score + 1e-9:
+            melhor, melhor_score, empatou = item, score, False
+        elif abs(score - melhor_score) < 1e-9 and melhor is not None and item is not melhor:
+            empatou = True
+    if melhor is None or melhor_score < 0.5 or empatou:
+        return None
+    return melhor
+
+def interpretar_lista_whatsapp(texto, catalogo):
+    """Retorna (reconhecidos, nao_reconhecidos). `reconhecidos` já vem pronto
+    pra virar linha da lista de materiais (item/qtd/unidade); cada item de
+    `nao_reconhecidos` traz {texto_original, qtd} pro admin escolher na tela
+    o que era, sem travar os itens que já foram identificados."""
+    catalogo_indexado = [
+        (c, _tokens_material(c.get("item", "")), c.get("categoria"))
+        for c in (catalogo or [])
+    ]
+    reconhecidos, nao_reconhecidos = [], []
+    categoria_atual = None
+    for linha_bruta in str(texto or "").splitlines():
+        linha = linha_bruta.strip()
+        if not linha:
+            continue
+        m = re.match(r"^(\d+)\s*[xX]?\s*(.+)$", linha)
+        if not m:
+            cat_detectada = _mapear_categoria_titulo(_normalizar_texto_material(linha))
+            if cat_detectada:
+                categoria_atual = cat_detectada
+            continue
+        qtd = int(m.group(1))
+        descricao = m.group(2).strip()
+        if not descricao:
+            continue
+        item_encontrado = _melhor_match_catalogo(_tokens_material(descricao), catalogo_indexado, categoria_atual)
+        if item_encontrado:
+            reconhecidos.append({"item": item_encontrado["item"], "qtd": qtd, "unidade": item_encontrado.get("unidade", "un")})
+        else:
+            nao_reconhecidos.append({"texto_original": descricao, "qtd": qtd})
+    return reconhecidos, nao_reconhecidos
 
 def load_taxas():
     supabase = get_supabase_client()
