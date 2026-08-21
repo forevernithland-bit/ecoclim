@@ -518,6 +518,14 @@ def renderizar():
                 if n.get('valor_sugerido'):
                     _partes.append(f"💰 Valor sugerido: {utils.to_br_currency(n.get('valor_sugerido'))}")
                 st.markdown("\n\n".join(_partes))
+                try:
+                    _res_midia_visita = supabase.table('servico_midias').select('*').eq('visita_id', n['id']).order('criado_em').execute()
+                    _midias_visita = _res_midia_visita.data or []
+                except Exception:
+                    _midias_visita = []
+                if _midias_visita:
+                    with st.expander(f"📷 Ver mídia anexada ({len(_midias_visita)})"):
+                        servicos_painel.renderizar_galeria_midias(_midias_visita)
                 if st.button("✅ Marcar como visto", key=f"notif_agenda_{n['id']}"):
                     try:
                         supabase.table('agenda_visitas').update({"visto_pelo_admin": True}).eq('id', n['id']).execute()
@@ -539,6 +547,8 @@ def renderizar():
             for n in notif_midia_clientes:
                 _n_itens = len(n['itens'])
                 st.markdown(f"📷 **{n.get('instalador', '')}** anexou {_n_itens} mídia(s) em **{n['nome_cliente']}**")
+                with st.expander(f"📷 Ver mídia anexada ({_n_itens})"):
+                    servicos_painel.renderizar_galeria_midias(n['itens'])
                 if st.button("✅ Marcar como visto", key=f"notif_midia_{n['servico_id']}"):
                     try:
                         _ids = [m['id'] for m in n['itens']]

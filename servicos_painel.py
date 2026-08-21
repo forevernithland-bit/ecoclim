@@ -14,6 +14,27 @@ def safe_float(val):
     except:
         return 0.0
 
+def renderizar_galeria_midias(midias):
+    """Mostra fotos/vídeos em grade de 3 colunas e áudios em lista embaixo —
+    reaproveitado tanto no painel do cliente quanto na notificação de Agenda,
+    pra sempre dar pra ver/ouvir o que o instalador anexou sem precisar caçar
+    em outro lugar do sistema."""
+    _url_base = st.secrets["SUPABASE_URL"].rstrip('/')
+    _midias_audio = [m for m in midias if m.get('tipo') == 'audio']
+    _midias_visuais = [m for m in midias if m.get('tipo') != 'audio']
+    _cols_midia = st.columns(3)
+    for _i_m, _m in enumerate(_midias_visuais):
+        _url_m = f"{_url_base}/storage/v1/object/public/instalacao-midias/{_m['storage_path']}"
+        with _cols_midia[_i_m % 3]:
+            if _m.get('tipo') == 'video':
+                st.video(_url_m)
+            else:
+                st.image(_url_m, use_container_width=True)
+    for _m in _midias_audio:
+        _url_m = f"{_url_base}/storage/v1/object/public/instalacao-midias/{_m['storage_path']}"
+        st.audio(_url_m)
+
+
 def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_produtos, prefix_key, lista_instaladores):
     # =========================================================================
     # ARMADURA ANTI-CRASH GLOBAL DO PAINEL
@@ -165,20 +186,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         if _midias:
             with st.container(border=True):
                 st.markdown(f"##### 📷 Fotos, Vídeos e Áudios do Instalador ({len(_midias)})")
-                _url_base = st.secrets["SUPABASE_URL"].rstrip('/')
-                _midias_audio = [m for m in _midias if m.get('tipo') == 'audio']
-                _midias_visuais = [m for m in _midias if m.get('tipo') != 'audio']
-                _cols_midia = st.columns(3)
-                for _i_m, _m in enumerate(_midias_visuais):
-                    _url_m = f"{_url_base}/storage/v1/object/public/instalacao-midias/{_m['storage_path']}"
-                    with _cols_midia[_i_m % 3]:
-                        if _m.get('tipo') == 'video':
-                            st.video(_url_m)
-                        else:
-                            st.image(_url_m, use_container_width=True)
-                for _m in _midias_audio:
-                    _url_m = f"{_url_base}/storage/v1/object/public/instalacao-midias/{_m['storage_path']}"
-                    st.audio(_url_m)
+                renderizar_galeria_midias(_midias)
 
         st.markdown("#### 🛒 Itens Vendidos (Ajuste Quantidades e Custos)")
         
