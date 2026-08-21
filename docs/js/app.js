@@ -3,7 +3,7 @@ import { lerServicos, lerServico, enfileirar } from "./db.js";
 import { sincronizarTudo, iniciarSyncAutomatico, statusAtual, aoMudarStatusSync } from "./sync.js";
 import { adicionarMidia, enviarMidiasPendentes, puxarMidias, urlPublicaMidia, listarPendentesLocal } from "./midias.js";
 import { puxarVisitas, visitasPendentesNovas, criarVisita, atualizarStatusVisita, contarNaoVistas, marcarTodasComoVistas, salvarRespostaInstalador } from "./agenda.js";
-import { puxarMinhasListas, puxarMateriaisPadrao, salvarLista, listasPendentesNovas, puxarListaDoServico, sugerirNovoMaterial } from "./materiais.js";
+import { puxarMinhasListas, puxarMateriaisPadrao, salvarLista, listasPendentesNovas, puxarListaDoServico, sugerirNovoMaterial, puxarModelosMateriais } from "./materiais.js";
 import {
   agruparPorMes, formatarMes, servicosFinalizadosAReceber, servicosEmAndamentoSemData, totalGeralAReceber,
 } from "./financeiro.js";
@@ -474,6 +474,11 @@ async function viewDetalhe(id) {
         <div id="materiais-lista-cliente"><p class="dica">Carregando...</p></div>
         <button id="btn-toggle-nova-lista-cliente" class="botao botao--secundario">+ Nova Lista de Materiais</button>
         <div id="form-nova-lista-cliente" style="display:none; margin-top:10px;">
+          <label>Começar de uma lista padrão (opcional)</label>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <select id="ml-modelo-select" style="flex:1;"><option value="">-- nenhuma --</option></select>
+            <button type="button" id="btn-usar-modelo" class="botao botao--secundario botao--mini">📥 Usar</button>
+          </div>
           <label>Buscar material</label>
           <input type="text" id="ml-busca" placeholder="Ex: 22, joel, cpvc..." autocomplete="off" />
           <div id="ml-resultados-busca" class="ml-resultados"></div>
@@ -522,6 +527,7 @@ async function viewDetalhe(id) {
   renderizarListaMateriaisCliente(id, "materiais-lista-cliente");
   itensListaAtual = [];
   let materiaisPadraoCacheDetalhe = [];
+  let modelosCacheDetalhe = [];
   document.getElementById("btn-toggle-nova-lista-cliente").addEventListener("click", async () => {
     const f = document.getElementById("form-nova-lista-cliente");
     const vaiAbrir = f.style.display === "none";
@@ -529,8 +535,20 @@ async function viewDetalhe(id) {
     formularioAbertoAgendaOuMateriais = vaiAbrir;
     if (vaiAbrir) {
       if (!materiaisPadraoCacheDetalhe.length) materiaisPadraoCacheDetalhe = await puxarMateriaisPadrao();
+      if (!modelosCacheDetalhe.length) {
+        modelosCacheDetalhe = await puxarModelosMateriais();
+        preencherSelectModelos("ml-modelo-select", modelosCacheDetalhe);
+      }
       renderizarItensLista();
     }
+  });
+  document.getElementById("btn-usar-modelo").addEventListener("click", () => {
+    const idModelo = document.getElementById("ml-modelo-select").value;
+    const modelo = modelosCacheDetalhe.find((m) => String(m.id) === idModelo);
+    if (!modelo) return;
+    itensListaAtual = lerItensDoFormularioBruto();
+    for (const it of modelo.itens || []) itensListaAtual.push({ ...it, manual: false });
+    renderizarItensLista();
   });
   document.getElementById("ml-busca").addEventListener("input", (e) => {
     renderizarResultadosBuscaMaterial(e.target.value, materiaisPadraoCacheDetalhe, "ml-resultados-busca", (dados) => {
@@ -908,6 +926,15 @@ function renderizarResultadosBuscaMaterial(query, todosOsPadrao, elId, onAdicion
   }
 }
 
+// Preenche o <select> de "lista padrão" com os modelos cadastrados pelo
+// admin — usado nas duas telas onde dá pra criar uma lista de materiais.
+function preencherSelectModelos(elId, modelos) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  el.innerHTML = `<option value="">-- nenhuma --</option>` +
+    (modelos || []).map((m) => `<option value="${escapeAttr(m.id)}">${escapeHTML(m.nome)} (${(m.itens || []).length} itens)</option>`).join("");
+}
+
 function linhaItemHTML(it, idx) {
   return `
     <div class="linha-item" data-idx="${idx}" data-categoria="${escapeAttr(it.categoria || "")}" data-manual="${it.manual ? "1" : ""}">
@@ -1022,10 +1049,11 @@ async function renderizarListaMateriaisCliente(servicoId, elId) {
 async function viewMateriais() {
   telaAtual = "materiais";
   formularioAbertoAgendaOuMateriais = false;
-  const [minhasListas, padrao, pendentesNovas] = await Promise.all([
+  const [minhasListas, padrao, pendentesNovas, modelos] = await Promise.all([
     puxarMinhasListas(sessao.instaladorVinculado),
     puxarMateriaisPadrao(),
     listasPendentesNovas(),
+    puxarModelosMateriais(),
   ]);
   itensListaAtual = [];
 
@@ -1046,6 +1074,11 @@ async function viewMateriais() {
       <div id="form-nova-lista" class="cartao" style="display:none; margin-top:12px;">
         <label>Cliente (opcional, se não escolher deixa "Avulsa")</label>
         <input type="text" id="ml-cliente" placeholder="Nome do cliente" />
+        <label>Começar de uma lista padrão (opcional)</label>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <select id="ml-modelo-select" style="flex:1;"><option value="">-- nenhuma --</option></select>
+          <button type="button" id="btn-usar-modelo" class="botao botao--secundario botao--mini">📥 Usar</button>
+        </div>
         <label>Buscar material</label>
         <input type="text" id="ml-busca" placeholder="Ex: 22, joel, cpvc..." autocomplete="off" />
         <div id="ml-resultados-busca" class="ml-resultados"></div>
@@ -1060,12 +1093,22 @@ async function viewMateriais() {
     ${navBarHTML("materiais")}
   `;
 
+  preencherSelectModelos("ml-modelo-select", modelos);
   document.getElementById("btn-nova-lista").addEventListener("click", () => {
     const f = document.getElementById("form-nova-lista");
     const vaiAbrir = f.style.display === "none";
     f.style.display = vaiAbrir ? "block" : "none";
     formularioAbertoAgendaOuMateriais = vaiAbrir;
     if (vaiAbrir) renderizarItensLista();
+  });
+
+  document.getElementById("btn-usar-modelo").addEventListener("click", () => {
+    const idModelo = document.getElementById("ml-modelo-select").value;
+    const modelo = modelos.find((m) => String(m.id) === idModelo);
+    if (!modelo) return;
+    itensListaAtual = lerItensDoFormularioBruto();
+    for (const it of modelo.itens || []) itensListaAtual.push({ ...it, manual: false });
+    renderizarItensLista();
   });
 
   document.getElementById("ml-busca").addEventListener("input", (e) => {
@@ -1157,75 +1200,105 @@ async function viewFinanceiro() {
       ${itens.length ? itens.map((s) => linhaClienteClicavel(s, cor)).join("") : `<p class="vazio">Nenhum cliente aqui no momento.</p>`}
     </div>`;
 
-  const cartaoMes = (g) => `
-    <div class="cartao cartao--clicavel" data-mes="${g.mes}">
+  const gruposComReceber = grupos.filter((g) => g.aReceber > 0);
+  const gruposComRecebido = grupos.filter((g) => g.recebido > 0);
+
+  const cartaoMesReceber = (g) => `
+    <div class="cartao cartao--clicavel" data-mes-r="${g.mes}">
       <div class="cartao-titulo">${formatarMes(g.mes)}</div>
-      <div class="campo"><span class="rotulo">A Receber</span><span style="color:var(--warn);font-weight:700;">${formatarBRL(g.aReceber)}</span></div>
-      <div class="campo"><span class="rotulo">Recebido</span><span style="color:var(--ok);font-weight:700;">${formatarBRL(g.recebido)}</span></div>
+      <div class="campo"><span class="rotulo">A Receber</span><span style="color:var(--warn);font-weight:800;font-size:1.05rem;">${formatarBRL(g.aReceber)}</span></div>
     </div>
-    <div id="detalhe-mes-${g.mes}" class="cartao" style="display:none; margin-top:-6px; margin-bottom:12px;">
-      ${g.itensRecebido.length ? `<h3 class="cartao-secao">✅ Recebidos</h3>${g.itensRecebido.map((s) => linhaCliente(s, "var(--ok)")).join("")}` : ""}
-      ${g.itensReceber.length ? `<h3 class="cartao-secao">🔧 A Receber (concluído ou previsto p/ este mês)</h3>${g.itensReceber.map((s) => linhaCliente(s, "var(--warn)")).join("")}` : ""}
+    <div id="detalhe-mes-r-${g.mes}" class="cartao" style="display:none; margin-top:-6px; margin-bottom:12px;">
+      ${g.itensReceber.map((s) => linhaCliente(s, "var(--warn)")).join("")}
+    </div>`;
+
+  const cartaoMesRecebido = (g) => `
+    <div class="cartao cartao--clicavel" data-mes-rec="${g.mes}">
+      <div class="cartao-titulo">${formatarMes(g.mes)}</div>
+      <div class="campo"><span class="rotulo">Recebido</span><span style="color:var(--ok);font-weight:800;font-size:1.05rem;">${formatarBRL(g.recebido)}</span></div>
+    </div>
+    <div id="detalhe-mes-rec-${g.mes}" class="cartao" style="display:none; margin-top:-6px; margin-bottom:12px;">
+      ${g.itensRecebido.map((s) => linhaCliente(s, "var(--ok)")).join("")}
     </div>`;
 
   raiz.innerHTML = `
     <div class="topo"><div class="topo-titulo">💰 Financeiro</div></div>
     <div id="faixa-sync" class="faixa-sync"></div>
     <div class="conteudo">
-      <label style="margin-top:0;">📅 Ver recebimento do mês</label>
-      <select id="filtro-mes-financeiro">
-        ${mesesDisponiveis.map((m) => `<option value="${m}" ${m === mesAtualChave ? "selected" : ""}>${formatarMes(m)}</option>`).join("")}
-      </select>
-      <div id="cartao-recebido-mes" style="margin-top:12px;"></div>
-
-      <h2 class="secao-titulo">📌 Situação Atual (todos os períodos)</h2>
-      <div class="cartao">
-        <div class="campo"><span class="rotulo">Total a Receber</span><span style="color:var(--warn);font-weight:800;font-size:1.15rem;">${formatarBRL(totalAReceber)}</span></div>
-        ${totalAdiantado > 0 ? `
-          <div class="campo"><span class="rotulo">💵 Adiantamento (em aberto)</span><span style="color:var(--danger);font-weight:700;">− ${formatarBRL(totalAdiantado)}</span></div>
-          <div class="campo" style="border-top:1px dashed var(--line); padding-top:8px; margin-top:4px;"><span class="rotulo"><b>Líquido a Receber</b></span><span style="color:var(--ink);font-weight:800;">${formatarBRL(liquidoAReceber)}</span></div>
-        ` : ""}
+      <div class="abas-segmento">
+        <button type="button" class="ativa" data-aba-fin="receber">💰 A Receber</button>
+        <button type="button" data-aba-fin="recebido">✅ Recebido</button>
       </div>
 
-      <h2 class="secao-titulo">Clique pra ver os clientes</h2>
-      ${cartaoQuadrante(
-        "finalizados", "✅ Serviços Finalizados a Receber", "var(--warn)",
-        totalFinalizadosAReceber, finalizadosAReceber, null,
-      )}
-      ${cartaoQuadrante(
-        "semdata", "🔧 Serviços em Andamento a Receber (sem data)", "var(--warn)",
-        totalEmAndamentoSemData, emAndamentoSemData,
-        "Preencha a \"Data Prevista de Instalação\" desses clientes (toque no nome pra abrir) pra eles entrarem na previsão do mês certo.",
-      )}
+      <div id="aba-fin-receber">
+        <div class="cartao" style="margin-top:12px;">
+          <div class="campo"><span class="rotulo">Total a Receber</span><span style="color:var(--warn);font-weight:800;font-size:1.15rem;">${formatarBRL(totalAReceber)}</span></div>
+          ${totalAdiantado > 0 ? `
+            <div class="campo"><span class="rotulo">💵 Adiantamento (em aberto)</span><span style="color:var(--danger);font-weight:700;">− ${formatarBRL(totalAdiantado)}</span></div>
+            <div class="campo" style="border-top:1px dashed var(--line); padding-top:8px; margin-top:4px;"><span class="rotulo"><b>Líquido a Receber</b></span><span style="color:var(--ink);font-weight:800;">${formatarBRL(liquidoAReceber)}</span></div>
+          ` : ""}
+        </div>
 
-      <h2 class="secao-titulo">Por mês (clique pra ver os clientes)</h2>
-      ${grupos.length ? grupos.map(cartaoMes).join("") : `<p class="vazio">Nenhum valor de instalação registrado ainda.</p>`}
+        <h2 class="secao-titulo">Clique pra ver os clientes</h2>
+        ${cartaoQuadrante(
+          "finalizados", "✅ Serviços Finalizados a Receber", "var(--warn)",
+          totalFinalizadosAReceber, finalizadosAReceber, null,
+        )}
+        ${cartaoQuadrante(
+          "semdata", "🔧 Serviços em Andamento a Receber (sem data)", "var(--warn)",
+          totalEmAndamentoSemData, emAndamentoSemData,
+          "Preencha a \"Data Prevista de Instalação\" desses clientes (toque no nome pra abrir) pra eles entrarem na previsão do mês certo.",
+        )}
 
-      ${adiantamentos.length ? `
-        <h2 class="secao-titulo">💵 Histórico de Adiantamentos</h2>
-        ${adiantamentos.map((a) => {
-          let dataFmt = "";
-          try { dataFmt = formatarData(String(a.data)); } catch (e) { dataFmt = String(a.data || ""); }
-          const saldo = Number(a._saldo) || 0;
-          const baixado = Number(a._baixado) || 0;
-          const quitado = saldo <= 0.005;
-          const historicoBaixas = (a._baixas || []).map((b) => {
-            let bDataFmt = "";
-            try { bDataFmt = formatarData(String(b.data)); } catch (e) { bDataFmt = String(b.data || ""); }
-            return `<div class="campo" style="font-size:0.82rem; color:var(--muted);">
-              <span>　↳ ${bDataFmt}: baixou</span><span>${formatarBRL(b.valor)}</span>
+        <h2 class="secao-titulo">Por mês (clique pra ver os clientes)</h2>
+        ${gruposComReceber.length ? gruposComReceber.map(cartaoMesReceber).join("") : `<p class="vazio">Nada a receber no momento.</p>`}
+      </div>
+
+      <div id="aba-fin-recebido" style="display:none;">
+        <label style="margin-top:12px;">📅 Ver recebimento do mês</label>
+        <select id="filtro-mes-financeiro">
+          ${mesesDisponiveis.map((m) => `<option value="${m}" ${m === mesAtualChave ? "selected" : ""}>${formatarMes(m)}</option>`).join("")}
+        </select>
+        <div id="cartao-recebido-mes" style="margin-top:12px;"></div>
+
+        <h2 class="secao-titulo">Por mês (clique pra ver os clientes)</h2>
+        ${gruposComRecebido.length ? gruposComRecebido.map(cartaoMesRecebido).join("") : `<p class="vazio">Nada recebido ainda.</p>`}
+
+        ${adiantamentos.length ? `
+          <h2 class="secao-titulo">💵 Histórico de Adiantamentos</h2>
+          ${adiantamentos.map((a) => {
+            let dataFmt = "";
+            try { dataFmt = formatarData(String(a.data)); } catch (e) { dataFmt = String(a.data || ""); }
+            const saldo = Number(a._saldo) || 0;
+            const baixado = Number(a._baixado) || 0;
+            const quitado = saldo <= 0.005;
+            const historicoBaixas = (a._baixas || []).map((b) => {
+              let bDataFmt = "";
+              try { bDataFmt = formatarData(String(b.data)); } catch (e) { bDataFmt = String(b.data || ""); }
+              return `<div class="campo" style="font-size:0.82rem; color:var(--muted);">
+                <span>　↳ ${bDataFmt}: baixou</span><span>${formatarBRL(b.valor)}</span>
+              </div>`;
+            }).join("");
+            return `<div class="cartao">
+              <div class="campo"><span>${dataFmt} — ${escapeHTML(a.motivo || "sem motivo informado")}</span><span style="font-weight:700;">${formatarBRL(a.valor)}</span></div>
+              ${baixado > 0.005 ? `<div class="campo" style="font-size:0.85rem;"><span class="rotulo">Já baixado: ${formatarBRL(baixado)} · Saldo</span><span style="font-weight:700;">${formatarBRL(saldo)}</span></div>${historicoBaixas}` : ""}
+              <span class="etiqueta ${quitado ? "etiqueta--ok" : "etiqueta--pendente"}">${quitado ? "✅ Quitado" : "⏳ Em aberto"}</span>
             </div>`;
-          }).join("");
-          return `<div class="cartao">
-            <div class="campo"><span>${dataFmt} — ${escapeHTML(a.motivo || "sem motivo informado")}</span><span style="font-weight:700;">${formatarBRL(a.valor)}</span></div>
-            ${baixado > 0.005 ? `<div class="campo" style="font-size:0.85rem;"><span class="rotulo">Já baixado: ${formatarBRL(baixado)} · Saldo</span><span style="font-weight:700;">${formatarBRL(saldo)}</span></div>${historicoBaixas}` : ""}
-            <span class="etiqueta ${quitado ? "etiqueta--ok" : "etiqueta--pendente"}">${quitado ? "✅ Quitado" : "⏳ Em aberto"}</span>
-          </div>`;
-        }).join("")}
-      ` : ""}
+          }).join("")}
+        ` : ""}
+      </div>
     </div>
     ${navBarHTML("financeiro")}
   `;
+
+  raiz.querySelectorAll("[data-aba-fin]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const alvo = btn.dataset.abaFin;
+      raiz.querySelectorAll("[data-aba-fin]").forEach((b) => b.classList.toggle("ativa", b === btn));
+      document.getElementById("aba-fin-receber").style.display = alvo === "receber" ? "block" : "none";
+      document.getElementById("aba-fin-recebido").style.display = alvo === "recebido" ? "block" : "none";
+    });
+  });
 
   const renderRecebidoMes = (mes) => {
     const g = grupoDoMes(mes);
@@ -1251,9 +1324,15 @@ async function viewFinanceiro() {
   renderRecebidoMes(mesAtualChave);
   document.getElementById("filtro-mes-financeiro").addEventListener("change", (e) => renderRecebidoMes(e.target.value));
 
-  raiz.querySelectorAll("[data-mes]").forEach((el) => {
+  raiz.querySelectorAll("[data-mes-r]").forEach((el) => {
     el.addEventListener("click", () => {
-      const det = document.getElementById(`detalhe-mes-${el.dataset.mes}`);
+      const det = document.getElementById(`detalhe-mes-r-${el.dataset.mesR}`);
+      det.style.display = det.style.display === "none" ? "block" : "none";
+    });
+  });
+  raiz.querySelectorAll("[data-mes-rec]").forEach((el) => {
+    el.addEventListener("click", () => {
+      const det = document.getElementById(`detalhe-mes-rec-${el.dataset.mesRec}`);
       det.style.display = det.style.display === "none" ? "block" : "none";
     });
   });

@@ -273,3 +273,14 @@ textarea:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 4p
 .resultado-busca-aviso {
   color: var(--muted); font-size: 0.76rem; text-align: center; margin: 2px 0; padding: 4px 0;
 }
+
+/* ---------- Abas (segmented control) ---------- */
+.abas-segmento {
+  display: flex; background: var(--bg); border-radius: 999px; padding: 4px; gap: 4px;
+}
+.abas-segmento button {
+  flex: 1; border: none; background: none; padding: 10px 12px; border-radius: 999px;
+  font-family: inherit; font-size: 0.85rem; font-weight: 700; color: var(--muted); cursor: pointer;
+  transition: background 0.18s var(--ease), color 0.18s var(--ease);
+}
+.abas-segmento button.ativa { background: var(--card); color: var(--brand); box-shadow: var(--shadow-sm); }

@@ -561,9 +561,10 @@ def interpretar_lista_whatsapp(texto, catalogo):
             continue
         m = re.match(r"^(\d+)\s*[xX]?\s*(.+)$", linha)
         if not m:
-            cat_detectada = _mapear_categoria_titulo(_normalizar_texto_material(linha))
-            if cat_detectada:
-                categoria_atual = cat_detectada
+            # Qualquer linha que não é item vira um novo "cabeçalho de seção"
+            # — inclusive quando não reconhecemos a categoria (ex: "Outros:")
+            # zera pra não herdar a categoria da seção anterior por engano.
+            categoria_atual = _mapear_categoria_titulo(_normalizar_texto_material(linha))
             continue
         qtd = int(m.group(1))
         descricao = m.group(2).strip()
@@ -571,7 +572,10 @@ def interpretar_lista_whatsapp(texto, catalogo):
             continue
         item_encontrado = _melhor_match_catalogo(_tokens_material(descricao), catalogo_indexado, categoria_atual)
         if item_encontrado:
-            reconhecidos.append({"item": item_encontrado["item"], "qtd": qtd, "unidade": item_encontrado.get("unidade", "un")})
+            reconhecidos.append({
+                "item": item_encontrado["item"], "qtd": qtd,
+                "unidade": item_encontrado.get("unidade", "un"), "categoria": item_encontrado.get("categoria"),
+            })
         else:
             nao_reconhecidos.append({"texto_original": descricao, "qtd": qtd})
     return reconhecidos, nao_reconhecidos

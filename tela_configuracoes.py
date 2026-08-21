@@ -2,11 +2,12 @@ import streamlit as st
 import pandas as pd
 import io
 import utils
+import servicos_painel
 
 def renderizar():
     st.markdown("## ⚙️ Configurações e Catálogos")
-    
-    tabs = st.tabs(["🛒 Produtos", "🛠️ Serviços", "🤝 Outros / Terceiros", "📊 Taxas", "📦 Kits em Lote", "👷‍♂️ Instaladores"])
+
+    tabs = st.tabs(["🛒 Produtos", "🛠️ Serviços", "🤝 Outros / Terceiros", "📊 Taxas", "📦 Kits em Lote", "👷‍♂️ Instaladores", "📋 Listas de Materiais"])
     
     # =========================================================================
     # FUNÇÕES DE IMPORTAÇÃO/EXPORTAÇÃO DE CATÁLOGOS
@@ -466,3 +467,100 @@ def renderizar():
                 st.rerun()
             except Exception as e:
                 st.error(f"⚠️ Erro ao salvar. Certifique-se de ter criado a tabela 'config_instaladores' no Supabase. Erro: {e}")
+
+    # =========================================================================
+    # ABA: LISTAS DE MATERIAIS PADRÃO (MODELOS)
+    # =========================================================================
+    with tabs[6]:
+        st.subheader("📋 Listas de Materiais Padrão")
+        st.caption("Modelos prontos (ex: Acoplado, Tradicional, Modular) que o instalador ou o admin podem usar como ponto de partida ao criar a lista de materiais de um cliente — só ajusta o que precisar depois.")
+
+        supabase_cfg = st.session_state.supabase
+        try:
+            res_modelos_cfg = supabase_cfg.table('materiais_modelos').select('*').order('nome').execute()
+            modelos_existentes = res_modelos_cfg.data or []
+        except Exception:
+            modelos_existentes = []
+
+        try:
+            res_cat_cfg = supabase_cfg.table('materiais_padrao').select('*').order('categoria').order('ordem').execute()
+            catalogo_cfg = res_cat_cfg.data or []
+        except Exception:
+            catalogo_cfg = []
+        opcoes_catalogo_cfg = {f"{c['item']} ({c.get('categoria', '')})": c for c in catalogo_cfg}
+
+        if modelos_existentes:
+            st.markdown("##### Listas já cadastradas")
+            _editando_modelo_key = "editando_modelo_mat"
+            for m in modelos_existentes:
+                with st.container(border=True):
+                    _itens_m = m.get('itens') or []
+                    st.markdown(f"**{m['nome']}** — {len(_itens_m)} item(ns)")
+                    if _itens_m:
+                        _df_m = pd.DataFrame(_itens_m)
+                        _cols_m = [c for c in ['item', 'qtd', 'unidade'] if c in _df_m.columns]
+                        st.dataframe(_df_m[_cols_m] if _cols_m else _df_m, use_container_width=True, hide_index=True)
+
+                    col_ed_m, col_ex_m = st.columns(2)
+                    if col_ed_m.button("✏️ Editar", key=f"btn_edit_modelo_{m['id']}", use_container_width=True):
+                        st.session_state[_editando_modelo_key] = m['id'] if st.session_state.get(_editando_modelo_key) != m['id'] else None
+                        st.rerun()
+                    if col_ex_m.button("🗑️ Excluir", key=f"btn_del_modelo_{m['id']}", use_container_width=True):
+                        try:
+                            supabase_cfg.table('materiais_modelos').delete().eq('id', m['id']).execute()
+                            st.success("Lista padrão excluída.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Erro ao excluir: {e}")
+
+                    if st.session_state.get(_editando_modelo_key) == m['id']:
+                        _cols_edit_m = ['item', 'qtd', 'unidade']
+                        df_edit_modelo = pd.DataFrame(_itens_m)[_cols_edit_m] if _itens_m else pd.DataFrame(columns=_cols_edit_m)
+                        df_edit_modelo_novo = st.data_editor(
+                            df_edit_modelo, num_rows="dynamic", use_container_width=True,
+                            key=f"editor_modelo_{m['id']}",
+                        )
+                        if st.button("💾 Salvar alterações", key=f"btn_save_modelo_{m['id']}"):
+                            _itens_novos_m = df_edit_modelo_novo.dropna(subset=['item']).to_dict('records')
+                            try:
+                                supabase_cfg.table('materiais_modelos').update({"itens": _itens_novos_m}).eq('id', m['id']).execute()
+                                st.success("Lista padrão atualizada.")
+                                st.session_state[_editando_modelo_key] = None
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Erro ao salvar: {e}")
+
+        st.markdown("---")
+        st.markdown("##### ➕ Criar nova lista padrão")
+        nome_novo_modelo = st.text_input("Nome da lista (ex: Acoplado, Tradicional, Modular)", key="nome_novo_modelo_mat")
+        _itens_novo_modelo_key = "itens_novo_modelo_mat"
+        if _itens_novo_modelo_key not in st.session_state:
+            st.session_state[_itens_novo_modelo_key] = []
+
+        servicos_painel.montar_itens_material(supabase_cfg, catalogo_cfg, opcoes_catalogo_cfg, _itens_novo_modelo_key)
+
+        if st.session_state[_itens_novo_modelo_key]:
+            df_novo_modelo = pd.DataFrame(st.session_state[_itens_novo_modelo_key])
+            df_novo_modelo_edit = st.data_editor(
+                df_novo_modelo, num_rows="dynamic", use_container_width=True,
+                key="editor_novo_modelo_mat",
+            )
+            if st.button("💾 Salvar lista padrão", type="primary", key="btn_save_novo_modelo_mat"):
+                _itens_final_modelo = df_novo_modelo_edit.dropna(subset=['item']).to_dict('records')
+                if not nome_novo_modelo.strip():
+                    st.warning("Dê um nome pra essa lista padrão.")
+                elif not _itens_final_modelo:
+                    st.warning("Adicione pelo menos um item.")
+                else:
+                    try:
+                        supabase_cfg.table('materiais_modelos').insert({
+                            "nome": nome_novo_modelo.strip(),
+                            "itens": _itens_final_modelo,
+                        }).execute()
+                        st.success(f"Lista padrão \"{nome_novo_modelo.strip()}\" criada!")
+                        st.session_state[_itens_novo_modelo_key] = []
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao salvar: {e}")
+        else:
+            st.caption("Nenhum item adicionado ainda — cole a lista do WhatsApp, busque no catálogo, ou digite manual acima.")

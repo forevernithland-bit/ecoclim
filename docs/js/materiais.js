@@ -3,6 +3,7 @@ import { salvarCacheTabela, lerCacheTabela, enfileirarCriacao, lerCriacoesOutbox
 
 const T_LISTAS = "listas_materiais";
 const T_PADRAO = "materiais_padrao";
+const T_MODELOS = "materiais_modelos";
 
 export async function puxarMinhasListas(instaladorVinculado) {
   try {
@@ -49,6 +50,21 @@ export async function puxarMateriaisPadrao() {
     return data || [];
   } catch (e) {
     return await lerCacheTabela(T_PADRAO);
+  }
+}
+
+// Listas "modelo" cadastradas pelo admin (ex: Acoplado, Tradicional) — o
+// instalador escolhe uma pra já começar a lista do cliente preenchida, em
+// vez de buscar item por item do zero.
+export async function puxarModelosMateriais() {
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.from(T_MODELOS).select("*").order("nome");
+    if (error) throw error;
+    await salvarCacheTabela(T_MODELOS, data || []);
+    return data || [];
+  } catch (e) {
+    return await lerCacheTabela(T_MODELOS);
   }
 }
 
