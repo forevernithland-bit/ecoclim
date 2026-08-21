@@ -109,6 +109,63 @@ def _modal_cadastrar_venda(supabase, lista_instaladores):
         except Exception as e:
             st.error(f"Erro ao cadastrar: {e}")
 
+@st.dialog("💵 Adiantamento ao Instalador")
+def _modal_adiantamento_instalador(supabase, lista_instaladores):
+    st.caption("Registra um adiantamento dado ao instalador (fora do valor normal da instalação). Não altera nenhum serviço — só fica no histórico dele.")
+    instalador_sel = st.selectbox("Instalador", lista_instaladores, key="ad_instalador")
+
+    try:
+        res_receber = supabase.table('servicos_andamento').select('custo_terceirizados').eq('instalador', instalador_sel).eq('pago_instalador', False).execute()
+        total_a_receber = sum(float(r.get('custo_terceirizados') or 0) for r in (res_receber.data or []))
+    except Exception:
+        total_a_receber = 0.0
+
+    try:
+        res_adiant = supabase.table('adiantamentos_instalador').select('*').eq('instalador', instalador_sel).order('data', desc=True).execute()
+        adiantamentos = res_adiant.data or []
+    except Exception:
+        adiantamentos = []
+    total_adiantado = sum(float(a.get('valor') or 0) for a in adiantamentos)
+    saldo_pendente = total_a_receber - total_adiantado
+
+    c1, c2 = st.columns(2)
+    c1.metric("A Receber (instalações não pagas)", utils.to_br_currency(total_a_receber))
+    c2.metric("Saldo Pendente (após adiantamentos)", utils.to_br_currency(saldo_pendente))
+
+    st.markdown("##### ➕ Novo Adiantamento")
+    valor_adiant = st.number_input("Valor do Adiantamento (R$)", min_value=0.0, format="%.2f", key="ad_valor")
+    motivo_adiant = st.text_area("Descrição / Motivo", key="ad_motivo", placeholder="Ex: adiantamento pedido pelo instalador pra despesa da obra")
+    data_adiant = st.date_input("Data", value=datetime.date.today(), format="DD/MM/YYYY", key="ad_data")
+
+    if valor_adiant > 0:
+        st.caption(f"Saldo pendente depois deste adiantamento: **{utils.to_br_currency(saldo_pendente - valor_adiant)}**")
+
+    if st.button("💾 Registrar Adiantamento", type="primary", use_container_width=True):
+        if valor_adiant <= 0:
+            st.warning("Informe um valor maior que zero.")
+        else:
+            try:
+                supabase.table('adiantamentos_instalador').insert({
+                    "instalador": instalador_sel,
+                    "valor": valor_adiant,
+                    "motivo": motivo_adiant.strip(),
+                    "data": data_adiant.strftime('%Y-%m-%d'),
+                }).execute()
+                st.success("✅ Adiantamento registrado!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Erro ao registrar. Certifique-se de que a tabela 'adiantamentos_instalador' existe no Supabase. Detalhe: {e}")
+
+    if adiantamentos:
+        st.markdown("##### 🕓 Histórico de Adiantamentos")
+        for a in adiantamentos:
+            try:
+                data_fmt = pd.to_datetime(a.get('data')).strftime('%d/%m/%Y')
+            except Exception:
+                data_fmt = str(a.get('data') or '')
+            st.markdown(f"- **{data_fmt}** — {utils.to_br_currency(a.get('valor'))} — {a.get('motivo') or 'sem motivo informado'}")
+
+
 def renderizar():
     st.markdown("""
         <style>
@@ -122,7 +179,7 @@ def renderizar():
         </style>
     """, unsafe_allow_html=True)
 
-    col_tit, col_btn = st.columns([2, 1])
+    col_tit, col_btn = st.columns([2, 1.6])
     with col_tit:
         st.markdown("## 📋 Gestão de Serviços")
         
@@ -147,8 +204,11 @@ def renderizar():
 
     with col_btn:
         st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
-        if st.button("📅 Cronograma de Serviços", use_container_width=True, type="secondary"):
+        cb1, cb2 = st.columns(2)
+        if cb1.button("📅 Cronograma", use_container_width=True, type="secondary"):
             cronograma.modal_cronograma(df, lista_instaladores)
+        if cb2.button("💵 Adiantamento", use_container_width=True, type="secondary"):
+            _modal_adiantamento_instalador(supabase, lista_instaladores)
 
     if 'instalador' not in df.columns:
         df['instalador'] = ""
@@ -264,6 +324,45 @@ def renderizar():
             total_bruto_fin_mes = pd.to_numeric(df_fin_mes['valor_venda_total'], errors='coerce').fillna(0).sum()
             total_lucro_fin_mes = pd.to_numeric(df_fin_mes['lucro_estimado'], errors='coerce').fillna(0).sum()
             st.markdown(f"<div style='text-align: right; font-size: 18px; font-weight: bold; margin-bottom: 20px;'><span style='color: #555; margin-right: 20px;'>Faturamento Bruto ({mes_sel}): {utils.to_br_currency(total_bruto_fin_mes)}</span> <span style='color: #004488;'>Lucro Líquido Realizado: {utils.to_br_currency(total_lucro_fin_mes)}</span></div>", unsafe_allow_html=True)
-            
-            if sel_fin.selection.rows and len(df_fin_mes) > sel_fin.selection.rows[0]: 
+
+            # ---------------------------------------------------------------
+            # Pagamento aos instaladores — marca vários de uma vez, direto na
+            # lista, sem precisar abrir o painel de detalhe de cada cliente.
+            # ---------------------------------------------------------------
+            df_pag_base = df_fin_mes[['id', 'nome_cliente', 'instalador', 'custo_terceirizados', 'pago_instalador']].copy()
+            df_pag_base['custo_terceirizados'] = pd.to_numeric(df_pag_base['custo_terceirizados'], errors='coerce').fillna(0)
+            df_pag_base = df_pag_base[df_pag_base['custo_terceirizados'] > 0].reset_index(drop=True)
+            df_pag_base['pago_instalador'] = df_pag_base['pago_instalador'].fillna(False).astype(bool)
+            if not df_pag_base.empty:
+                with st.expander(f"💰 Pagamento aos Instaladores — {mes_sel} ({int((~df_pag_base['pago_instalador']).sum())} pendente(s))", expanded=False):
+                    df_pag_view = df_pag_base.rename(columns={
+                        'nome_cliente': 'Cliente', 'instalador': 'Instalador',
+                        'custo_terceirizados': 'Valor Instalação', 'pago_instalador': 'Pago?',
+                    })
+                    cfg_pag = {
+                        "id": None,
+                        "Cliente": st.column_config.TextColumn("Cliente", disabled=True),
+                        "Instalador": st.column_config.TextColumn("Instalador", disabled=True),
+                        "Valor Instalação": st.column_config.NumberColumn("Valor Instalação", format="R$ %.2f", disabled=True),
+                        "Pago?": st.column_config.CheckboxColumn("💰 Pago?"),
+                    }
+                    df_pag_ed = st.data_editor(df_pag_view, column_config=cfg_pag, hide_index=True,
+                                               use_container_width=True, key=f"pag_editor_{ano_sel}_{mes_sel_idx}")
+                    if st.button("💾 Salvar Pagamentos", key=f"btn_salvar_pag_{ano_sel}_{mes_sel_idx}"):
+                        hoje_str = datetime.date.today().strftime('%Y-%m-%d')
+                        alterados = 0
+                        for _, row in df_pag_ed.iterrows():
+                            original = df_pag_base[df_pag_base['id'] == row['id']].iloc[0]
+                            if bool(row['Pago?']) != bool(original['pago_instalador']):
+                                payload = {"pago_instalador": bool(row['Pago?'])}
+                                payload["data_pagamento_instalador"] = hoje_str if bool(row['Pago?']) else None
+                                supabase.table('servicos_andamento').update(payload).eq('id', int(row['id'])).execute()
+                                alterados += 1
+                        if alterados:
+                            st.success(f"✅ {alterados} pagamento(s) atualizado(s)!")
+                            st.rerun()
+                        else:
+                            st.info("Nenhuma alteração pra salvar.")
+
+            if sel_fin.selection.rows and len(df_fin_mes) > sel_fin.selection.rows[0]:
                 servicos_painel.exibir_painel_detalhado(df_fin_mes.iloc[sel_fin.selection.rows[0]], supabase, df_taxas, df_produtos, f"fin_{df_fin_mes.iloc[sel_fin.selection.rows[0]]['id']}", lista_instaladores)
