@@ -407,13 +407,29 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     nova_data_pag_inst = None
 
                 abatimentos = valor_nf + valor_cartao_taxa + valor_comissao + custo_ext + custo_mo
-                lucro_final = venda_final - custo_total_produtos - abatimentos
-            
+                lucro_equipamento_servico = venda_final - custo_total_produtos - abatimentos
+
+                # Lucro de materiais hidráulicos vendidos com a Ecoclim neste
+                # serviço (botão "Adquirir materiais" na aba Lista de
+                # Materiais) — somado sempre a partir de vendas_materiais, não
+                # um campo acumulador solto, pra nunca dessincronizar do que
+                # foi de fato registrado.
+                try:
+                    res_vendas_mat_lucro = supabase.table('vendas_materiais').select('lucro_total').eq('servico_id', id_projeto).execute()
+                    lucro_materiais_hidraulicos = sum(float(v.get('lucro_total') or 0) for v in (res_vendas_mat_lucro.data or []))
+                except Exception:
+                    lucro_materiais_hidraulicos = 0.0
+
+                lucro_final = lucro_equipamento_servico + lucro_materiais_hidraulicos
+
                 st.markdown("<br>", unsafe_allow_html=True)
                 r1, r2 = st.columns(2)
                 r1.metric("Custo Total (Produtos + Taxas)", utils.to_br_currency(custo_total_produtos + abatimentos))
                 margem_r = (lucro_final / venda_final * 100) if venda_final > 0 else 0
                 r2.metric("LUCRO LÍQUIDO FINAL", utils.to_br_currency(lucro_final), delta=f"{margem_r:.1f}% Margem")
+                r3, r4 = st.columns(2)
+                r3.metric("Lucro Equipamento/Serviço", utils.to_br_currency(lucro_equipamento_servico))
+                r4.metric("💧 Lucro Materiais Hidráulicos", utils.to_br_currency(lucro_materiais_hidraulicos))
 
             # ---------------------------------------------------------------
             # Reportado pelo Instalador (app do instalador) — só leitura aqui.
@@ -879,6 +895,21 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                 st.info("Nenhuma lista de materiais registrada pra este cliente ainda.")
             else:
                 _editando_key = f"editando_lista_mat_{prefix_key}"
+
+                # Preço/estoque de cada material (pro botão "Adquirir") e quais
+                # listas deste serviço já viraram venda — buscados uma vez só,
+                # fora do loop, pra não repetir a mesma consulta por lista.
+                try:
+                    res_cat_mat = supabase.table('materiais_padrao').select('*').execute()
+                    _mapa_materiais_precos = {c['item']: c for c in (res_cat_mat.data or [])}
+                except Exception:
+                    _mapa_materiais_precos = {}
+                try:
+                    res_vendas_mat_srv = supabase.table('vendas_materiais').select('*').eq('servico_id', id_projeto).execute()
+                    _vendas_por_lista = {v['lista_materiais_id']: v for v in (res_vendas_mat_srv.data or []) if v.get('lista_materiais_id')}
+                except Exception:
+                    _vendas_por_lista = {}
+
                 for lm in listas_mat:
                     with st.container(border=True):
                         _data_lm = ""
@@ -907,6 +938,85 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"Erro ao excluir: {e}")
+
+                        # --- Adquirir materiais com a Ecoclim (venda + baixa de estoque) ---
+                        _venda_existente = _vendas_por_lista.get(lm['id'])
+                        if _venda_existente:
+                            st.success(f"✅ Materiais já adquiridos com a Ecoclim — Lucro: {utils.to_br_currency(_venda_existente.get('lucro_total'))}")
+                        else:
+                            _preview_key = f"preview_adquirir_{lm['id']}_{prefix_key}"
+                            if st.button("💰 Adquirir materiais com a Ecoclim", key=f"btn_iniciar_adquirir_{lm['id']}_{prefix_key}", use_container_width=True):
+                                st.session_state[_preview_key] = True
+                                st.rerun()
+
+                            if st.session_state.get(_preview_key):
+                                _linhas_preview = []
+                                _custo_total_op = 0.0
+                                _venda_total_op = 0.0
+                                _tem_sem_preco = False
+                                for it in _itens_lm:
+                                    _mat = _mapa_materiais_precos.get(it.get('item'))
+                                    _qtd = float(it.get('qtd') or 0)
+                                    if not _mat:
+                                        _tem_sem_preco = True
+                                        _linhas_preview.append({"item": it.get('item'), "qtd": _qtd, "custo_unitario": 0.0, "venda_unitario": 0.0, "estoque_insuficiente": "sem preço no catálogo"})
+                                        continue
+                                    _custo_un = float(_mat.get('custo') or 0)
+                                    _venda_un = float(_mat.get('venda') or 0)
+                                    _estoque_at = float(_mat.get('estoque_atual') or 0)
+                                    _insuficiente = _estoque_at < _qtd
+                                    _linhas_preview.append({
+                                        "item": it.get('item'), "qtd": _qtd,
+                                        "custo_unitario": _custo_un, "venda_unitario": _venda_un,
+                                        "estoque_insuficiente": f"⚠️ tem {_estoque_at:g}, falta comprar" if _insuficiente else "",
+                                        "_material_id": _mat['id'],
+                                    })
+                                    _custo_total_op += _custo_un * _qtd
+                                    _venda_total_op += _venda_un * _qtd
+
+                                _df_preview_full = pd.DataFrame(_linhas_preview)
+                                _cols_preview = [c for c in ['item', 'qtd', 'custo_unitario', 'venda_unitario', 'estoque_insuficiente'] if c in _df_preview_full.columns]
+                                st.dataframe(_df_preview_full[_cols_preview], use_container_width=True, hide_index=True)
+                                if _tem_sem_preco:
+                                    st.caption("Itens sem preço no catálogo não entram na conta de custo/venda dessa operação.")
+
+                                _lucro_preview = _venda_total_op - _custo_total_op
+                                st.markdown(f"**Venda:** {utils.to_br_currency(_venda_total_op)} · **Custo:** {utils.to_br_currency(_custo_total_op)} · **Lucro:** {utils.to_br_currency(_lucro_preview)}")
+
+                                col_conf, col_canc = st.columns(2)
+                                if col_conf.button("✅ Confirmar aquisição", type="primary", key=f"btn_confirmar_adquirir_{lm['id']}_{prefix_key}"):
+                                    try:
+                                        _itens_venda_registro = [{k: v for k, v in linha.items() if k != "_material_id"} for linha in _linhas_preview]
+                                        res_venda = supabase.table('vendas_materiais').insert({
+                                            "servico_id": id_projeto,
+                                            "lista_materiais_id": lm['id'],
+                                            "cliente_nome": projeto_selecionado.get('nome_cliente'),
+                                            "itens": _itens_venda_registro,
+                                            "custo_total": _custo_total_op,
+                                            "venda_total": _venda_total_op,
+                                            "lucro_total": _lucro_preview,
+                                        }).execute()
+                                        venda_id = res_venda.data[0]['id']
+                                        for linha in _linhas_preview:
+                                            if "_material_id" not in linha:
+                                                continue
+                                            _qtd_baixa = float(linha['qtd'])
+                                            _mat_baixa = _mapa_materiais_precos.get(linha['item'])
+                                            supabase.table('estoque_movimentos').insert({
+                                                "material_id": linha['_material_id'], "tipo": "saida_venda",
+                                                "quantidade": _qtd_baixa, "custo_unitario_na_epoca": linha.get('custo_unitario'),
+                                                "referencia_id": venda_id,
+                                            }).execute()
+                                            _novo_estoque = float(_mat_baixa.get('estoque_atual') or 0) - _qtd_baixa
+                                            supabase.table('materiais_padrao').update({"estoque_atual": _novo_estoque}).eq('id', linha['_material_id']).execute()
+                                        st.success(f"✅ Materiais adquiridos! Lucro dessa operação: {utils.to_br_currency(_lucro_preview)}")
+                                        st.session_state[_preview_key] = False
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Erro ao registrar aquisição: {e}")
+                                if col_canc.button("Cancelar", key=f"btn_cancelar_adquirir_{lm['id']}_{prefix_key}"):
+                                    st.session_state[_preview_key] = False
+                                    st.rerun()
 
                         if st.session_state.get(_editando_key) == lm['id']:
                             df_edit_base = pd.DataFrame(_itens_lm)[_cols_lm] if _itens_lm else pd.DataFrame(columns=_cols_lm)

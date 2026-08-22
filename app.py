@@ -24,6 +24,7 @@ import tela_configuracoes
 import tela_airnb
 import tela_documentos
 import tela_relatorios
+import estoque_materiais
 
 # =============================================================================
 # 3. FUNÇÕES AUXILIARES PARA LEMBRETES NA PÁGINA INICIAL
@@ -136,7 +137,7 @@ else:
     perfil = st.session_state.get('perfil_logado', 'Admin')
     TODAS_PAGINAS = [
         "Página Inicial", "Controle Financeiro", "Orçamentos",
-        "Serviços em Andamento", "Documentos", "AirBnb e Locações",
+        "Serviços em Andamento", "Estoque de Materiais", "Documentos", "AirBnb e Locações",
         "Relatórios", "Configurações",
     ]
     PAGINAS_POR_PERFIL = {
@@ -360,6 +361,9 @@ else:
 
     elif st.session_state.menu_option == "Serviços em Andamento":
         tela_servicos.renderizar()
+
+    elif st.session_state.menu_option == "Estoque de Materiais":
+        estoque_materiais.renderizar()
 
     elif st.session_state.menu_option == "Documentos":
         tela_documentos.renderizar()
