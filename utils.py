@@ -666,7 +666,7 @@ class _CanvasNumerado(canvas.Canvas):
         super().save()
 
 
-def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, obs, mostrar_un):
+def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, obs, mostrar_un, detalhar_itens=True):
     # Paleta aprovada no mockup: grafite + dourado (sol), verde como detalhe.
     GRAFITE = colors.HexColor("#2b3440")
     GRAFITE_DEEP = colors.HexColor("#171c24")
@@ -808,7 +808,15 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
         return t
 
     # ---------- 1. Equipamentos ----------
-    if mostrar_un:
+    # Por padrão (detalhar_itens=False) só mostra Item + Qtd, sem nenhum
+    # valor por linha — só a soma no fim ("Subtotal de Equipamentos"). O
+    # cliente recebe o total de cada parte da proposta, não o preço de cada
+    # peça avulsa; o detalhamento por item fica pra quando o vendedor marcar
+    # a opção explicitamente.
+    if not detalhar_itens:
+        cab = [Paragraph("Item", s_th), Paragraph("Qtd", s_thc)]
+        col_w = [LU*0.80, LU*0.20]
+    elif mostrar_un:
         cab = [Paragraph("Item", s_th), Paragraph("Qtd", s_thc), Paragraph("V. Unit.", s_thr), Paragraph("Subtotal", s_thr)]
         col_w = [LU*0.55, LU*0.10, LU*0.16, LU*0.19]
     else:
@@ -833,18 +841,22 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
         desc = _limpo(row.get('Descrição', ''))
         if desc:
             cel.append(Paragraph(desc.replace('\n', '<br/>'), s_desc))
-        if mostrar_un:
+        if not detalhar_itens:
+            linhas.append([cel, Paragraph(str(int(qtd)), s_num)])
+        elif mostrar_un:
             linhas.append([cel, Paragraph(str(int(qtd)), s_num), Paragraph(to_br_currency(v_un), s_numr), Paragraph(to_br_currency(v_tot), s_numr)])
         else:
             linhas.append([cel, Paragraph(str(int(qtd)), s_num), Paragraph(to_br_currency(v_tot), s_numr)])
 
     if len(linhas) == 1:  # nenhum equipamento
-        vazio = ["", "", ""] if not mostrar_un else ["", "", "", ""]
+        vazio = ["", ""] if not detalhar_itens else (["", "", ""] if not mostrar_un else ["", "", "", ""])
         vazio[0] = Paragraph("Nenhum equipamento nesta proposta.", s_body)
         linhas.append(vazio)
 
     # linha de subtotal
-    if mostrar_un:
+    if not detalhar_itens:
+        linhas.append([Paragraph("Subtotal de Equipamentos", s_sub), Paragraph(to_br_currency(subtotal_eq), s_subr)])
+    elif mostrar_un:
         linhas.append([Paragraph("Subtotal de Equipamentos", s_sub), "", "", Paragraph(to_br_currency(subtotal_eq), s_subr)])
     else:
         linhas.append([Paragraph("Subtotal de Equipamentos", s_sub), "", Paragraph(to_br_currency(subtotal_eq), s_subr)])
@@ -860,9 +872,8 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
         ('TOPPADDING', (0, 0), (-1, -1), 5), ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
         ('ROWBACKGROUNDS', (0, 1), (-1, n_last - 1), [colors.white, ZEBRA]),
         ('BACKGROUND', (0, n_last), (-1, n_last), colors.HexColor("#eef1f5")),
-        ('SPAN', (0, n_last), (-2, n_last)),
-    ]))
-    story.append(barra("1.  EQUIPAMENTOS", "Qtd · Valor"))
+    ] + ([] if not detalhar_itens else [('SPAN', (0, n_last), (-2, n_last))])))
+    story.append(barra("1.  EQUIPAMENTOS", "Qtd · Valor" if detalhar_itens else "Qtd"))
     story.append(tbl)
     story.append(Spacer(1, 0.22*cm))
 

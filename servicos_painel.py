@@ -256,6 +256,10 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             _end_banco = str(projeto_selecionado.get('endereco_cliente', '') or '')
             novo_endereco_cliente = st.text_input("Endereço (opcional)", value='' if _end_banco.lower() in ('nan', 'none') else _end_banco,
                                                   placeholder="Rua, número, bairro, cidade - UF", key=f"edit_end_{prefix_key}")
+            _bairro_banco = str(projeto_selecionado.get('bairro_cliente', '') or '')
+            novo_bairro_cliente = st.text_input("Bairro", value='' if _bairro_banco.lower() in ('nan', 'none') else _bairro_banco,
+                                                placeholder="Ex: Duquesa I", key=f"edit_bairro_{prefix_key}",
+                                                help="Aparece junto do nome nas telas do instalador, pra ficar mais fácil de identificar qual instalação é qual.")
         
             col_esq, col_meio, col_dir = st.columns(3)
         
@@ -656,7 +660,9 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     "Aquecedor Solar Modular", "Aquecedor de Piscina - Tradicional", 
                     "Aquecedor de Piscina - Trocador de Calor", "Sistema de Pressurização"
                 ], index=3, key=f"capa_{prefix_key}")
-            
+                detalhar_itens_pdf_srv = st.checkbox("Detalhar valor de cada item no PDF?", value=False,
+                                                      help="Desmarcado (padrão): o PDF mostra só o subtotal de Equipamentos, sem preço por item.", key=f"detalhar_itens_pdf_{prefix_key}")
+
                 if col_pdf2.button("GERAR PRÉVIA DO PDF", use_container_width=True, key=f"btn_pdf_{prefix_key}"):
                     df_pdf = df_itens_final.copy()
                     if not df_pdf.empty:
@@ -672,9 +678,10 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     if obs_pdf == 'nan' or obs_pdf.strip() == '': obs_pdf = "Material Hidráulico não incluído na proposta"
 
                     pdf_bytes = utils.gerar_pdf_orcamento(
-                        nome=novo_nome_cliente, tel=novo_tel_cliente, 
-                        capa=modelo_capa, df_items=df_pdf, d_s=str(projeto_selecionado.get('servicos_adquiridos', '')).replace('nan',''), 
-                        v_s=0.0, d_o="", v_o=0.0, total=safe_float(projeto_selecionado.get('valor_venda_total')), obs=obs_pdf, mostrar_un=False
+                        nome=novo_nome_cliente, tel=novo_tel_cliente,
+                        capa=modelo_capa, df_items=df_pdf, d_s=str(projeto_selecionado.get('servicos_adquiridos', '')).replace('nan',''),
+                        v_s=0.0, d_o="", v_o=0.0, total=safe_float(projeto_selecionado.get('valor_venda_total')), obs=obs_pdf, mostrar_un=False,
+                        detalhar_itens=detalhar_itens_pdf_srv
                     )
                     st.session_state[f'pdf_gerado_{prefix_key}'] = pdf_bytes
                 
@@ -995,6 +1002,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     "nome_cliente": novo_nome_cliente,
                     "telefone_cliente": novo_tel_cliente,
                     "endereco_cliente": novo_endereco_cliente,
+                    "bairro_cliente": novo_bairro_cliente,
                     "status_projeto": novo_status,
                     "data_conclusao": nova_data.strftime('%Y-%m-%d'),
                     "instalador": novo_instalador,
@@ -1026,7 +1034,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     st.success("✅ Atualizado com sucesso!")
                     st.rerun()
                 except Exception as e: 
-                    st.error(f"Erro ao salvar. Verifique se as colunas 'nf_entrada', 'vencimento_boleto' e 'instalador' foram criadas no Supabase. Detalhe: {e}")
+                    st.error(f"Erro ao salvar. Verifique se as colunas 'nf_entrada', 'vencimento_boleto', 'instalador' e 'bairro_cliente' foram criadas no Supabase. Detalhe: {e}")
     except Exception as global_e:
         st.error(f"⚠️ **Erro Interno de Execução:** Ocorreu uma falha ao renderizar este painel.")
         st.info("Para que o suporte possa ajudar, por favor tire um print do erro abaixo:")

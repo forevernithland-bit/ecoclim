@@ -108,7 +108,7 @@ if not st.session_state.authenticated:
 
                             if res.data and len(res.data) > 0:
                                 dados_bd = res.data[0]
-                                if dados_bd['senha'] == senha and dados_bd.get('ativo', True):
+                                if str(dados_bd['senha']).lower() == senha.lower() and dados_bd.get('ativo', True):
                                     st.session_state.authenticated = True
                                     st.session_state.usuario_logado = dados_bd.get('nome_completo', 'Usuário')
                                     st.session_state.perfil_logado = dados_bd.get('perfil', 'Admin')

@@ -60,6 +60,15 @@ function escapeHTML(s) {
   return d.innerHTML;
 }
 
+// "Nome do cliente - Bairro" — padrão pedido pelo Breno pra ficar mais
+// fácil do instalador lembrar de qual instalação é qual só de bater o olho
+// no cartão, sem precisar abrir o endereço completo.
+function nomeComBairro(s) {
+  const nome = s.nome_cliente || "Sem nome";
+  const bairro = String(s.bairro_cliente || "").trim();
+  return bairro ? `${nome} - ${bairro}` : nome;
+}
+
 // escapeHTML sozinho não escapa aspas — ok dentro de texto, mas quebra
 // quando o valor vai dentro de um atributo (ex: item com " no nome, tipo
 // 32x1", fecha o value="..." no meio e derruba o HTML). Usar esta função
@@ -251,7 +260,7 @@ async function viewLista() {
 
   const cartao = (s) => `
     <button class="cartao cartao--clicavel" data-id="${s.id}">
-      <div class="cartao-titulo">${escapeHTML(s.nome_cliente || "Sem nome")}</div>
+      <div class="cartao-titulo">${escapeHTML(nomeComBairro(s))}</div>
       <div class="cartao-sub">${escapeHTML(s.produtos_adquiridos || "")}</div>
       <div class="cartao-rodape">
         <span class="etiqueta">${escapeHTML(s.status_projeto || "")}</span>
@@ -434,13 +443,19 @@ async function viewDetalhe(id) {
   raiz.innerHTML = `
     <div class="topo">
       <button id="btn-voltar" class="botao-icone" title="Voltar">←</button>
-      <div class="topo-titulo">${escapeHTML(s.nome_cliente || "")}</div>
+      <div class="topo-titulo">${escapeHTML(nomeComBairro(s))}</div>
       <div style="width:34px"></div>
     </div>
     <div class="conteudo">
       <div class="cartao">
         <div class="campo"><span class="rotulo">Telefone</span><span>${escapeHTML(s.telefone_cliente || "-")}</span></div>
         <div class="campo"><span class="rotulo">Endereço</span><span>${escapeHTML(s.endereco_cliente || "Não informado")}</span></div>
+        ${s.endereco_cliente ? `
+          <div style="display:flex; gap:8px; margin-top:8px;">
+            <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s.endereco_cliente)}" target="_blank" rel="noopener" class="botao botao--secundario botao--mini" style="display:inline-block; text-decoration:none; text-align:center; flex:1;">🗺️ Maps</a>
+            <a href="https://waze.com/ul?q=${encodeURIComponent(s.endereco_cliente)}&navigate=yes" target="_blank" rel="noopener" class="botao botao--secundario botao--mini" style="display:inline-block; text-decoration:none; text-align:center; flex:1;">🚗 Waze</a>
+          </div>
+        ` : ""}
         <div class="campo"><span class="rotulo">Status</span><span>${escapeHTML(s.status_projeto || "")}</span></div>
       </div>
 
@@ -1187,7 +1202,7 @@ async function viewFinanceiro() {
 
   const linhaCliente = (s, cor) => `
     <div class="campo" style="font-size:0.88rem;">
-      <span>${escapeHTML(s.nome_cliente || "Sem nome")}${!estaConcluida(s) ? " (em andamento)" : ""}</span>
+      <span>${escapeHTML(nomeComBairro(s))}${!estaConcluida(s) ? " (em andamento)" : ""}</span>
       <span style="color:${cor};font-weight:700;">${formatarBRL(s.custo_terceirizados)}</span>
     </div>`;
 
@@ -1195,7 +1210,7 @@ async function viewFinanceiro() {
   // marcar como pago, ou pra preencher a Data Prevista de Instalação).
   const linhaClienteClicavel = (s, cor) => `
     <button class="cartao--clicavel campo" data-ir-cliente="${s.id}" style="font-size:0.88rem; width:100%; border:none; background:none; padding:6px 0; font-family:inherit;">
-      <span>${escapeHTML(s.nome_cliente || "Sem nome")}${!estaConcluida(s) ? " (em andamento)" : ""}</span>
+      <span>${escapeHTML(nomeComBairro(s))}${!estaConcluida(s) ? " (em andamento)" : ""}</span>
       <span style="color:${cor};font-weight:700;">${formatarBRL(s.custo_terceirizados)}</span>
     </button>`;
 
@@ -1243,7 +1258,7 @@ async function viewFinanceiro() {
       <div id="aba-fin-recebido" style="display:none; margin-top:12px;">
         <label style="margin-top:0;">📅 Ver recebimento do mês</label>
         <select id="filtro-mes-financeiro">
-          ${mesesDisponiveis.map((m) => `<option value="${m}" ${m === mesAnteriorChave ? "selected" : ""}>${formatarMes(m)}</option>`).join("")}
+          ${mesesDisponiveis.map((m) => `<option value="${m}" ${m === mesAtualChave ? "selected" : ""}>${formatarMes(m)}</option>`).join("")}
         </select>
         <div id="cartao-recebido-mes" style="margin-top:12px;"></div>
 
@@ -1306,7 +1321,7 @@ async function viewFinanceiro() {
       });
     });
   };
-  renderRecebidoMes(mesAnteriorChave);
+  renderRecebidoMes(mesAtualChave);
   document.getElementById("filtro-mes-financeiro").addEventListener("change", (e) => renderRecebidoMes(e.target.value));
 
   raiz.querySelectorAll("[data-quad]").forEach((el) => {

@@ -18,7 +18,7 @@ const COLUNAS_BASE = [
 // Colunas recém-criadas nesta sessão — dependem do SQL pendente. Ficam numa
 // lista separada de propósito: uma coluna nova faltando não pode derrubar a
 // sincronização das colunas antigas, que já funcionam em produção.
-const COLUNAS_NOVAS = ["data_prevista_instalacao"];
+const COLUNAS_NOVAS = ["data_prevista_instalacao", "bairro_cliente"];
 
 const COLUNAS_SEGURAS = [COLUNAS_BASE, ...COLUNAS_NOVAS].join(",");
 

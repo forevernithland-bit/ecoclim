@@ -42,7 +42,7 @@ export async function login(usuario, senha) {
     return { ok: false, erro: "Usuário ou senha incorretos." };
   }
   const dados = res.data;
-  if (dados.senha !== senha || dados.ativo === false) {
+  if (String(dados.senha || "").toLowerCase() !== String(senha || "").toLowerCase() || dados.ativo === false) {
     return { ok: false, erro: "Usuário ou senha incorretos." };
   }
   if (dados.perfil !== "Instalador") {

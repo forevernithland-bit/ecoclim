@@ -555,7 +555,9 @@ def renderizar(lista_nomes_produtos, limpar_func):
 
     with st.container(border=True):
         st.subheader("⚙️ 1. Equipamentos")
-        mostrar_precos_unitarios = st.checkbox("Mostrar Preços Unitários no PDF?", value=False)
+        detalhar_itens_pdf = st.checkbox("Detalhar valor de cada item no PDF?", value=False,
+                                          help="Desmarcado (padrão): o PDF mostra só o subtotal de Equipamentos, sem preço por item. Marque pra listar o valor de cada peça.")
+        mostrar_precos_unitarios = st.checkbox("Mostrar Preços Unitários no PDF?", value=False, disabled=not detalhar_itens_pdf)
         
         if 'df_orc' not in st.session_state:
             linhas_iniciais = []
@@ -826,9 +828,10 @@ def renderizar(lista_nomes_produtos, limpar_func):
                     valor_final_servico, 
                     descricao_final_outros, 
                     valor_final_outros, 
-                    total_investimento, 
+                    total_investimento,
                     obs_pdf,
-                    mostrar_precos_unitarios
+                    mostrar_precos_unitarios,
+                    detalhar_itens_pdf
                 )
                 st.session_state['nome_cliente_previa'] = nome_cliente
 
