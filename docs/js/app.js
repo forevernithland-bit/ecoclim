@@ -709,7 +709,18 @@ async function viewAgenda() {
     visitasPendentesNovas(),
   ]);
   const agendadas = visitas.filter((v) => v.status === "Agendada" || !v.status);
-  const historico = visitas.filter((v) => v.status && v.status !== "Agendada");
+  const historico = [...visitas.filter((v) => v.status && v.status !== "Agendada")]
+    .sort((a, b) => String(b.data_hora || "").localeCompare(String(a.data_hora || "")));
+
+  const chaveMesVisita = (v) => String(v.data_hora || "").slice(0, 7) || "sem-data";
+  const mesAtualChaveAgenda = chaveMesHoje();
+  const mesesHistorico = Array.from(new Set([mesAtualChaveAgenda, ...historico.map(chaveMesVisita)]))
+    .filter((m) => m !== "sem-data")
+    .sort((a, b) => b.localeCompare(a));
+  const renderHistoricoFiltrado = (mes, cartaoFn) => {
+    const filtrados = mes === "todos" ? historico : historico.filter((v) => chaveMesVisita(v) === mes);
+    return filtrados.length ? filtrados.map(cartaoFn).join("") : `<p class="vazio">Nenhuma visita realizada neste período.</p>`;
+  };
 
   const cartaoVisita = (v, pendente) => `
     <div class="cartao">
@@ -774,19 +785,47 @@ async function viewAgenda() {
         <button id="btn-salvar-visita" class="botao botao--principal">Salvar Visita</button>
       </div>
 
-      <h2 class="secao-titulo">🗓️ Agendadas (${agendadas.length + pendentesNovas.length})</h2>
-      ${pendentesNovas.map((p) => cartaoVisita(p.dados, true)).join("")}
-      ${agendadas.length ? agendadas.map((v) => cartaoVisita(v, false)).join("") : (pendentesNovas.length ? "" : `<p class="vazio">Nenhuma visita agendada.</p>`)}
+      <div class="abas-segmento">
+        <button type="button" class="ativa" data-aba-agenda="agendadas">Agendadas</button>
+        <button type="button" data-aba-agenda="realizadas">Realizadas</button>
+      </div>
 
-      ${historico.length ? `
-        <h2 class="secao-titulo">🕓 Histórico (${historico.length})</h2>
-        ${historico.map((v) => cartaoVisita(v, false)).join("")}
-      ` : ""}
+      <div id="aba-agenda-agendadas" style="margin-top:12px;">
+        <h2 class="secao-titulo">🗓️ Agendadas (${agendadas.length + pendentesNovas.length})</h2>
+        ${pendentesNovas.map((p) => cartaoVisita(p.dados, true)).join("")}
+        ${agendadas.length ? agendadas.map((v) => cartaoVisita(v, false)).join("") : (pendentesNovas.length ? "" : `<p class="vazio">Nenhuma visita agendada.</p>`)}
+      </div>
+
+      <div id="aba-agenda-realizadas" style="display:none; margin-top:12px;">
+        <label style="margin-top:0;">📅 Filtrar por mês</label>
+        <select id="filtro-mes-agenda">
+          ${mesesHistorico.map((m) => `<option value="${m}" ${m === mesAtualChaveAgenda ? "selected" : ""}>${formatarMes(m)}</option>`).join("")}
+          <option value="todos">Todos os meses</option>
+        </select>
+        <div id="lista-agenda-realizadas" style="margin-top:12px;">${renderHistoricoFiltrado(mesAtualChaveAgenda, (v) => cartaoVisita(v, false))}</div>
+      </div>
 
       <div id="faixa-sync" class="faixa-sync"></div>
     </div>
     ${navBarHTML("agenda")}
   `;
+
+  raiz.querySelectorAll("[data-aba-agenda]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const alvo = btn.dataset.abaAgenda;
+      raiz.querySelectorAll("[data-aba-agenda]").forEach((b) => b.classList.toggle("ativa", b === btn));
+      document.getElementById("aba-agenda-agendadas").style.display = alvo === "agendadas" ? "block" : "none";
+      document.getElementById("aba-agenda-realizadas").style.display = alvo === "realizadas" ? "block" : "none";
+    });
+  });
+  const filtroMesAgenda = document.getElementById("filtro-mes-agenda");
+  if (filtroMesAgenda) {
+    filtroMesAgenda.addEventListener("change", () => {
+      document.getElementById("lista-agenda-realizadas").innerHTML =
+        renderHistoricoFiltrado(filtroMesAgenda.value, (v) => cartaoVisita(v, false));
+      ligarAcoesVisita();
+    });
+  }
 
   document.getElementById("btn-nova-visita").addEventListener("click", () => {
     const f = document.getElementById("form-nova-visita");
@@ -815,66 +854,69 @@ async function viewAgenda() {
     sincronizarTudo(sessao.instaladorVinculado);
     await viewAgenda();
   });
-  raiz.querySelectorAll("[data-realizar]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const v = visitas.find((x) => x.id === Number(btn.dataset.realizar));
-      if (v) { await atualizarStatusVisita(v, "Realizada"); sincronizarTudo(sessao.instaladorVinculado); await viewAgenda(); }
+  function ligarAcoesVisita() {
+    raiz.querySelectorAll("[data-realizar]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const v = visitas.find((x) => x.id === Number(btn.dataset.realizar));
+        if (v) { await atualizarStatusVisita(v, "Realizada"); sincronizarTudo(sessao.instaladorVinculado); await viewAgenda(); }
+      });
     });
-  });
-  raiz.querySelectorAll("[data-cancelar]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const v = visitas.find((x) => x.id === Number(btn.dataset.cancelar));
-      if (v) { await atualizarStatusVisita(v, "Cancelada"); sincronizarTudo(sessao.instaladorVinculado); await viewAgenda(); }
+    raiz.querySelectorAll("[data-cancelar]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const v = visitas.find((x) => x.id === Number(btn.dataset.cancelar));
+        if (v) { await atualizarStatusVisita(v, "Cancelada"); sincronizarTudo(sessao.instaladorVinculado); await viewAgenda(); }
+      });
     });
-  });
 
-  raiz.querySelectorAll("[data-responder]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const vid = btn.dataset.responder;
-      const bloco = document.getElementById(`resposta-${vid}`);
-      const vaiAbrir = bloco.style.display === "none";
-      bloco.style.display = vaiAbrir ? "block" : "none";
-      formularioAbertoAgendaOuMateriais = vaiAbrir;
-      if (vaiAbrir) {
-        renderizarMidias({ visita_id: Number(vid) }, `midias-visita-${vid}`);
-      }
+    raiz.querySelectorAll("[data-responder]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const vid = btn.dataset.responder;
+        const bloco = document.getElementById(`resposta-${vid}`);
+        const vaiAbrir = bloco.style.display === "none";
+        bloco.style.display = vaiAbrir ? "block" : "none";
+        formularioAbertoAgendaOuMateriais = vaiAbrir;
+        if (vaiAbrir) {
+          renderizarMidias({ visita_id: Number(vid) }, `midias-visita-${vid}`);
+        }
+      });
     });
-  });
-  raiz.querySelectorAll("[data-salvar-resposta]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const vid = btn.dataset.salvarResposta;
-      const v = visitas.find((x) => x.id === Number(vid));
-      if (!v) return;
-      const comentario = document.getElementById(`resp-obs-${vid}`).value.trim();
-      const valorTxt = document.getElementById(`resp-valor-${vid}`).value;
-      const valor = valorTxt ? Number(valorTxt) : null;
-      await salvarRespostaInstalador(v, comentario, valor);
-      btn.textContent = "✅ Enviado";
-      sincronizarTudo(sessao.instaladorVinculado);
-      setTimeout(() => { btn.textContent = "💾 Enviar pro Breno"; }, 1500);
+    raiz.querySelectorAll("[data-salvar-resposta]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const vid = btn.dataset.salvarResposta;
+        const v = visitas.find((x) => x.id === Number(vid));
+        if (!v) return;
+        const comentario = document.getElementById(`resp-obs-${vid}`).value.trim();
+        const valorTxt = document.getElementById(`resp-valor-${vid}`).value;
+        const valor = valorTxt ? Number(valorTxt) : null;
+        await salvarRespostaInstalador(v, comentario, valor);
+        btn.textContent = "✅ Enviado";
+        sincronizarTudo(sessao.instaladorVinculado);
+        setTimeout(() => { btn.textContent = "💾 Enviar pro Breno"; }, 1500);
+      });
     });
-  });
-  raiz.querySelectorAll("[data-add-midia-visita]").forEach((btn) => {
-    const vid = btn.dataset.addMidiaVisita;
-    btn.addEventListener("click", () => document.getElementById(`midia-visita-${vid}`).click());
-  });
-  raiz.querySelectorAll("input[id^='midia-visita-']").forEach((input) => {
-    const vid = input.id.replace("midia-visita-", "");
-    input.addEventListener("change", async (e) => {
-      const arquivos = Array.from(e.target.files || []);
-      const el = document.getElementById(`midias-visita-${vid}`);
-      if (el) el.innerHTML = `<p class="dica">Enviando...</p>`;
-      for (const arquivo of arquivos) {
-        await adicionarMidia({ visita_id: Number(vid) }, arquivo, sessao.instaladorVinculado);
-      }
-      e.target.value = "";
-      await renderizarMidias({ visita_id: Number(vid) }, `midias-visita-${vid}`);
+    raiz.querySelectorAll("[data-add-midia-visita]").forEach((btn) => {
+      const vid = btn.dataset.addMidiaVisita;
+      btn.addEventListener("click", () => document.getElementById(`midia-visita-${vid}`).click());
     });
-  });
-  raiz.querySelectorAll("[data-gravar-audio-visita]").forEach((btn) => {
-    const vid = btn.dataset.gravarAudioVisita;
-    ligarBotaoGravarAudio(btn, { visita_id: Number(vid) }, `midias-visita-${vid}`);
-  });
+    raiz.querySelectorAll("input[id^='midia-visita-']").forEach((input) => {
+      const vid = input.id.replace("midia-visita-", "");
+      input.addEventListener("change", async (e) => {
+        const arquivos = Array.from(e.target.files || []);
+        const el = document.getElementById(`midias-visita-${vid}`);
+        if (el) el.innerHTML = `<p class="dica">Enviando...</p>`;
+        for (const arquivo of arquivos) {
+          await adicionarMidia({ visita_id: Number(vid) }, arquivo, sessao.instaladorVinculado);
+        }
+        e.target.value = "";
+        await renderizarMidias({ visita_id: Number(vid) }, `midias-visita-${vid}`);
+      });
+    });
+    raiz.querySelectorAll("[data-gravar-audio-visita]").forEach((btn) => {
+      const vid = btn.dataset.gravarAudioVisita;
+      ligarBotaoGravarAudio(btn, { visita_id: Number(vid) }, `midias-visita-${vid}`);
+    });
+  }
+  ligarAcoesVisita();
   ligarNav();
 
   const { pendentes } = await statusAtual();

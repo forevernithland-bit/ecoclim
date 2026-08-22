@@ -31,6 +31,13 @@ def renderizar():
         except Exception:
             listas_avulsas = []
 
+        try:
+            res_projetos_andamento = supabase.table('servicos_andamento').select('id, nome_cliente').eq('status_projeto', 'Em Andamento').order('nome_cliente').execute()
+            projetos_andamento = res_projetos_andamento.data or []
+        except Exception:
+            projetos_andamento = []
+        opcoes_projeto = {f"{p['nome_cliente']} (ID {p['id']})": p for p in projetos_andamento}
+
         if listas_avulsas:
             st.markdown("##### Listas cadastradas")
             _editando_lista_key = "editando_lista_hid"
@@ -60,6 +67,26 @@ def renderizar():
                             st.rerun()
                         except Exception as e:
                             st.error(f"Erro ao excluir: {e}")
+
+                    if opcoes_projeto:
+                        col_sel_proj, col_btn_proj = st.columns([3, 1])
+                        proj_sel = col_sel_proj.selectbox(
+                            "Enviar pra cliente em andamento", ["-- escolher --"] + list(opcoes_projeto.keys()),
+                            key=f"sel_proj_lista_hid_{lm['id']}", label_visibility="collapsed",
+                        )
+                        if col_btn_proj.button("📤 Enviar", key=f"btn_enviar_proj_{lm['id']}", use_container_width=True, disabled=(proj_sel == "-- escolher --")):
+                            _proj = opcoes_projeto[proj_sel]
+                            try:
+                                supabase.table('listas_materiais').update({
+                                    "servico_id": _proj['id'],
+                                    "cliente_nome": _proj['nome_cliente'],
+                                }).eq('id', lm['id']).execute()
+                                st.success(f"Lista enviada pra \"{_proj['nome_cliente']}\" — agora ela aparece dentro desse cliente, não mais aqui.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Erro ao enviar: {e}")
+                    else:
+                        st.caption("Nenhum cliente 'Em Andamento' encontrado pra enviar essa lista.")
 
                     if st.session_state.get(_editando_lista_key) == lm['id']:
                         _cols_edit = ['item', 'qtd', 'unidade']
