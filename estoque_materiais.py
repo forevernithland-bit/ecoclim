@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import urllib.parse
+from io import BytesIO
 import utils
 
 STATUS_NF_LABELS = {"nao_precisa": "Não precisa", "pendente": "⏳ Pendente", "emitida": "✅ Emitida"}
@@ -13,6 +14,36 @@ def _carregar_catalogo(supabase):
         return res.data or []
     except Exception:
         return []
+
+
+def _gerar_xlsx_gestao_click(catalogo):
+    """Mesmas 8 colunas, na MESMA ORDEM do arquivo exportado do Gestão Click
+    (Código, Nome, Código de barra, Valor de custo, Valor de venda, Estoque,
+    NCM, Cadastrado em) — pra reimportar lá sem precisar remapear coluna
+    por coluna. "Código" e "Cadastrado em" ficam em branco pros itens novos
+    (o próprio Gestão Click atribui na importação)."""
+    linhas = [{
+        "Código": c.get('codigo_externo') or "",
+        "Nome": c.get('item') or "",
+        "Código de barra": c.get('codigo_barra') or "",
+        "Valor de custo": float(c.get('custo') or 0),
+        "Valor de venda": float(c.get('venda') or 0),
+        "Estoque": float(c.get('estoque_atual') or 0),
+        "NCM": c.get('ncm') or "",
+        "Cadastrado em": "",
+    } for c in catalogo]
+    df = pd.DataFrame(linhas)
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='MATERIAIS')
+        # Código e código de barra como texto na formatação da célula — se o
+        # Excel tratar como número, corta zero à esquerda e vira notação
+        # científica em código de barra grande (13 dígitos).
+        planilha = writer.sheets['MATERIAIS']
+        for col_letra in ('A', 'C'):
+            for linha_num in range(2, len(df) + 2):
+                planilha[f'{col_letra}{linha_num}'].number_format = '@'
+    return output.getvalue()
 
 
 def _itens_abaixo_minimo(catalogo):
@@ -79,6 +110,39 @@ def _aba_catalogo(supabase, catalogo):
             st.rerun()
         except Exception as e:
             st.error(f"Erro ao salvar: {e}")
+
+    with st.expander("▸ Dados avançados (Gestão Click) — não precisa mexer no dia a dia"):
+        st.caption("Código, código de barra e NCM de cada item — só usados na hora de exportar/reimportar no Gestão Click. Deixe em branco pra ele gerar um código novo automaticamente na importação.")
+        opcoes_item_gc = {f"{c['item']} ({c.get('categoria', '')})": c for c in catalogo}
+        item_gc_sel = st.selectbox("Item", ["-- escolher --"] + list(opcoes_item_gc.keys()), key="sel_item_gc")
+        if item_gc_sel != "-- escolher --":
+            c = opcoes_item_gc[item_gc_sel]
+            col_g1, col_g2, col_g3 = st.columns(3)
+            codigo_externo = col_g1.text_input("Código (Gestão Click)", value=c.get('codigo_externo') or "", key=f"gc_codigo_{c['id']}")
+            codigo_barra = col_g2.text_input("Código de barra", value=c.get('codigo_barra') or "", key=f"gc_barra_{c['id']}")
+            ncm = col_g3.text_input("NCM", value=c.get('ncm') or "", key=f"gc_ncm_{c['id']}")
+            if st.button("💾 Salvar dados avançados", key=f"btn_salvar_gc_{c['id']}"):
+                try:
+                    supabase.table('materiais_padrao').update({
+                        "codigo_externo": codigo_externo.strip() or None,
+                        "codigo_barra": codigo_barra.strip() or None,
+                        "ncm": ncm.strip() or None,
+                    }).eq('id', c['id']).execute()
+                    st.success("Salvo!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro ao salvar: {e}")
+
+        st.markdown("---")
+        st.markdown("###### 📥 Exportar pro Gestão Click")
+        st.caption("Gera um .xlsx com as mesmas colunas do arquivo exportado de lá — pronto pra reimportar (Código, Nome, Código de barra, Valor de custo, Valor de venda, Estoque, NCM).")
+        st.download_button(
+            "📥 Baixar planilha (.xlsx)",
+            data=_gerar_xlsx_gestao_click(catalogo),
+            file_name="materiais_ecoclim_gestao_click.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="btn_exportar_gc",
+        )
 
 
 def _aba_estoque(catalogo):
