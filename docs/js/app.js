@@ -3,7 +3,7 @@ import { lerServicos, lerServico, enfileirar } from "./db.js";
 import { sincronizarTudo, iniciarSyncAutomatico, statusAtual, aoMudarStatusSync } from "./sync.js";
 import { adicionarMidia, enviarMidiasPendentes, puxarMidias, urlPublicaMidia, listarPendentesLocal } from "./midias.js";
 import { puxarVisitas, visitasPendentesNovas, criarVisita, atualizarStatusVisita, contarNaoVistas, marcarTodasComoVistas, salvarRespostaInstalador } from "./agenda.js";
-import { puxarMinhasListas, puxarMateriaisPadrao, salvarLista, listasPendentesNovas, puxarListaDoServico, sugerirNovoMaterial, puxarModelosMateriais } from "./materiais.js";
+import { puxarMinhasListas, puxarMateriaisPadrao, salvarLista, atualizarLista, listasPendentesNovas, puxarListaDoServico, sugerirNovoMaterial, puxarModelosMateriais } from "./materiais.js";
 import {
   agruparPorMes, formatarMes, servicosFinalizadosAReceber, servicosEmAndamentoSemData, totalGeralAReceber,
 } from "./financeiro.js";
@@ -721,7 +721,11 @@ async function viewAgenda() {
       </div>
       <div class="cartao-titulo">${escapeHTML(v.cliente_nome || "Sem nome")}</div>
       <div class="cartao-sub">${formatarDataHora(v.data_hora)}</div>
-      ${v.endereco ? `<div class="cartao-sub">📍 ${escapeHTML(v.endereco)}</div>` : ""}
+      ${v.endereco ? `<div class="cartao-sub">📍 ${escapeHTML(v.endereco)}</div>
+        <div style="display:flex; gap:8px; margin:6px 0;">
+          <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(v.endereco)}" target="_blank" rel="noopener" class="botao botao--secundario botao--mini" style="display:inline-block; text-decoration:none; text-align:center; flex:1;">🗺️ Maps</a>
+          <a href="https://waze.com/ul?q=${encodeURIComponent(v.endereco)}&navigate=yes" target="_blank" rel="noopener" class="botao botao--secundario botao--mini" style="display:inline-block; text-decoration:none; text-align:center; flex:1;">🚗 Waze</a>
+        </div>` : ""}
       ${v.telefone ? `<div class="cartao-sub">📞 ${escapeHTML(v.telefone)}</div>` : ""}
       ${v.observacoes ? `<div class="cartao-sub">📝 ${escapeHTML(v.observacoes)}</div>` : ""}
       ${v.comentario_instalador ? `<div class="cartao-sub">💬 Você respondeu: ${escapeHTML(v.comentario_instalador)}</div>` : ""}
@@ -879,6 +883,9 @@ async function viewAgenda() {
 
 // ---------- Materiais (catálogo com busca + listas por cliente/avulsas) ----------
 let itensListaAtual = [];
+// id da lista sendo editada (via botão "✏️ Editar" numa lista já salva) —
+// null quando o formulário está criando uma lista nova.
+let listaEmEdicaoId = null;
 
 // Remove acento/caixa pra busca funcionar digitando de qualquer jeito
 // ("cpvc", "CPVC", "cpvç" tudo bate igual).
@@ -1025,12 +1032,16 @@ function gerarTextoListaMateriais(clienteNome, itens) {
     const linhas = ordenados.map((it) => `${it.qtd} ${it.item}`);
     blocos.push(`*${titulo}*\n${linhas.join("\n")}`);
   }
-  const cabecalho = `*Lista de Materiais Padrão*` + (clienteNome ? `\nCliente: ${clienteNome}` : "");
+  const cabecalho = clienteNome ? `*Lista de Materiais Cliente ${clienteNome}*` : `*Lista de Materiais*`;
   return [cabecalho, ...blocos].join("\n\n");
 }
 
 function botaoWhatsAppListaHTML(idx) {
-  return `<button type="button" class="botao botao--secundario botao--mini" data-whatsapp-lista="${idx}" style="margin-top:6px;">📤 Enviar por WhatsApp</button>`;
+  return `
+    <div style="display:flex; gap:8px; margin-top:6px;">
+      <button type="button" class="botao botao--secundario botao--mini" data-copiar-lista="${idx}" style="flex:1;">📋 Copiar</button>
+      <button type="button" class="botao botao--secundario botao--mini" data-whatsapp-lista="${idx}" style="flex:1;">📤 WhatsApp</button>
+    </div>`;
 }
 
 function ligarBotoesWhatsAppLista(elId, listas) {
@@ -1042,6 +1053,21 @@ function ligarBotoesWhatsAppLista(elId, listas) {
       if (!lista) return;
       const texto = gerarTextoListaMateriais(lista.cliente_nome, lista.itens || []);
       window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, "_blank");
+    });
+  });
+  el.querySelectorAll("[data-copiar-lista]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const lista = listas[Number(btn.dataset.copiarLista)];
+      if (!lista) return;
+      const texto = gerarTextoListaMateriais(lista.cliente_nome, lista.itens || []);
+      try {
+        await navigator.clipboard.writeText(texto);
+        const original = btn.textContent;
+        btn.textContent = "✅ Copiado!";
+        setTimeout(() => { btn.textContent = original; }, 1500);
+      } catch (e) {
+        alert("Não consegui copiar automaticamente. Copie manualmente:\n\n" + texto);
+      }
     });
   });
 }
@@ -1078,6 +1104,7 @@ async function viewMateriais() {
     puxarModelosMateriais(),
   ]);
   itensListaAtual = [];
+  listaEmEdicaoId = null;
 
   const cartaoLista = (l, pendente, idx) => `
     <div class="cartao">
@@ -1085,6 +1112,7 @@ async function viewMateriais() {
       <div class="cartao-titulo">${escapeHTML(l.cliente_nome || "Lista sem cliente")}</div>
       <div class="cartao-sub">${(l.itens || []).length} item(ns) — ${l.servico_id ? "vinculada a uma instalação" : "avulsa"}</div>
       <div class="cartao-sub">${(l.itens || []).map((i) => `${i.qtd}x ${escapeHTML(i.item)} (${escapeHTML(i.unidade || "un")})`).join(", ")}</div>
+      ${pendente ? "" : `<button type="button" class="botao botao--secundario botao--mini" data-editar-lista="${idx}" style="margin-top:6px;">✏️ Editar</button>`}
       ${pendente ? "" : botaoWhatsAppListaHTML(idx)}
     </div>`;
 
@@ -1148,26 +1176,44 @@ async function viewMateriais() {
     const itens = lerItensDoFormulario();
     if (!itens.length) { alert("Adicione pelo menos um item."); return; }
     const clienteNome = document.getElementById("ml-cliente").value.trim() || null;
-    await salvarLista({
-      instalador: sessao.instaladorVinculado,
-      cliente_nome: clienteNome,
-      itens,
-    });
-    for (const it of itens.filter((i) => i.manual)) {
-      await sugerirNovoMaterial({ item: it.item, instalador: sessao.instaladorVinculado, clienteNome });
+    if (listaEmEdicaoId) {
+      try {
+        await atualizarLista(listaEmEdicaoId, { cliente_nome: clienteNome, itens });
+      } catch (e) {
+        alert("Não deu pra salvar a edição agora — confira sua internet e tente de novo.");
+        return;
+      }
+      listaEmEdicaoId = null;
+    } else {
+      await salvarLista({
+        instalador: sessao.instaladorVinculado,
+        cliente_nome: clienteNome,
+        itens,
+      });
+      for (const it of itens.filter((i) => i.manual)) {
+        await sugerirNovoMaterial({ item: it.item, instalador: sessao.instaladorVinculado, clienteNome });
+      }
     }
     sincronizarTudo(sessao.instaladorVinculado);
     await viewMateriais();
   });
 
-  raiz.querySelectorAll("[data-whatsapp-lista]").forEach((btn) => {
+  raiz.querySelectorAll("[data-editar-lista]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const lista = minhasListas[Number(btn.dataset.whatsappLista)];
+      const lista = minhasListas[Number(btn.dataset.editarLista)];
       if (!lista) return;
-      const texto = gerarTextoListaMateriais(lista.cliente_nome, lista.itens || []);
-      window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, "_blank");
+      listaEmEdicaoId = lista.id;
+      itensListaAtual = JSON.parse(JSON.stringify(lista.itens || []));
+      document.getElementById("ml-cliente").value = lista.cliente_nome || "";
+      const f = document.getElementById("form-nova-lista");
+      f.style.display = "block";
+      formularioAbertoAgendaOuMateriais = true;
+      renderizarItensLista();
+      f.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   });
+
+  ligarBotoesWhatsAppLista("app", minhasListas);
 
   renderizarItensLista();
   ligarNav();

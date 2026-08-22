@@ -610,9 +610,7 @@ def gerar_texto_lista_materiais(cliente_nome, itens):
         linhas = [f"{it.get('qtd', 1)} {it.get('item', '')}" for it in ordenados]
         blocos.append(f"*{titulo}*\n" + "\n".join(linhas))
 
-    cabecalho = "*Lista de Materiais Padrão*"
-    if cliente_nome:
-        cabecalho += f"\nCliente: {cliente_nome}"
+    cabecalho = f"*Lista de Materiais Cliente {cliente_nome}*" if cliente_nome else "*Lista de Materiais*"
     return "\n\n".join([cabecalho] + blocos)
 
 def load_taxas():

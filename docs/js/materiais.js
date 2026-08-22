@@ -73,6 +73,16 @@ export async function salvarLista(lista) {
   await enfileirarCriacao(T_LISTAS, { ...lista, atualizado_em: agora });
 }
 
+// Edição de uma lista já salva — direto online (não passa pela fila
+// offline como a criação; editar é uma ação rara o bastante pra pedir
+// conexão, e evita a complexidade de reconciliar edição+outbox).
+export async function atualizarLista(id, patch) {
+  const supabase = getSupabase();
+  const agora = new Date().toISOString();
+  const { error } = await supabase.from(T_LISTAS).update({ ...patch, atualizado_em: agora }).eq("id", id);
+  if (error) throw error;
+}
+
 // Listas criadas offline, ainda sem confirmação do servidor — pra não
 // "sumir" da tela até a sincronização acontecer de verdade.
 export async function listasPendentesNovas() {
