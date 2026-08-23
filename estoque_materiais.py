@@ -100,14 +100,25 @@ def _aba_catalogo(supabase, catalogo):
 
     if st.button("💾 Salvar Catálogo", type="primary", key="btn_salvar_catalogo_materiais"):
         try:
-            for _, row in df_edit.iterrows():
-                supabase.table('materiais_padrao').update({
-                    "custo": float(row['custo'] or 0),
-                    "margem_percentual": float(row['margem_percentual'] or 0),
-                    "venda": float(row['venda'] or 0),
-                    "estoque_minimo": float(row['estoque_minimo'] or 0),
-                }).eq('id', int(row['id'])).execute()
-            st.success("Catálogo atualizado!")
+            mapa_material_id = {c['id']: c for c in catalogo}
+            erros_sync = []
+            with st.spinner("Salvando e sincronizando com o Gestão Click..."):
+                for _, row in df_edit.iterrows():
+                    dados_novos = {
+                        "custo": float(row['custo'] or 0),
+                        "margem_percentual": float(row['margem_percentual'] or 0),
+                        "venda": float(row['venda'] or 0),
+                        "estoque_minimo": float(row['estoque_minimo'] or 0),
+                    }
+                    supabase.table('materiais_padrao').update(dados_novos).eq('id', int(row['id'])).execute()
+                    mat_atualizado = {**mapa_material_id.get(int(row['id']), {}), **dados_novos}
+                    try:
+                        gestao_click.garantir_produto(supabase, mat_atualizado)
+                    except gestao_click.GestaoClickError as e:
+                        erros_sync.append(f"{mat_atualizado.get('item')}: {e}")
+            if erros_sync:
+                st.warning("Catálogo salvo, mas alguns itens não sincronizaram com o Gestão Click agora: " + "; ".join(erros_sync))
+            st.success("Catálogo atualizado e sincronizado com o Gestão Click!")
             st.rerun()
         except Exception as e:
             st.error(f"Erro ao salvar: {e}")
@@ -124,12 +135,17 @@ def _aba_catalogo(supabase, catalogo):
             ncm = col_g3.text_input("NCM", value=c.get('ncm') or "", key=f"gc_ncm_{c['id']}")
             if st.button("💾 Salvar dados avançados", key=f"btn_salvar_gc_{c['id']}"):
                 try:
-                    supabase.table('materiais_padrao').update({
+                    dados_gc = {
                         "codigo_externo": codigo_externo.strip() or None,
                         "codigo_barra": codigo_barra.strip() or None,
                         "ncm": ncm.strip() or None,
-                    }).eq('id', c['id']).execute()
-                    st.success("Salvo!")
+                    }
+                    supabase.table('materiais_padrao').update(dados_gc).eq('id', c['id']).execute()
+                    try:
+                        gestao_click.garantir_produto(supabase, {**c, **dados_gc})
+                        st.success("Salvo e sincronizado com o Gestão Click!")
+                    except gestao_click.GestaoClickError as e:
+                        st.warning(f"Salvo aqui, mas não sincronizou com o Gestão Click agora: {e}")
                     st.rerun()
                 except Exception as e:
                     st.error(f"Erro ao salvar: {e}")
@@ -234,6 +250,10 @@ def _aba_compras(supabase, catalogo):
                         supabase.table('materiais_padrao').update({
                             "custo": novo_custo, "venda": nova_venda, "estoque_atual": novo_estoque,
                         }).eq('id', mat['id']).execute()
+                        try:
+                            gestao_click.garantir_produto(supabase, {**mat, "custo": novo_custo, "venda": nova_venda, "estoque_atual": novo_estoque})
+                        except gestao_click.GestaoClickError:
+                            pass  # não trava a compra por causa do Gestão Click — a NF só é preparada depois, na aba Vendas
                         custo_total_compra += novo_custo * qtd
                         compra_itens_registro.append({"item": it['item'], "qtd": qtd, "custo_unitario_novo": novo_custo, "_material_id": mat['id']})
 
@@ -362,6 +382,10 @@ def _aba_vendas(supabase):
                             pass
                     cpf_input = st.text_input("CPF/CNPJ do cliente", value=cpf_banco, key=f"cpf_nf_{v['id']}",
                                                help="Necessário pra achar ou criar o cliente lá no Gestão Click.")
+                    col_cep, col_num = st.columns(2)
+                    cep_input = col_cep.text_input("CEP do cliente", key=f"cep_nf_{v['id']}",
+                                                    help="A API do Gestão Click exige endereço do destinatário pra criar a Nota Fiscal.")
+                    numero_input = col_num.text_input("Número", key=f"numero_nf_{v['id']}")
 
                     itens_prontos, itens_sem_material, itens_sem_ncm = [], [], []
                     for it in itens_v:
@@ -389,9 +413,14 @@ def _aba_vendas(supabase):
                         st.dataframe(pd.DataFrame(itens_prontos)[['item', 'quantidade', 'valor_venda', 'ncm']], use_container_width=True, hide_index=True)
 
                     col_conf_nf, col_canc_nf = st.columns(2)
-                    if col_conf_nf.button("✅ Confirmar e preparar no Gestão Click", type="primary", key=f"btn_confirmar_nf_{v['id']}", disabled=not itens_prontos):
+                    _bloqueado_nf = not itens_prontos or bool(itens_sem_ncm)
+                    if itens_sem_ncm:
+                        st.error("Preencha o NCM dos itens acima (Catálogo & Preços → Dados avançados) antes de preparar a NF — a API do Gestão Click recusa sem isso.")
+                    if col_conf_nf.button("✅ Confirmar e preparar no Gestão Click", type="primary", key=f"btn_confirmar_nf_{v['id']}", disabled=_bloqueado_nf):
                         if not cpf_input.strip():
                             st.warning("Informe o CPF/CNPJ do cliente antes de continuar.")
+                        elif not cep_input.strip() or not numero_input.strip():
+                            st.warning("Informe CEP e número do cliente antes de continuar — a NF não sai sem endereço do destinatário.")
                         else:
                             try:
                                 loja_id = gestao_click.buscar_loja_id()
@@ -399,6 +428,7 @@ def _aba_vendas(supabase):
                                 if not cliente:
                                     cliente = gestao_click.criar_cliente(v.get('cliente_nome') or 'Sem nome', cpf_input)
                                 cliente_id = cliente['id']
+                                gestao_click.atualizar_endereco_cliente(cliente_id, cep_input, numero_input.strip())
 
                                 itens_api = []
                                 for it in itens_prontos:
