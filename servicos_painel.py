@@ -260,6 +260,15 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             novo_bairro_cliente = st.text_input("Bairro", value='' if _bairro_banco.lower() in ('nan', 'none') else _bairro_banco,
                                                 placeholder="Ex: Duquesa I", key=f"edit_bairro_{prefix_key}",
                                                 help="Aparece junto do nome nas telas do instalador, pra ficar mais fácil de identificar qual instalação é qual.")
+            _cpf_banco = str(projeto_selecionado.get('cpf_cnpj_cliente', '') or '')
+            if _cpf_banco.lower() in ('nan', 'none', ''):
+                # Já tem CPF preenchido de quando gerou um Contrato pra esse
+                # cliente? Aproveita como valor inicial em vez de pedir de novo.
+                _d_ct_fallback_cpf = projeto_selecionado.get('dados_contrato')
+                _cpf_banco = (_d_ct_fallback_cpf or {}).get('cpf', '') if isinstance(_d_ct_fallback_cpf, dict) else ''
+            novo_cpf_cliente = st.text_input("CPF/CNPJ", value=_cpf_banco, placeholder="000.000.000-00",
+                                             key=f"edit_cpf_{prefix_key}",
+                                             help="Usado pra emitir Nota Fiscal (contrato e futura integração com o Gestão Click).")
         
             col_esq, col_meio, col_dir = st.columns(3)
         
@@ -1113,6 +1122,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     "telefone_cliente": novo_tel_cliente,
                     "endereco_cliente": novo_endereco_cliente,
                     "bairro_cliente": novo_bairro_cliente,
+                    "cpf_cnpj_cliente": novo_cpf_cliente,
                     "status_projeto": novo_status,
                     "data_conclusao": nova_data.strftime('%Y-%m-%d'),
                     "instalador": novo_instalador,
@@ -1144,7 +1154,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     st.success("✅ Atualizado com sucesso!")
                     st.rerun()
                 except Exception as e: 
-                    st.error(f"Erro ao salvar. Verifique se as colunas 'nf_entrada', 'vencimento_boleto', 'instalador' e 'bairro_cliente' foram criadas no Supabase. Detalhe: {e}")
+                    st.error(f"Erro ao salvar. Verifique se as colunas 'nf_entrada', 'vencimento_boleto', 'instalador', 'bairro_cliente' e 'cpf_cnpj_cliente' foram criadas no Supabase. Detalhe: {e}")
     except Exception as global_e:
         st.error(f"⚠️ **Erro Interno de Execução:** Ocorreu uma falha ao renderizar este painel.")
         st.info("Para que o suporte possa ajudar, por favor tire um print do erro abaixo:")

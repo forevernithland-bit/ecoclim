@@ -3,6 +3,7 @@ import pandas as pd
 import urllib.parse
 from io import BytesIO
 import utils
+import gestao_click
 
 STATUS_NF_LABELS = {"nao_precisa": "Não precisa", "pendente": "⏳ Pendente", "emitida": "✅ Emitida"}
 STATUS_NF_OPCOES = ["nao_precisa", "pendente", "emitida"]
@@ -268,6 +269,12 @@ def _aba_vendas(supabase):
     except Exception:
         vendas = []
 
+    try:
+        res_cat_v = supabase.table('materiais_padrao').select('*').execute()
+        mapa_materiais = {c['item']: c for c in (res_cat_v.data or [])}
+    except Exception:
+        mapa_materiais = {}
+
     if not vendas:
         st.info("Nenhuma venda de material registrada ainda.")
         return
@@ -326,6 +333,98 @@ def _aba_vendas(supabase):
                     + f"\n\nTotal: {utils.to_br_currency(v.get('venda_total'))}"
                 )
                 st.code(texto_nf, language=None)
+
+            # --- Integração Gestão Click: deixa a NF pronta pra emitir lá ---
+            if v.get('nf_gestao_click_id'):
+                st.success(f"✅ Nota preparada no Gestão Click (ID {v['nf_gestao_click_id']}) — falta só emitir.")
+                if st.button("🚀 Emitir agora", key=f"btn_emitir_nf_{v['id']}"):
+                    try:
+                        gestao_click.emitir_nota_fiscal(v['nf_gestao_click_id'])
+                        supabase.table('vendas_materiais').update({"status_nf": "emitida"}).eq('id', v['id']).execute()
+                        st.success("Nota fiscal emitida com sucesso!")
+                        st.rerun()
+                    except gestao_click.GestaoClickError as e:
+                        st.error(str(e))
+            else:
+                _preview_nf_key = f"preview_nf_{v['id']}"
+                if st.button("🔗 Preparar Nota Fiscal no Gestão Click", key=f"btn_preparar_nf_{v['id']}"):
+                    st.session_state[_preview_nf_key] = True
+                    st.rerun()
+
+                if st.session_state.get(_preview_nf_key):
+                    cpf_banco = ""
+                    if v.get('servico_id'):
+                        try:
+                            res_srv_cpf = supabase.table('servicos_andamento').select('cpf_cnpj_cliente').eq('id', v['servico_id']).execute()
+                            if res_srv_cpf.data:
+                                cpf_banco = res_srv_cpf.data[0].get('cpf_cnpj_cliente') or ""
+                        except Exception:
+                            pass
+                    cpf_input = st.text_input("CPF/CNPJ do cliente", value=cpf_banco, key=f"cpf_nf_{v['id']}",
+                                               help="Necessário pra achar ou criar o cliente lá no Gestão Click.")
+
+                    itens_prontos, itens_sem_material, itens_sem_ncm = [], [], []
+                    for it in itens_v:
+                        mat = mapa_materiais.get(it.get('item'))
+                        if not mat:
+                            itens_sem_material.append(it.get('item'))
+                            continue
+                        if not mat.get('ncm'):
+                            itens_sem_ncm.append(it.get('item'))
+                        itens_prontos.append({
+                            "material_id": mat['id'],
+                            "codigo_externo": mat.get('codigo_externo'),
+                            "item": it.get('item'),
+                            "quantidade": it.get('qtd'),
+                            "valor_venda": it.get('venda_unitario'),
+                            "valor_custo": it.get('custo_unitario'),
+                            "ncm": mat.get('ncm') or "",
+                        })
+
+                    if itens_sem_material:
+                        st.warning(f"Itens sem material correspondente no catálogo (não vão entrar na NF): {', '.join(itens_sem_material)}")
+                    if itens_sem_ncm:
+                        st.warning(f"Itens sem NCM cadastrado (preencha em Catálogo & Preços → Dados avançados antes de emitir de verdade): {', '.join(itens_sem_ncm)}")
+                    if itens_prontos:
+                        st.dataframe(pd.DataFrame(itens_prontos)[['item', 'quantidade', 'valor_venda', 'ncm']], use_container_width=True, hide_index=True)
+
+                    col_conf_nf, col_canc_nf = st.columns(2)
+                    if col_conf_nf.button("✅ Confirmar e preparar no Gestão Click", type="primary", key=f"btn_confirmar_nf_{v['id']}", disabled=not itens_prontos):
+                        if not cpf_input.strip():
+                            st.warning("Informe o CPF/CNPJ do cliente antes de continuar.")
+                        else:
+                            try:
+                                loja_id = gestao_click.buscar_loja_id()
+                                cliente = gestao_click.buscar_cliente_por_cpf(cpf_input)
+                                if not cliente:
+                                    cliente = gestao_click.criar_cliente(v.get('cliente_nome') or 'Sem nome', cpf_input)
+                                cliente_id = cliente['id']
+
+                                itens_api = []
+                                for it in itens_prontos:
+                                    produto_id = it['codigo_externo'] or gestao_click.garantir_produto(supabase, mapa_materiais[it['item']])
+                                    itens_api.append({
+                                        "produto_id": produto_id,
+                                        "quantidade": it['quantidade'],
+                                        "valor_venda": it['valor_venda'],
+                                        "valor_custo": it['valor_custo'],
+                                        "ncm": it['ncm'],
+                                    })
+
+                                nf_id = gestao_click.criar_nota_fiscal_rascunho(loja_id, cliente_id, itens_api)
+                                supabase.table('vendas_materiais').update({
+                                    "nf_gestao_click_id": str(nf_id), "status_nf": "pendente",
+                                }).eq('id', v['id']).execute()
+                                if v.get('servico_id') and cpf_input.strip() != cpf_banco:
+                                    supabase.table('servicos_andamento').update({"cpf_cnpj_cliente": cpf_input.strip()}).eq('id', v['servico_id']).execute()
+                                st.success(f"Nota fiscal preparada no Gestão Click (ID {nf_id})! Confira lá e emita quando quiser, ou use o botão \"Emitir agora\" aqui.")
+                                st.session_state[_preview_nf_key] = False
+                                st.rerun()
+                            except gestao_click.GestaoClickError as e:
+                                st.error(str(e))
+                    if col_canc_nf.button("Cancelar", key=f"btn_cancelar_nf_{v['id']}"):
+                        st.session_state[_preview_nf_key] = False
+                        st.rerun()
 
 
 def renderizar():
