@@ -759,8 +759,12 @@ async function viewAgenda() {
     puxarVisitas(sessao.instaladorVinculado),
     visitasPendentesNovas(),
   ]);
+  // Cada visita aparece numa aba só, de acordo com o status atual dela — uma
+  // visita Cancelada não é "Realizada" nem "Agendada" (normalmente é um
+  // reagendamento: a antiga cancelada + uma nova Agendada pro mesmo cliente),
+  // então não entra em nenhuma das duas abas, pra não parecer cliente duplicado.
   const agendadas = visitas.filter((v) => v.status === "Agendada" || !v.status);
-  const historico = [...visitas.filter((v) => v.status && v.status !== "Agendada")]
+  const historico = [...visitas.filter((v) => v.status === "Realizada")]
     .sort((a, b) => String(b.data_hora || "").localeCompare(String(a.data_hora || "")));
 
   const chaveMesVisita = (v) => String(v.data_hora || "").slice(0, 7) || "sem-data";
@@ -790,7 +794,7 @@ async function viewAgenda() {
         </div>` : ""}
       ${v.telefone ? `<div class="cartao-sub">📞 ${escapeHTML(v.telefone)}</div>` : ""}
       ${v.observacoes ? `<div class="cartao-sub">📝 ${escapeHTML(v.observacoes)}</div>` : ""}
-      ${v.comentario_instalador ? `<div class="cartao-sub">💬 Você respondeu: ${escapeHTML(v.comentario_instalador)}</div>` : ""}
+      ${v.comentario_instalador ? `<div class="cartao-sub">💬 ${sessao.admin ? escapeHTML(v.instalador || "Instalador") + " respondeu" : "Você respondeu"}: ${escapeHTML(v.comentario_instalador)}</div>` : ""}
       ${v.valor_sugerido ? `<div class="cartao-sub">💰 Valor sugerido: ${formatarBRL(v.valor_sugerido)}</div>` : ""}
       ${!pendente && (!v.status || v.status === "Agendada") ? `
         <div class="cartao-rodape">
@@ -1346,6 +1350,15 @@ async function viewFinanceiroAdmin() {
     </div>`;
   };
 
+  const chaveMesFin = (s) => String(s.data_conclusao || "").slice(0, 7) || "sem-data";
+  const mesAtualChaveFin = chaveMesHoje();
+  const mesesFin = Array.from(new Set([mesAtualChaveFin, ...finalizados.map(chaveMesFin)]))
+    .filter((m) => m !== "sem-data").sort((a, b) => b.localeCompare(a));
+  const renderFinalizadosFiltrado = (mes) => {
+    const filtrados = mes === "todos" ? finalizados : finalizados.filter((s) => chaveMesFin(s) === mes);
+    return blocoTotais(filtrados) + (filtrados.length ? filtrados.map(linhaServico).join("") : `<p class="vazio">Nenhum serviço finalizado nesse mês.</p>`);
+  };
+
   raiz.innerHTML = `
     <div class="topo"><div class="topo-titulo">💰 Financeiro</div></div>
     <div class="conteudo">
@@ -1358,8 +1371,12 @@ async function viewFinanceiroAdmin() {
         ${emAndamento.length ? emAndamento.map(linhaServico).join("") : `<p class="vazio">Nenhum serviço em andamento.</p>`}
       </div>
       <div id="fin-adm-fin" style="display:none;">
-        ${blocoTotais(finalizados)}
-        ${finalizados.length ? finalizados.map(linhaServico).join("") : `<p class="vazio">Nenhum serviço finalizado ainda.</p>`}
+        <label style="margin-top:0;">📅 Filtrar por mês</label>
+        <select id="filtro-mes-fin-adm">
+          ${mesesFin.map((m) => `<option value="${m}" ${m === mesAtualChaveFin ? "selected" : ""}>${formatarMes(m)}</option>`).join("")}
+          <option value="todos">Todos os meses</option>
+        </select>
+        <div id="lista-fin-adm-finalizados" style="margin-top:10px;">${renderFinalizadosFiltrado(mesAtualChaveFin)}</div>
       </div>
     </div>
     ${navBarHTML("financeiro")}
@@ -1373,6 +1390,12 @@ async function viewFinanceiroAdmin() {
       document.getElementById("fin-adm-fin").style.display = btn.dataset.abaFinAdm === "fin" ? "block" : "none";
     });
   });
+  const filtroMesFinAdm = document.getElementById("filtro-mes-fin-adm");
+  if (filtroMesFinAdm) {
+    filtroMesFinAdm.addEventListener("change", () => {
+      document.getElementById("lista-fin-adm-finalizados").innerHTML = renderFinalizadosFiltrado(filtroMesFinAdm.value);
+    });
+  }
   ligarNav();
 }
 
@@ -1691,6 +1714,7 @@ async function viewOrcamentos() {
       ${rascunhos.length ? `
         <div class="cartao" style="margin-bottom:12px;">
           <div class="cartao-titulo">📂 Continuar Rascunho</div>
+          <input type="text" id="orc-rascunho-busca" placeholder="🔍 Buscar cliente..." style="margin-top:6px;" autocomplete="off" />
           <select id="orc-rascunho-select" style="width:100%; margin-top:6px;">
             <option value="">-- novo orçamento --</option>
             ${rascunhos.map((r) => `<option value="${r.id}">${escapeHTML(r.nome_cliente || "Sem nome")} (${formatarBRL(r.valor_venda_total)})</option>`).join("")}
@@ -1795,6 +1819,17 @@ async function viewOrcamentos() {
 
   renderizarItensOrcamento();
   ligarNav();
+
+  const buscaRascunho = document.getElementById("orc-rascunho-busca");
+  if (buscaRascunho) {
+    buscaRascunho.addEventListener("input", () => {
+      const termo = buscaRascunho.value.trim().toLowerCase();
+      const sel = document.getElementById("orc-rascunho-select");
+      const filtrados = termo ? rascunhos.filter((r) => String(r.nome_cliente || "").toLowerCase().includes(termo)) : rascunhos;
+      sel.innerHTML = `<option value="">-- novo orçamento --</option>` +
+        filtrados.map((r) => `<option value="${r.id}">${escapeHTML(r.nome_cliente || "Sem nome")} (${formatarBRL(r.valor_venda_total)})</option>`).join("");
+    });
+  }
 
   document.getElementById("btn-orc-add-produto").addEventListener("click", () => {
     const sel = document.getElementById("orc-select-produto");

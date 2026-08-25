@@ -63,7 +63,7 @@ export async function puxarTodosOsServicos() {
   const { data, error } = await supabase
     .from("servicos_andamento")
     .select("id, nome_cliente, bairro_cliente, telefone_cliente, endereco_cliente, produtos_adquiridos, servicos_adquiridos, status_projeto, instalacao_concluida_instalador, data_conclusao_instalador, data_conclusao, data_prevista_instalacao, instalador")
-    .not("status_projeto", "in", "(Rascunho,\"Rascunho Rápido\")")
+    .in("status_projeto", [...STATUS_EM_ANDAMENTO, ...STATUS_FINALIZADOS])
     .order("id", { ascending: false });
   if (error) throw error;
   return data || [];
