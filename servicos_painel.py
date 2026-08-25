@@ -3,6 +3,7 @@ import pandas as pd
 import datetime
 import utils
 import traceback
+import gestao_click
 
 def safe_float(val):
     try:
@@ -1018,7 +1019,12 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                                             }).execute()
                                             _novo_estoque = float(_mat_baixa.get('estoque_atual') or 0) - _qtd_baixa
                                             supabase.table('materiais_padrao').update({"estoque_atual": _novo_estoque}).eq('id', linha['_material_id']).execute()
-                                        st.success(f"✅ Materiais adquiridos! Lucro dessa operação: {utils.to_br_currency(_lucro_preview)}")
+                                            try:
+                                                gestao_click.garantir_produto(supabase, {**_mat_baixa, "estoque_atual": _novo_estoque})
+                                            except gestao_click.GestaoClickError:
+                                                pass  # não trava a venda por causa do Gestão Click — sincroniza de novo na próxima oportunidade
+                                        st.toast("Itens atualizados no ERP Ecoclim e no Gestão Click Ecoclim!", icon="✅")
+                                        st.success(f"✅ Materiais adquiridos (lucro: {utils.to_br_currency(_lucro_preview)}) — itens atualizados no ERP Ecoclim e no Gestão Click Ecoclim!")
                                         st.session_state[_preview_key] = False
                                         st.rerun()
                                     except Exception as e:

@@ -1,14 +1,25 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 import pandas as pd
 import datetime
 import requests
 import utils
+import orcamento_personalizado
 import base64
 
 # Inicia a API
 app = FastAPI(title="Ecoclim API - V2", description="API para integração com n8n, ERP e envio automático de PDF via Evolution API")
+
+# Libera o PWA (GitHub Pages) a chamar esta API pelo navegador — sem isso o
+# navegador bloqueia a chamada (CORS), mesmo com HTTPS dos dois lados.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://forevernithland-bit.github.io"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Conecta no seu Supabase
 supabase = utils.init_connection()
@@ -356,5 +367,192 @@ async def gerar_orcamento_kit_bot(req: OrcamentoKitRequest):
             "detalhes_whatsapp": retorno_whatsapp
         }
 
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==========================================
+# ORÇAMENTO PERSONALIZADO (usado pelo PWA — aba Orçamentos do admin)
+# ==========================================
+# Estes 3 endpoints são chamados pelo app mobile (js/orcamentos.js). Em vez de
+# reimplementar a lógica de negócio em JavaScript (que ficaria desatualizada
+# toda vez que orcamento_personalizado.py mudasse), eles importam e chamam AS
+# MESMAS funções Python que o ERP (Streamlit) usa — detecção de capa/serviço,
+# nome de arquivo, e a geração do PDF em si (utils.gerar_pdf_orcamento). Assim
+# qualquer alteração feita no ERP desktop se reflete automaticamente aqui,
+# sem precisar tocar no PWA.
+class ItemOrcamentoPersonalizado(BaseModel):
+    nome: str
+    descricao: Optional[str] = ""
+    quantidade: float
+    custo_unitario: float = 0.0
+    venda_unitario: float = 0.0
+
+
+def _df_itens_orcamento(itens: List[ItemOrcamentoPersonalizado]) -> pd.DataFrame:
+    linhas = []
+    for it in itens:
+        venda_tot = it.quantidade * it.venda_unitario
+        custo_tot = it.quantidade * it.custo_unitario
+        linhas.append({
+            "Produto da Base": it.nome, "Produto Manual": "",
+            "Descrição": it.descricao or "", "Quantidade": it.quantidade,
+            "Custo (R$)": it.custo_unitario, "Venda (R$)": it.venda_unitario,
+            "Custo Total": custo_tot, "Venda Total": venda_tot,
+        })
+    return pd.DataFrame(linhas) if linhas else pd.DataFrame(
+        columns=["Produto da Base", "Produto Manual", "Descrição", "Quantidade", "Custo (R$)", "Venda (R$)", "Custo Total", "Venda Total"])
+
+
+class SugestaoRequest(BaseModel):
+    itens: List[ItemOrcamentoPersonalizado]
+
+
+@app.post("/orcamento-personalizado/sugestao")
+async def orcamento_personalizado_sugestao(req: SugestaoRequest):
+    """Mesma automação do ERP (Partes 1 e 2 de orcamento_personalizado.py):
+    a partir dos equipamentos escolhidos, sugere o modelo de capa e o
+    serviço de instalação correspondente do catálogo."""
+    try:
+        df = _df_itens_orcamento(req.itens)
+        db_servicos = utils.load_catalog('catalogo_servicos')
+
+        capa = orcamento_personalizado.detectar_capa_por_produtos(df)
+        sugestao = orcamento_personalizado.sugerir_servico_por_produtos(df, db_servicos)
+
+        servico_detalhe = None
+        if sugestao and sugestao.get("item_catalogo"):
+            linha = db_servicos.loc[db_servicos['Item'] == sugestao["item_catalogo"]]
+            if not linha.empty:
+                desc = linha['Descrição'].values[0]
+                servico_detalhe = {
+                    "nome": sugestao["item_catalogo"],
+                    "descricao": str(desc) if pd.notna(desc) else "",
+                    "valor": float(linha['Venda (R$)'].values[0]) if pd.notna(linha['Venda (R$)'].values[0]) else 0.0,
+                }
+
+        return {"capa_sugerida": capa, "sugestao": sugestao, "servico_detalhe": servico_detalhe}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class GerarPdfOrcamentoRequest(BaseModel):
+    nome_cliente: str
+    telefone: Optional[str] = ""
+    endereco: Optional[str] = ""
+    modelo_capa: str = "Aquecedor Solar Tradicional"
+    itens: List[ItemOrcamentoPersonalizado]
+    descricao_servico: Optional[str] = ""
+    valor_servico: float = 0.0
+    descricao_outros: Optional[str] = ""
+    valor_outros: float = 0.0
+    observacoes: Optional[str] = "Material Hidráulico não incluído na proposta"
+    mostrar_precos_unitarios: bool = False
+    detalhar_itens_pdf: bool = False
+    numero_orcamento: Optional[str] = None
+
+
+@app.post("/orcamento-personalizado/gerar-pdf")
+async def orcamento_personalizado_gerar_pdf(req: GerarPdfOrcamentoRequest):
+    """Gera o PDF EXATAMENTE como o ERP (mesma função utils.gerar_pdf_orcamento),
+    salva uma cópia de backup no Drive (melhor esforço — não falha a chamada
+    se o Drive não estiver acessível) e devolve o PDF em base64 pro celular
+    baixar/compartilhar direto."""
+    try:
+        df_itens = _df_itens_orcamento(req.itens)
+        subtotal_equip = float(df_itens['Venda Total'].sum()) if not df_itens.empty else 0.0
+        total_investimento = subtotal_equip + req.valor_servico + req.valor_outros
+
+        pdf_buffer = utils.gerar_pdf_orcamento(
+            nome=req.nome_cliente, tel=req.telefone or "Não informado",
+            capa=req.modelo_capa, df_items=df_itens,
+            d_s=req.descricao_servico or "", v_s=req.valor_servico,
+            d_o=req.descricao_outros or "", v_o=req.valor_outros,
+            total=total_investimento, obs=req.observacoes,
+            mostrar_un=req.mostrar_precos_unitarios, detalhar_itens=req.detalhar_itens_pdf,
+        )
+
+        numero_prop = req.numero_orcamento or datetime.datetime.now().strftime('%y%m%d-%H%M')
+        nome_base = orcamento_personalizado.gerar_nome_arquivo_orcamento(numero_prop, req.nome_cliente, df_itens)
+        nome_arquivo = f"{nome_base}.pdf"
+
+        drive_link = None
+        try:
+            if utils.drive_nome_existe(utils.DRIVE_FOLDER_ORCAMENTOS, nome_arquivo):
+                i = 2
+                while utils.drive_nome_existe(utils.DRIVE_FOLDER_ORCAMENTOS, f"{nome_base}_v{i}.pdf"):
+                    i += 1
+                nome_arquivo = f"{nome_base}_v{i}.pdf"
+            ok_drive, res_drive = utils.upload_to_drive_folder_id(pdf_buffer, nome_arquivo, "application/pdf", utils.DRIVE_FOLDER_ORCAMENTOS)
+            if ok_drive:
+                drive_link = f"https://drive.google.com/file/d/{res_drive}/view"
+        except Exception:
+            pass  # backup no Drive é melhor-esforço; o PDF já foi gerado e vai pro celular de qualquer jeito
+
+        pdf_b64 = base64.b64encode(pdf_buffer.getvalue()).decode('utf-8')
+        return {
+            "sucesso": True, "pdf_base64": pdf_b64, "nome_arquivo": nome_arquivo,
+            "numero_orcamento": numero_prop, "valor_total": total_investimento,
+            "drive_link": drive_link,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class CalculoCustosRequest(BaseModel):
+    venda_produtos: float
+    custo_produtos: float
+    venda_instalacao: float = 0.0
+    custo_instalacao: float = 0.0
+    venda_outros: float = 0.0
+    custo_outros: float = 0.0
+    emite_nf: bool = False
+    forma_pagamento: str = "Nenhum / Dinheiro / PIX"
+    comissao_pct: float = 0.0
+    desconto_reais: float = 0.0
+
+
+@app.post("/orcamento-personalizado/calculo-custos")
+async def orcamento_personalizado_calculo_custos(req: CalculoCustosRequest):
+    """Mesma matemática do modal 'Cálculo de Custos — Lucro Líquido' do ERP
+    (orcamento_personalizado.py::_modal_calculo_custos), lendo as taxas
+    cadastradas (catalogo_taxas) direto do Supabase em vez de session_state."""
+    try:
+        db_taxas = utils.load_taxas()
+        taxa_nf = 6.0
+        dict_taxas = {"Nenhum / Dinheiro / PIX": 0.0}
+        for _, t in db_taxas.iterrows():
+            nome = str(t.get('Item', '')).strip()
+            up = nome.upper()
+            try:
+                val = float(t.get('Taxa (%)', 0.0))
+            except Exception:
+                val = 0.0
+            if "NF" in up or "NOTA FISCAL" in up:
+                taxa_nf = val
+            elif nome:
+                dict_taxas[nome] = val
+
+        venda_bruta = req.venda_produtos + req.venda_instalacao + req.venda_outros
+        venda_liquida = max(venda_bruta - req.desconto_reais, 0.0)
+        taxa_cartao_pct = dict_taxas.get(req.forma_pagamento, 0.0)
+        custo_nf = venda_liquida * (taxa_nf / 100.0) if req.emite_nf else 0.0
+        custo_cartao = venda_liquida * (taxa_cartao_pct / 100.0)
+        custo_comissao = venda_liquida * (req.comissao_pct / 100.0)
+        custo_fixo = req.custo_produtos + req.custo_instalacao + req.custo_outros
+        custo_variavel = custo_nf + custo_cartao + custo_comissao
+        custo_total = custo_fixo + custo_variavel
+        lucro_liquido = venda_liquida - custo_total
+        margem = (lucro_liquido / venda_liquida * 100.0) if venda_liquida > 0 else 0.0
+
+        return {
+            "venda_bruta": venda_bruta, "venda_liquida": venda_liquida,
+            "taxa_nf_pct": taxa_nf, "custo_nf": custo_nf,
+            "taxa_cartao_pct": taxa_cartao_pct, "custo_cartao": custo_cartao,
+            "custo_comissao": custo_comissao, "custo_fixo": custo_fixo,
+            "custo_variavel": custo_variavel, "custo_total": custo_total,
+            "lucro_liquido": lucro_liquido, "margem_pct": margem,
+            "opcoes_pagamento": list(dict_taxas.keys()),
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

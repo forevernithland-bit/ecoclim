@@ -45,11 +45,12 @@ export async function login(usuario, senha) {
   if (String(dados.senha || "").toLowerCase() !== String(senha || "").toLowerCase() || dados.ativo === false) {
     return { ok: false, erro: "Usuário ou senha incorretos." };
   }
-  if (dados.perfil !== "Instalador") {
+  const ehAdmin = dados.perfil === "Admin";
+  if (dados.perfil !== "Instalador" && !ehAdmin) {
     return { ok: false, erro: "Este acesso é exclusivo para instaladores." };
   }
   const instaladorVinculado = String(dados.instalador_vinculado || "").trim();
-  if (!instaladorVinculado) {
+  if (!ehAdmin && !instaladorVinculado) {
     return { ok: false, erro: "Este usuário ainda não está vinculado a um instalador. Fale com o Breno." };
   }
 
@@ -57,6 +58,7 @@ export async function login(usuario, senha) {
     usuario: usuarioTratado,
     nomeCompleto: dados.nome_completo || usuarioTratado,
     instaladorVinculado,
+    admin: ehAdmin,
   };
   await salvarSessao(sessao);
   return { ok: true, sessao };

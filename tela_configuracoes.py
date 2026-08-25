@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import io
 import utils
+import gestao_click
 
 def renderizar():
     st.markdown("## ⚙️ Configurações e Catálogos")
@@ -149,6 +150,12 @@ def renderizar():
             "Lucro (R$)": st.column_config.NumberColumn("Lucro", format="R$ %,.2f", disabled=True),
             "Venda (R$)": st.column_config.NumberColumn("Preço Venda", format="R$ %,.2f")
         }
+        if "NCM" in df_exibicao.columns:
+            config_editor["NCM"] = st.column_config.TextColumn("NCM", width="small", help="Obrigatório pra emitir Nota Fiscal desse item no Gestão Click. Não chutar — pesquisar em fonte de contabilidade confiável.")
+        if "Código Externo (GC)" in df_exibicao.columns:
+            config_editor["Código Externo (GC)"] = st.column_config.TextColumn("Cód. Gestão Click", width="small", disabled=True, help="Preenchido automaticamente na primeira sincronização — não editar na mão.")
+        if "Código de Barra" in df_exibicao.columns:
+            config_editor["Código de Barra"] = st.column_config.TextColumn("Cód. Barra", width="small")
         
         editor_key = f"editor_{nome_tabela}"
         df_editor = st.data_editor(df_exibicao, column_config=config_editor, num_rows="dynamic", use_container_width=True, key=editor_key)
@@ -245,9 +252,27 @@ def renderizar():
             else:
                 df_salvar = df_editor.reset_index(drop=True)
                 
-            utils.save_catalog(nome_tabela, df_salvar)
+            linhas_salvas = utils.save_catalog(nome_tabela, df_salvar)
             if f'temp_df_{nome_tabela}' in st.session_state: del st.session_state[f'temp_df_{nome_tabela}']
-            st.success(f"Catálogo atualizado com sucesso!")
+
+            if nome_tabela == 'catalogo_produtos' and linhas_salvas:
+                sem_ncm = [r['item'] for r in linhas_salvas if not r.get('ncm')]
+                erros_sync = []
+                supabase_sync = utils.get_supabase_client()
+                with st.spinner("Sincronizando com o Gestão Click..."):
+                    for row in linhas_salvas:
+                        try:
+                            gestao_click.garantir_produto(supabase_sync, row, tabela='catalogo_produtos')
+                        except gestao_click.GestaoClickError as e:
+                            erros_sync.append(f"{row['item']}: {e}")
+                if erros_sync:
+                    st.warning("Alguns itens não sincronizaram com o Gestão Click agora (o catálogo aqui foi salvo normalmente): " + "; ".join(erros_sync))
+                if sem_ncm:
+                    st.warning(f"⚠️ {len(sem_ncm)} item(ns) sem NCM — não vai dar pra emitir Nota Fiscal deles até preencher: {', '.join(sem_ncm)}")
+                st.toast("Itens atualizados no ERP Ecoclim e no Gestão Click Ecoclim!", icon="✅")
+                st.success("Itens atualizados no ERP Ecoclim e no Gestão Click Ecoclim!")
+            else:
+                st.success(f"Catálogo atualizado com sucesso!")
             st.rerun()
 
     with tabs[0]: exibir_aba_catalogo('catalogo_produtos', 'Produtos')

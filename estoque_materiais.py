@@ -7,6 +7,12 @@ import gestao_click
 
 STATUS_NF_LABELS = {"nao_precisa": "Não precisa", "pendente": "⏳ Pendente", "emitida": "✅ Emitida"}
 STATUS_NF_OPCOES = ["nao_precisa", "pendente", "emitida"]
+MSG_SYNC_OK = "Itens atualizados no ERP Ecoclim e no Gestão Click Ecoclim!"
+
+
+def _avisar_sincronizado():
+    st.toast(MSG_SYNC_OK, icon="✅")
+    st.success(MSG_SYNC_OK)
 
 
 def _carregar_catalogo(supabase):
@@ -118,7 +124,8 @@ def _aba_catalogo(supabase, catalogo):
                         erros_sync.append(f"{mat_atualizado.get('item')}: {e}")
             if erros_sync:
                 st.warning("Catálogo salvo, mas alguns itens não sincronizaram com o Gestão Click agora: " + "; ".join(erros_sync))
-            st.success("Catálogo atualizado e sincronizado com o Gestão Click!")
+            else:
+                _avisar_sincronizado()
             st.rerun()
         except Exception as e:
             st.error(f"Erro ao salvar: {e}")
@@ -143,7 +150,7 @@ def _aba_catalogo(supabase, catalogo):
                     supabase.table('materiais_padrao').update(dados_gc).eq('id', c['id']).execute()
                     try:
                         gestao_click.garantir_produto(supabase, {**c, **dados_gc})
-                        st.success("Salvo e sincronizado com o Gestão Click!")
+                        _avisar_sincronizado()
                     except gestao_click.GestaoClickError as e:
                         st.warning(f"Salvo aqui, mas não sincronizou com o Gestão Click agora: {e}")
                     st.rerun()
@@ -272,7 +279,7 @@ def _aba_compras(supabase, catalogo):
                             "referencia_id": compra_id,
                         }).execute()
 
-                    st.success("Compra registrada! Custo, venda e estoque atualizados.")
+                    _avisar_sincronizado()
                     st.session_state[_itens_compra_key] = []
                     st.rerun()
                 except Exception as e:

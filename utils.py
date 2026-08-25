@@ -403,36 +403,61 @@ def save_to_supabase(nome_tabela, df, ano):
         supabase.table(nome_tabela).insert(dados_finais).execute()
     except Exception as e: st.error(f"Erro ao salvar: {e}")
 
+COLUNAS_EXTRAS_GESTAO_CLICK = {"ncm": "NCM", "codigo_externo": "Código Externo (GC)", "codigo_barra": "Código de Barra"}
+
 def load_catalog(nome_tabela):
+    """Colunas extras (NCM, Código Externo/Barra do Gestão Click) só entram no
+    DataFrame se a tabela realmente tiver essas colunas — catalogo_servicos e
+    catalogo_outros não têm, só catalogo_produtos. Isso mantém load/save
+    genéricos pras 3 tabelas sem quebrar as que não usam Gestão Click."""
     supabase = get_supabase_client()
     colunas_corretas = ["Item", "Descrição", "Custo (R$)", "Margem (%)", "Lucro (R$)", "Venda (R$)"]
     try:
         res = supabase.table(nome_tabela).select("*").order("item").execute()
         df = pd.DataFrame(res.data)
-        mapeamento = {"item": "Item", "descricao": "Descrição", "custo": "Custo (R$)", "margem": "Margem (%)", "lucro": "Lucro (R$)", "venda": "Venda (R$)"}
+        mapeamento = {"item": "Item", "descricao": "Descrição", "custo": "Custo (R$)", "margem": "Margem (%)", "lucro": "Lucro (R$)", "venda": "Venda (R$)", **COLUNAS_EXTRAS_GESTAO_CLICK}
         if df.empty: return pd.DataFrame(columns=colunas_corretas)
+        colunas_extras_presentes = [v for k, v in COLUNAS_EXTRAS_GESTAO_CLICK.items() if k in df.columns]
         df = df.rename(columns={k: v for k, v in mapeamento.items() if k in df.columns})
-        for coluna in colunas_corretas:
+        colunas_finais = colunas_corretas + colunas_extras_presentes
+        for coluna in colunas_finais:
             if coluna not in df.columns:
-                df[coluna] = "" if "Desc" in coluna or "Item" in coluna else 0.0
-        return df[colunas_corretas]
+                df[coluna] = "" if "Desc" in coluna or "Item" in coluna or coluna in colunas_extras_presentes else 0.0
+        return df[colunas_finais]
     except:
         return pd.DataFrame(columns=colunas_corretas)
 
 def save_catalog(nome_tabela, df):
+    """Faz delete + insert (não update por id) — por isso as colunas extras do
+    Gestão Click (NCM, Código Externo, Código de Barra) precisam viajar DENTRO
+    do próprio DataFrame pra não se perderem a cada salvamento (bug real
+    encontrado em 2026-08-22: essas colunas eram apagadas silenciosamente
+    porque load/save só conheciam as 6 colunas padrão). Retorna as linhas
+    inseridas (com o novo id de cada uma) pra quem chamar poder sincronizar
+    com o Gestão Click em seguida."""
     supabase = get_supabase_client()
+    tem_extras = any(v in df.columns for v in COLUNAS_EXTRAS_GESTAO_CLICK.values())
     lista_dados = []
     for _, linha in df.iterrows():
         if linha.get('Item') and str(linha['Item']).strip() != "":
-            lista_dados.append({
+            registro = {
                 "item": linha['Item'], "descricao": str(linha.get('Descrição', '')),
                 "custo": float(linha.get('Custo (R$)', 0.0)), "margem": float(linha.get('Margem (%)', 0.0)),
                 "lucro": float(linha.get('Lucro (R$)', 0.0)), "venda": float(linha.get('Venda (R$)', 0.0))
-            })
+            }
+            if tem_extras:
+                for col_banco, col_df in COLUNAS_EXTRAS_GESTAO_CLICK.items():
+                    if col_df in df.columns:
+                        valor = str(linha.get(col_df) or '').strip()
+                        registro[col_banco] = valor if valor and valor.lower() != 'nan' else None
+            lista_dados.append(registro)
     try:
         supabase.table(nome_tabela).delete().neq("item", "___VAZIO___").execute()
-        if lista_dados: supabase.table(nome_tabela).insert(lista_dados).execute()
+        if lista_dados:
+            resp = supabase.table(nome_tabela).insert(lista_dados).execute()
+            return resp.data
     except Exception as e: st.error(f"Erro ao salvar catálogo: {e}")
+    return []
 
 def contar_notificacoes_instalador(supabase):
     """Conta quantas novidades do instalador o admin ainda não viu — comentário
