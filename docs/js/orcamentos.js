@@ -48,6 +48,28 @@ export const puxarCatalogoProdutos = () => carregarCatalogo("catalogo_produtos")
 export const puxarCatalogoServicos = () => carregarCatalogo("catalogo_servicos");
 export const puxarCatalogoOutros = () => carregarCatalogo("catalogo_outros");
 
+// ---------- Financeiro do admin (visão da empresa toda, todos os instaladores) ----------
+// Mesma regra do ERP (tela_servicos.py::deve_ir_para_finalizados): finalizado
+// = status Concluído PIX/CARTÃO; "Em Andamento" é o resto dos status ativos.
+// Nada de Rascunho/Rascunho Rápido/Orçamento aqui — só serviço de verdade.
+const STATUS_EM_ANDAMENTO = ["Em Andamento", "Aguardando Pagamento", "Aguardando Peças"];
+const STATUS_FINALIZADOS = ["Concluído PIX", "Concluído CARTÃO"];
+
+export async function puxarServicosEmpresa() {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from("servicos_andamento")
+    .select("id, nome_cliente, status_projeto, valor_venda_total, lucro_estimado, instalador, data_conclusao")
+    .in("status_projeto", [...STATUS_EM_ANDAMENTO, ...STATUS_FINALIZADOS])
+    .order("id", { ascending: false });
+  if (error) throw error;
+  const linhas = data || [];
+  return {
+    emAndamento: linhas.filter((s) => STATUS_EM_ANDAMENTO.includes(s.status_projeto)),
+    finalizados: linhas.filter((s) => STATUS_FINALIZADOS.includes(s.status_projeto)),
+  };
+}
+
 // ---------- Rascunhos / orçamentos salvos (tabela servicos_andamento) ----------
 export async function puxarRascunhos() {
   const supabase = getSupabase();

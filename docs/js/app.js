@@ -11,7 +11,7 @@ import { puxarAdiantamentos, totalAdiantadoAberto } from "./adiantamentos.js";
 import {
   puxarCatalogoProdutos, puxarCatalogoServicos, puxarCatalogoOutros,
   puxarRascunhos, carregarRascunho, excluirRascunho, salvarOrcamento,
-  buscarSugestao, gerarPdfOrcamento, calcularCustos,
+  buscarSugestao, gerarPdfOrcamento, calcularCustos, puxarServicosEmpresa,
 } from "./orcamentos.js";
 
 const raiz = document.getElementById("app");
@@ -124,10 +124,10 @@ const ITENS_NAV_BASE = [
 
 // Aba extra só pro admin (Breno) — pedido explícito: mesmo acesso do
 // instalador + Orçamentos Personalizados, idêntico ao ERP desktop.
+// Ordem pedida pro admin: Orçamentos primeiro, depois o resto igual.
+const ITEM_ORCAMENTOS = { id: "orcamentos", icone: "🧾", label: "Orçamentos" };
 function itensNav() {
-  return sessao && sessao.admin
-    ? [...ITENS_NAV_BASE, { id: "orcamentos", icone: "🧾", label: "Orçamentos" }]
-    : ITENS_NAV_BASE;
+  return sessao && sessao.admin ? [ITEM_ORCAMENTOS, ...ITENS_NAV_BASE] : ITENS_NAV_BASE;
 }
 
 function navBarHTML(ativo) {
@@ -1285,8 +1285,63 @@ async function viewMateriais() {
   renderFaixaSync(navigator.onLine ? "sincronizado" : "offline", pendentes);
 }
 
+// ---------- Financeiro da empresa (admin) — Em Andamento / Finalizados,
+// todos os instaladores. Mesmos números de "Serviços em Andamento" no ERP
+// (valor_venda_total / lucro_estimado) — não é o Controle Financeiro completo.
+async function viewFinanceiroAdmin() {
+  telaAtual = "financeiro";
+  const { emAndamento, finalizados } = await puxarServicosEmpresa();
+
+  const linhaServico = (s) => `
+    <div class="cartao" style="margin-bottom:8px;">
+      <div class="cartao-titulo">${escapeHTML(s.nome_cliente || "Sem nome")}</div>
+      <div class="cartao-sub">${escapeHTML(s.status_projeto)} ${s.instalador ? "· " + escapeHTML(s.instalador) : ""}</div>
+      <div class="campo"><span class="rotulo">Valor Total</span><span style="font-weight:700;">${formatarBRL(s.valor_venda_total)}</span></div>
+      <div class="campo"><span class="rotulo">Lucro Líquido</span><span style="font-weight:700; color:#006600;">${formatarBRL(s.lucro_estimado)}</span></div>
+    </div>`;
+
+  const blocoTotais = (lista) => {
+    const bruto = lista.reduce((a, s) => a + (Number(s.valor_venda_total) || 0), 0);
+    const lucro = lista.reduce((a, s) => a + (Number(s.lucro_estimado) || 0), 0);
+    return `<div class="cartao" style="background:#f0f4fa; margin-bottom:10px;">
+      <div class="campo"><span class="rotulo">Faturamento Bruto</span><span style="font-weight:800;">${formatarBRL(bruto)}</span></div>
+      <div class="campo"><span class="rotulo">Lucro Líquido</span><span style="font-weight:800; color:#004488;">${formatarBRL(lucro)}</span></div>
+    </div>`;
+  };
+
+  raiz.innerHTML = `
+    <div class="topo"><div class="topo-titulo">💰 Financeiro</div></div>
+    <div class="conteudo">
+      <div class="abas-segmento">
+        <button type="button" class="ativa" data-aba-fin-adm="atv">🚀 Em Andamento (${emAndamento.length})</button>
+        <button type="button" data-aba-fin-adm="fin">✅ Finalizados (${finalizados.length})</button>
+      </div>
+      <div id="fin-adm-atv">
+        ${blocoTotais(emAndamento)}
+        ${emAndamento.length ? emAndamento.map(linhaServico).join("") : `<p class="vazio">Nenhum serviço em andamento.</p>`}
+      </div>
+      <div id="fin-adm-fin" style="display:none;">
+        ${blocoTotais(finalizados)}
+        ${finalizados.length ? finalizados.map(linhaServico).join("") : `<p class="vazio">Nenhum serviço finalizado ainda.</p>`}
+      </div>
+    </div>
+    ${navBarHTML("financeiro")}
+  `;
+
+  raiz.querySelectorAll("[data-aba-fin-adm]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      raiz.querySelectorAll("[data-aba-fin-adm]").forEach((b) => b.classList.remove("ativa"));
+      btn.classList.add("ativa");
+      document.getElementById("fin-adm-atv").style.display = btn.dataset.abaFinAdm === "atv" ? "block" : "none";
+      document.getElementById("fin-adm-fin").style.display = btn.dataset.abaFinAdm === "fin" ? "block" : "none";
+    });
+  });
+  ligarNav();
+}
+
 // ---------- Financeiro (a receber x recebido, por mês) ----------
 async function viewFinanceiro() {
+  if (sessao.admin) return viewFinanceiroAdmin();
   telaAtual = "financeiro";
   const [todos, adiantamentos] = await Promise.all([
     lerServicos(),
