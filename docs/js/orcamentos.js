@@ -55,6 +55,20 @@ export const puxarCatalogoOutros = () => carregarCatalogo("catalogo_outros");
 const STATUS_EM_ANDAMENTO = ["Em Andamento", "Aguardando Pagamento", "Aguardando Peças"];
 const STATUS_FINALIZADOS = ["Concluído PIX", "Concluído CARTÃO"];
 
+// Instalações de TODOS os instaladores — usado pela tela "Instalações" do
+// admin (que normalmente lê do cache offline de UM instalador só, e o admin
+// não é vinculado a nenhum). Mesmos campos que a tela já sabe renderizar.
+export async function puxarTodosOsServicos() {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from("servicos_andamento")
+    .select("id, nome_cliente, bairro_cliente, telefone_cliente, endereco_cliente, produtos_adquiridos, servicos_adquiridos, status_projeto, instalacao_concluida_instalador, data_conclusao_instalador, data_conclusao, data_prevista_instalacao, instalador")
+    .not("status_projeto", "in", "(Rascunho,\"Rascunho Rápido\")")
+    .order("id", { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
 export async function puxarServicosEmpresa() {
   const supabase = getSupabase();
   const { data, error } = await supabase

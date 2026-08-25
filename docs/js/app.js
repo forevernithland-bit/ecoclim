@@ -11,7 +11,7 @@ import { puxarAdiantamentos, totalAdiantadoAberto } from "./adiantamentos.js";
 import {
   puxarCatalogoProdutos, puxarCatalogoServicos, puxarCatalogoOutros,
   puxarRascunhos, carregarRascunho, excluirRascunho, salvarOrcamento,
-  buscarSugestao, gerarPdfOrcamento, calcularCustos, puxarServicosEmpresa,
+  buscarSugestao, gerarPdfOrcamento, calcularCustos, puxarServicosEmpresa, puxarTodosOsServicos,
 } from "./orcamentos.js";
 
 const raiz = document.getElementById("app");
@@ -265,9 +265,44 @@ function renderConcluidosFiltrado(grupos, filtro, cartaoFn) {
   `).join("");
 }
 
+// Admin não é vinculado a um instalador (não tem cache offline dessa lista)
+// — vê tudo, de todos os instaladores, direto do Supabase.
+async function viewDetalheAdmin(s) {
+  telaAtual = "detalhe";
+  raiz.innerHTML = `
+    <div class="topo">
+      <button id="btn-voltar" class="botao-icone" title="Voltar">←</button>
+      <div class="topo-titulo">${escapeHTML(nomeComBairro(s))}</div>
+      <div style="width:34px"></div>
+    </div>
+    <div class="conteudo">
+      <div class="cartao">
+        <div class="campo"><span class="rotulo">Instalador</span><span>${escapeHTML(s.instalador || "-")}</span></div>
+        <div class="campo"><span class="rotulo">Telefone</span><span>${escapeHTML(s.telefone_cliente || "-")}</span></div>
+        <div class="campo"><span class="rotulo">Endereço</span><span>${escapeHTML(s.endereco_cliente || "Não informado")}</span></div>
+        ${s.endereco_cliente ? `
+          <div style="display:flex; gap:8px; margin-top:8px;">
+            <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s.endereco_cliente)}" target="_blank" rel="noopener" class="botao botao--secundario botao--mini" style="display:inline-block; text-decoration:none; text-align:center; flex:1;">🗺️ Maps</a>
+            <a href="https://waze.com/ul?q=${encodeURIComponent(s.endereco_cliente)}&navigate=yes" target="_blank" rel="noopener" class="botao botao--secundario botao--mini" style="display:inline-block; text-decoration:none; text-align:center; flex:1;">🚗 Waze</a>
+          </div>
+        ` : ""}
+        <div class="campo"><span class="rotulo">Status</span><span>${escapeHTML(s.status_projeto || "")}</span></div>
+        ${s.data_prevista_instalacao ? `<div class="campo"><span class="rotulo">Data Prevista</span><span>${formatarData(s.data_prevista_instalacao)}</span></div>` : ""}
+      </div>
+      <div class="cartao">
+        <h3 class="cartao-secao">🛠️ Equipamentos</h3>
+        <p>${escapeHTML(s.produtos_adquiridos || "Nenhum produto listado.")}</p>
+        ${s.servicos_adquiridos ? `<h3 class="cartao-secao">🔧 Serviço</h3><p>${escapeHTML(s.servicos_adquiridos)}</p>` : ""}
+      </div>
+      <p class="dica">Visão só de leitura (admin) — edição completa (data prevista, fotos, comentários) por enquanto é feita direto pelo instalador ou no ERP.</p>
+    </div>
+  `;
+  document.getElementById("btn-voltar").addEventListener("click", () => viewLista());
+}
+
 async function viewLista() {
   telaAtual = "lista";
-  const todos = await lerServicos();
+  const todos = sessao.admin ? await puxarTodosOsServicos() : await lerServicos();
   const abertos = todos.filter((s) => !estaConcluida(s));
   const concluidos = todos.filter((s) => estaConcluida(s));
   const gruposConcluidos = agruparConcluidosPorMes(concluidos);
@@ -335,7 +370,9 @@ async function viewLista() {
   });
   const ligarCliquesCartoes = () => {
     raiz.querySelectorAll(".cartao--clicavel").forEach((el) => {
-      el.onclick = () => viewDetalhe(Number(el.dataset.id));
+      el.onclick = sessao.admin
+        ? () => viewDetalheAdmin(todos.find((s) => s.id === Number(el.dataset.id)))
+        : () => viewDetalhe(Number(el.dataset.id));
     });
   };
   ligarCliquesCartoes();
@@ -1881,13 +1918,16 @@ async function viewOrcamentos() {
         descricao_outros: v.descricaoOutros, valor_outros: v.valorOutros,
         observacoes: v.observacoes, mostrar_precos_unitarios: v.mostrarPrecos,
         detalhar_itens_pdf: v.detalharItens, numero_orcamento: orcNumeroProposta,
+        rascunho_id: orcRascunhoId,
       });
       orcPdfAtual = r;
+      if (r.rascunho_id) orcRascunhoId = r.rascunho_id;
       const blob = await (await fetch(`data:application/pdf;base64,${r.pdf_base64}`)).blob();
       const url = URL.createObjectURL(blob);
       document.getElementById("orc-resultado-pdf").innerHTML = `
         <div class="cartao">
           <div class="cartao-titulo">✅ PDF gerado — ${escapeHTML(r.nome_arquivo)}</div>
+          <p class="dica">Já salvo como rascunho — pode continuar editando e gerar outra prévia que fica tudo no mesmo cliente.</p>
           <a href="${url}" download="${escapeAttr(r.nome_arquivo)}" class="botao botao--secundario" style="display:block; text-align:center; margin-top:6px;">📥 Baixar PDF</a>
           ${r.drive_link ? `<a href="${r.drive_link}" target="_blank" class="botao botao--secundario" style="display:block; text-align:center; margin-top:6px;">☁️ Abrir no Drive</a>` : ""}
         </div>`;

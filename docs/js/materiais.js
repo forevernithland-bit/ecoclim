@@ -5,14 +5,13 @@ const T_LISTAS = "listas_materiais";
 const T_PADRAO = "materiais_padrao";
 const T_MODELOS = "materiais_modelos";
 
+// instaladorVinculado vazio (admin) = sem filtro, traz de todos os instaladores.
 export async function puxarMinhasListas(instaladorVinculado) {
   try {
     const supabase = getSupabase();
-    const { data, error } = await supabase
-      .from(T_LISTAS)
-      .select("*")
-      .eq("instalador", instaladorVinculado)
-      .order("atualizado_em", { ascending: false });
+    let query = supabase.from(T_LISTAS).select("*").order("atualizado_em", { ascending: false });
+    if (instaladorVinculado) query = query.eq("instalador", instaladorVinculado);
+    const { data, error } = await query;
     if (error) throw error;
     await salvarCacheTabela(T_LISTAS, data || []);
     return data || [];

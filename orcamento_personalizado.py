@@ -223,6 +223,82 @@ def gerar_nome_arquivo_orcamento(numero, nome_cliente, df):
 
 
 # ---------------------------------------------------------------------------
+# Prévia → Rascunho automático + histórico de versões (2026-08-25)
+# Toda vez que uma prévia de PDF é gerada (ERP ou PWA), o cliente já vira um
+# Rascunho automaticamente, e cada prévia gerada fica registrada em
+# orcamento_versoes — sempre vinculada ao MESMO cliente (achado por telefone,
+# e na falta pelo nome), pra nunca duplicar o mesmo cliente várias vezes na
+# lista de rascunhos só porque foram geradas várias prévias/versões pra ele.
+# ---------------------------------------------------------------------------
+def _achar_rascunho_existente(supabase, nome_cliente, telefone):
+    """Procura um Rascunho já existente pro mesmo cliente — telefone primeiro
+    (mais confiável), nome como fallback (case/acento-insensível)."""
+    tel_digitos = re.sub(r'\D', '', str(telefone or ''))
+    if tel_digitos:
+        res = supabase.table("servicos_andamento").select("id, telefone_cliente").eq("status_projeto", "Rascunho").execute()
+        for r in (res.data or []):
+            if re.sub(r'\D', '', str(r.get('telefone_cliente') or '')) == tel_digitos:
+                return r['id']
+    nome_norm = _norm(nome_cliente)
+    if nome_norm:
+        res = supabase.table("servicos_andamento").select("id, nome_cliente").eq("status_projeto", "Rascunho").execute()
+        for r in (res.data or []):
+            if _norm(r.get('nome_cliente') or '') == nome_norm:
+                return r['id']
+    return None
+
+
+def registrar_previa_como_rascunho(supabase, rascunho_id_atual, nome_cliente, telefone, endereco,
+                                    df_itens, descricao_servico, valor_servico, descricao_outros,
+                                    valor_outros, observacoes, numero_orcamento, valor_total,
+                                    drive_link=None, nome_arquivo=None):
+    """Chamado sempre que uma prévia de PDF é gerada. Se `rascunho_id_atual` já
+    existir (sessão já estava editando um rascunho), reaproveita direto — senão
+    procura um rascunho existente do mesmo cliente antes de criar um novo.
+    Sempre grava a versão em orcamento_versoes. Retorna o id do rascunho
+    (novo ou reaproveitado) pra quem chamou continuar usando."""
+    snapshot_itens = []
+    for _, r in df_itens.iterrows():
+        qtd_r = float(r.get('Quantidade') or 0)
+        if qtd_r <= 0:
+            continue
+        nome_item = _nome_produto_linha(r)
+        snapshot_itens.append({
+            "Item": nome_item, "Qtd": qtd_r,
+            "Venda Un.": float(r.get('Venda (R$)') or 0), "Custo Un.": float(r.get('Custo (R$)') or 0),
+            "Descrição": str(r.get('Descrição', '') or ''),
+        })
+
+    payload_rascunho = {
+        "nome_cliente": nome_cliente, "telefone_cliente": telefone, "endereco_cliente": endereco,
+        "servicos_adquiridos": descricao_servico, "valor_venda_total": valor_total,
+        "status_projeto": "Rascunho", "detalhamento_itens": snapshot_itens,
+        "data_conclusao": datetime.date.today().strftime('%Y-%m-%d'),
+        "dados_contrato": {
+            "val_servico": valor_servico, "txt_outros": descricao_outros,
+            "val_outros": valor_outros, "obs_pdf": observacoes,
+        },
+    }
+
+    rascunho_id = rascunho_id_atual or _achar_rascunho_existente(supabase, nome_cliente, telefone)
+    if rascunho_id:
+        supabase.table("servicos_andamento").update(payload_rascunho).eq("id", rascunho_id).execute()
+    else:
+        payload_rascunho["numero_orcamento"] = f"RASC-{numero_orcamento}"
+        res = supabase.table("servicos_andamento").insert(payload_rascunho).execute()
+        rascunho_id = res.data[0]['id']
+
+    supabase.table("orcamento_versoes").insert({
+        "servico_id": rascunho_id, "numero_orcamento": numero_orcamento, "valor_venda_total": valor_total,
+        "detalhamento_itens": snapshot_itens, "descricao_servico": descricao_servico, "valor_servico": valor_servico,
+        "descricao_outros": descricao_outros, "valor_outros": valor_outros, "observacoes": observacoes,
+        "drive_link": drive_link, "nome_arquivo": nome_arquivo,
+    }).execute()
+
+    return rascunho_id
+
+
+# ---------------------------------------------------------------------------
 # Parte 3: Modal "Cálculo de Custos" (Lucro Líquido detalhado)
 # ---------------------------------------------------------------------------
 def _ler_taxas_cadastradas():
@@ -861,6 +937,21 @@ def renderizar(lista_nomes_produtos, limpar_func):
                 else:
                     st.session_state['orc_drive_link'] = None
                     st.warning(f"Prévia gerada, mas o envio automático ao Drive falhou ({_res_orc}).")
+
+                # Toda prévia já vira Rascunho automaticamente, agrupado no
+                # MESMO cliente (por telefone/nome) — nunca duplica o cliente
+                # na lista só por gerar mais de uma prévia/versão pra ele.
+                try:
+                    st.session_state.rascunho_id = registrar_previa_como_rascunho(
+                        st.session_state.supabase, st.session_state.get('rascunho_id'),
+                        nome_cliente, tel_formatado, endereco_cliente, df_editavel,
+                        descricao_final_servico, valor_final_servico, descricao_final_outros,
+                        valor_final_outros, obs_pdf, numero_prop, total_investimento,
+                        drive_link=(f"https://drive.google.com/file/d/{_res_orc}/view" if _ok_orc else None),
+                        nome_arquivo=fname,
+                    )
+                except Exception as _e_rasc:
+                    st.warning(f"Prévia gerada, mas não deu pra registrar o rascunho automaticamente: {_e_rasc}")
 
         if st.session_state.get('orc_drive_link') and st.session_state.get('nome_cliente_previa') == nome_cliente:
             st.caption(f"☁️ Salvo no Drive: **{st.session_state.get('orc_drive_nome','')}**  ·  "

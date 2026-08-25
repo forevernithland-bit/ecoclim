@@ -3,14 +3,13 @@ import { salvarCacheTabela, lerCacheTabela, enfileirarCriacao, aplicarPatchCache
 
 const TABELA = "agenda_visitas";
 
+// instaladorVinculado vazio (admin) = sem filtro, traz de todos os instaladores.
 export async function puxarVisitas(instaladorVinculado) {
   try {
     const supabase = getSupabase();
-    const { data, error } = await supabase
-      .from(TABELA)
-      .select("*")
-      .eq("instalador", instaladorVinculado)
-      .order("data_hora", { ascending: true });
+    let query = supabase.from(TABELA).select("*").order("data_hora", { ascending: true });
+    if (instaladorVinculado) query = query.eq("instalador", instaladorVinculado);
+    const { data, error } = await query;
     if (error) throw error;
     await salvarCacheTabela(TABELA, data || []);
     return data || [];

@@ -450,6 +450,7 @@ class GerarPdfOrcamentoRequest(BaseModel):
     mostrar_precos_unitarios: bool = False
     detalhar_itens_pdf: bool = False
     numero_orcamento: Optional[str] = None
+    rascunho_id: Optional[int] = None
 
 
 @app.post("/orcamento-personalizado/gerar-pdf")
@@ -489,11 +490,26 @@ async def orcamento_personalizado_gerar_pdf(req: GerarPdfOrcamentoRequest):
         except Exception:
             pass  # backup no Drive é melhor-esforço; o PDF já foi gerado e vai pro celular de qualquer jeito
 
+        # Toda prévia já vira Rascunho automaticamente, agrupado no MESMO
+        # cliente (por telefone/nome) — nunca duplica o cliente na lista só
+        # por gerar mais de uma prévia/versão pra ele. Mesma função que o ERP
+        # usa no botão "GERAR PRÉVIA".
+        rascunho_id = req.rascunho_id
+        try:
+            rascunho_id = orcamento_personalizado.registrar_previa_como_rascunho(
+                supabase, req.rascunho_id, req.nome_cliente, req.telefone or "", req.endereco or "",
+                df_itens, req.descricao_servico or "", req.valor_servico, req.descricao_outros or "",
+                req.valor_outros, req.observacoes, numero_prop, total_investimento,
+                drive_link=drive_link, nome_arquivo=nome_arquivo,
+            )
+        except Exception:
+            pass  # registrar o rascunho é melhor-esforço; o PDF já foi gerado e vai pro celular de qualquer jeito
+
         pdf_b64 = base64.b64encode(pdf_buffer.getvalue()).decode('utf-8')
         return {
             "sucesso": True, "pdf_base64": pdf_b64, "nome_arquivo": nome_arquivo,
             "numero_orcamento": numero_prop, "valor_total": total_investimento,
-            "drive_link": drive_link,
+            "drive_link": drive_link, "rascunho_id": rascunho_id,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
