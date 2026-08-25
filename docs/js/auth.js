@@ -42,7 +42,10 @@ export async function login(usuario, senha) {
     return { ok: false, erro: "Usuário ou senha incorretos." };
   }
   const dados = res.data;
-  if (String(dados.senha || "").toLowerCase() !== String(senha || "").toLowerCase() || dados.ativo === false) {
+  // Senha comparada sem diferenciar maiúscula/minúscula e ignorando espaço
+  // sobrando no início/fim — autopreenchimento do celular às vezes cola um
+  // espaço a mais, e a senha "certinha" visualmente não batia por causa disso.
+  if (String(dados.senha || "").trim().toLowerCase() !== String(senha || "").trim().toLowerCase() || dados.ativo === false) {
     return { ok: false, erro: "Usuário ou senha incorretos." };
   }
   const ehAdmin = dados.perfil === "Admin";
