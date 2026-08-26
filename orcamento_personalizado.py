@@ -506,11 +506,16 @@ def renderizar(lista_nomes_produtos, limpar_func):
                     limpar_func()
                     deve_rerun = True
             else:
+                busca_rasc = st.text_input("🔍 Buscar cliente...", key="busca_rascunho_orc", placeholder="Digite o nome do cliente")
+                rascunhos_filtrados = [r for r in rascunhos_db if _norm(busca_rasc) in _norm(r.get('nome_cliente', ''))] if busca_rasc.strip() else rascunhos_db
+
                 c_sel, c_btn_load, c_btn_del = st.columns([3, 1, 1])
-                opcoes_rascunhos = {f"{r['nome_cliente']} (R$ {r.get('valor_venda_total', 0):.2f}) - ID: {r['id']}": r['id'] for r in rascunhos_db}
+                opcoes_rascunhos = {f"{r['nome_cliente']} (R$ {r.get('valor_venda_total', 0):.2f}) - ID: {r['id']}": r['id'] for r in rascunhos_filtrados}
+                if not opcoes_rascunhos:
+                    st.caption("Nenhum rascunho encontrado com esse nome.")
                 rasc_selecionado = c_sel.selectbox("Selecione um rascunho:", list(opcoes_rascunhos.keys()), label_visibility="collapsed")
 
-                if c_btn_load.button("📥 Carregar", use_container_width=True):
+                if c_btn_load.button("📥 Carregar", use_container_width=True, disabled=not opcoes_rascunhos):
                     id_r = opcoes_rascunhos[rasc_selecionado]
                     res_full = st.session_state.supabase.table('servicos_andamento').select('*').eq('id', id_r).execute()
                     if res_full.data:
@@ -565,7 +570,7 @@ def renderizar(lista_nomes_produtos, limpar_func):
                             del st.session_state["editor_orc_base"]
                         deve_rerun = True
 
-                if c_btn_del.button("🗑️ Excluir", use_container_width=True):
+                if c_btn_del.button("🗑️ Excluir", use_container_width=True, disabled=not opcoes_rascunhos):
                     id_r = opcoes_rascunhos[rasc_selecionado]
                     st.session_state.supabase.table('servicos_andamento').delete().eq('id', id_r).execute()
                     st.success("✅ Rascunho excluído permanentemente.")

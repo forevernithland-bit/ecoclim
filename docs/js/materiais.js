@@ -82,6 +82,13 @@ export async function atualizarLista(id, patch) {
   if (error) throw error;
 }
 
+// Exclusão permanente — usada pelo admin pra limpar lista errada/duplicada.
+export async function excluirLista(id) {
+  const supabase = getSupabase();
+  const { error } = await supabase.from(T_LISTAS).delete().eq("id", id);
+  if (error) throw error;
+}
+
 // Listas criadas offline, ainda sem confirmação do servidor — pra não
 // "sumir" da tela até a sincronização acontecer de verdade.
 export async function listasPendentesNovas() {

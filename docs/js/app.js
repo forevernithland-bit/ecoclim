@@ -2,8 +2,8 @@ import { login, sessaoAtual, logout } from "./auth.js";
 import { lerServicos, lerServico, enfileirar } from "./db.js";
 import { sincronizarTudo, iniciarSyncAutomatico, statusAtual, aoMudarStatusSync } from "./sync.js";
 import { adicionarMidia, enviarMidiasPendentes, puxarMidias, urlPublicaMidia, listarPendentesLocal } from "./midias.js";
-import { puxarVisitas, visitasPendentesNovas, criarVisita, atualizarStatusVisita, contarNaoVistas, marcarTodasComoVistas, salvarRespostaInstalador } from "./agenda.js";
-import { puxarMinhasListas, puxarMateriaisPadrao, salvarLista, atualizarLista, listasPendentesNovas, puxarListaDoServico, sugerirNovoMaterial, puxarModelosMateriais } from "./materiais.js";
+import { puxarVisitas, visitasPendentesNovas, criarVisita, atualizarStatusVisita, contarNaoVistas, marcarTodasComoVistas, salvarRespostaInstalador, atualizarVisitaAdmin, excluirVisita } from "./agenda.js";
+import { puxarMinhasListas, puxarMateriaisPadrao, salvarLista, atualizarLista, excluirLista, listasPendentesNovas, puxarListaDoServico, sugerirNovoMaterial, puxarModelosMateriais } from "./materiais.js";
 import {
   agruparPorMes, formatarMes, servicosFinalizadosAReceber, servicosEmAndamentoSemData, totalGeralAReceber,
 } from "./financeiro.js";
@@ -12,7 +12,10 @@ import {
   puxarCatalogoProdutos, puxarCatalogoServicos, puxarCatalogoOutros,
   puxarRascunhos, carregarRascunho, excluirRascunho, salvarOrcamento,
   buscarSugestao, gerarPdfOrcamento, calcularCustos, puxarServicosEmpresa, puxarTodosOsServicos,
+  atualizarServico, excluirServico,
 } from "./orcamentos.js";
+
+const STATUS_SERVICO_EDITAVEL = ["Em Andamento", "Aguardando Pagamento", "Aguardando Peças", "Concluído PIX", "Concluído CARTÃO"];
 
 const raiz = document.getElementById("app");
 let sessao = null;
@@ -294,10 +297,51 @@ async function viewDetalheAdmin(s) {
         <p>${escapeHTML(s.produtos_adquiridos || "Nenhum produto listado.")}</p>
         ${s.servicos_adquiridos ? `<h3 class="cartao-secao">🔧 Serviço</h3><p>${escapeHTML(s.servicos_adquiridos)}</p>` : ""}
       </div>
-      <p class="dica">Visão só de leitura (admin) — edição completa (data prevista, fotos, comentários) por enquanto é feita direto pelo instalador ou no ERP.</p>
+
+      <button type="button" id="btn-editar-servico-admin" class="botao botao--secundario">✏️ Editar</button>
+      <div id="edicao-servico-admin" class="cartao" style="display:none; margin-top:10px;">
+        <label>Status</label>
+        <select id="es-status">
+          ${STATUS_SERVICO_EDITAVEL.map((st) => `<option value="${escapeAttr(st)}" ${st === s.status_projeto ? "selected" : ""}>${escapeHTML(st)}</option>`).join("")}
+        </select>
+        <label>Telefone</label>
+        <input type="text" id="es-telefone" value="${escapeAttr(s.telefone_cliente || "")}" />
+        <label>Endereço</label>
+        <input type="text" id="es-endereco" value="${escapeAttr(s.endereco_cliente || "")}" />
+        <label>Data Prevista de Instalação</label>
+        <input type="date" id="es-data-prevista" value="${s.data_prevista_instalacao ? String(s.data_prevista_instalacao).slice(0, 10) : ""}" />
+        <button type="button" id="btn-salvar-servico-admin" class="botao botao--principal" style="margin-top:8px;">💾 Salvar</button>
+      </div>
+      <button type="button" id="btn-excluir-servico-admin" class="botao botao--secundario" style="margin-top:10px; color:#a00;">🗑️ Excluir</button>
     </div>
   `;
   document.getElementById("btn-voltar").addEventListener("click", () => viewLista());
+  document.getElementById("btn-editar-servico-admin").addEventListener("click", () => {
+    const bloco = document.getElementById("edicao-servico-admin");
+    bloco.style.display = bloco.style.display === "none" ? "block" : "none";
+  });
+  document.getElementById("btn-salvar-servico-admin").addEventListener("click", async () => {
+    try {
+      await atualizarServico(s.id, {
+        status_projeto: document.getElementById("es-status").value,
+        telefone_cliente: document.getElementById("es-telefone").value.trim(),
+        endereco_cliente: document.getElementById("es-endereco").value.trim(),
+        data_prevista_instalacao: document.getElementById("es-data-prevista").value || null,
+      });
+      await viewLista();
+    } catch (e) {
+      alert("Não deu pra salvar agora — confira sua internet e tente de novo.");
+    }
+  });
+  document.getElementById("btn-excluir-servico-admin").addEventListener("click", async () => {
+    if (!confirm("Excluir esta instalação permanentemente?")) return;
+    try {
+      await excluirServico(s.id);
+      await viewLista();
+    } catch (e) {
+      alert("Não deu pra excluir agora — confira sua internet e tente de novo.");
+    }
+  });
 }
 
 async function viewLista() {
@@ -801,6 +845,24 @@ async function viewAgenda() {
           <button class="botao botao--secundario botao--mini" data-realizar="${v.id}">✅ Realizada</button>
           <button class="botao botao--secundario botao--mini" data-cancelar="${v.id}">❌ Cancelar</button>
         </div>` : ""}
+      ${!pendente && sessao.admin ? `
+        <div class="cartao-rodape">
+          <button class="botao botao--secundario botao--mini" data-editar-visita="${v.id}">✏️ Editar</button>
+          <button class="botao botao--secundario botao--mini" data-excluir-visita="${v.id}">🗑️ Excluir</button>
+        </div>
+        <div id="edicao-visita-${v.id}" style="display:none; margin-top:10px;">
+          <label>Cliente</label>
+          <input type="text" id="ev-cliente-${v.id}" value="${escapeAttr(v.cliente_nome || "")}" />
+          <label>Telefone</label>
+          <input type="text" id="ev-telefone-${v.id}" value="${escapeAttr(v.telefone || "")}" />
+          <label>Endereço</label>
+          <input type="text" id="ev-endereco-${v.id}" value="${escapeAttr(v.endereco || "")}" />
+          <label>Data e hora</label>
+          <input type="datetime-local" id="ev-datahora-${v.id}" value="${String(v.data_hora || "").slice(0, 16)}" />
+          <label>Observações</label>
+          <textarea id="ev-obs-${v.id}" rows="2">${escapeHTML(v.observacoes || "")}</textarea>
+          <button class="botao botao--principal botao--mini" data-salvar-edicao-visita="${v.id}" style="margin-top:8px;">💾 Salvar</button>
+        </div>` : ""}
       ${!pendente ? `
         <button class="botao botao--secundario botao--mini" data-responder="${v.id}" style="margin-top:8px;">💬 Comentar / Valor / Fotos</button>
         <div id="resposta-${v.id}" style="display:none; margin-top:10px;">
@@ -920,6 +982,41 @@ async function viewAgenda() {
       btn.addEventListener("click", async () => {
         const v = visitas.find((x) => x.id === Number(btn.dataset.cancelar));
         if (v) { await atualizarStatusVisita(v, "Cancelada"); sincronizarTudo(sessao.instaladorVinculado); await viewAgenda(); }
+      });
+    });
+
+    raiz.querySelectorAll("[data-editar-visita]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const bloco = document.getElementById(`edicao-visita-${btn.dataset.editarVisita}`);
+        bloco.style.display = bloco.style.display === "none" ? "block" : "none";
+      });
+    });
+    raiz.querySelectorAll("[data-salvar-edicao-visita]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const vid = btn.dataset.salvarEdicaoVisita;
+        try {
+          await atualizarVisitaAdmin(Number(vid), {
+            cliente_nome: document.getElementById(`ev-cliente-${vid}`).value.trim(),
+            telefone: document.getElementById(`ev-telefone-${vid}`).value.trim(),
+            endereco: document.getElementById(`ev-endereco-${vid}`).value.trim(),
+            data_hora: document.getElementById(`ev-datahora-${vid}`).value || null,
+            observacoes: document.getElementById(`ev-obs-${vid}`).value.trim(),
+          });
+          await viewAgenda();
+        } catch (e) {
+          alert("Não deu pra salvar agora — confira sua internet e tente de novo.");
+        }
+      });
+    });
+    raiz.querySelectorAll("[data-excluir-visita]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        if (!confirm("Excluir esta visita permanentemente?")) return;
+        try {
+          await excluirVisita(Number(btn.dataset.excluirVisita));
+          await viewAgenda();
+        } catch (e) {
+          alert("Não deu pra excluir agora — confira sua internet e tente de novo.");
+        }
       });
     });
 
@@ -1217,6 +1314,7 @@ async function viewMateriais() {
       <div class="cartao-sub">${(l.itens || []).length} item(ns) — ${l.servico_id ? "vinculada a uma instalação" : "avulsa"}</div>
       <div class="cartao-sub">${(l.itens || []).map((i) => `${i.qtd}x ${escapeHTML(i.item)} (${escapeHTML(i.unidade || "un")})`).join(", ")}</div>
       ${pendente ? "" : `<button type="button" class="botao botao--secundario botao--mini" data-editar-lista="${idx}" style="margin-top:6px;">✏️ Editar</button>`}
+      ${!pendente && sessao.admin ? `<button type="button" class="botao botao--secundario botao--mini" data-excluir-lista="${l.id}" style="margin-top:6px;">🗑️ Excluir</button>` : ""}
       ${pendente ? "" : botaoWhatsAppListaHTML(idx)}
     </div>`;
 
@@ -1314,6 +1412,18 @@ async function viewMateriais() {
       formularioAbertoAgendaOuMateriais = true;
       renderizarItensLista();
       f.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  });
+
+  raiz.querySelectorAll("[data-excluir-lista]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!confirm("Excluir esta lista de materiais permanentemente?")) return;
+      try {
+        await excluirLista(Number(btn.dataset.excluirLista));
+        await viewMateriais();
+      } catch (e) {
+        alert("Não deu pra excluir agora — confira sua internet e tente de novo.");
+      }
     });
   });
 

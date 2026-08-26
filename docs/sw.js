@@ -1,7 +1,7 @@
 // Service Worker — cacheia o app shell pra abrir mesmo sem sinal.
 // Não intercepta chamadas ao Supabase nem ao esm.sh (essas precisam de rede
 // de verdade; os dados offline vêm do IndexedDB, não do cache do SW).
-const CACHE = "ecoclim-instalador-v6";
+const CACHE = "ecoclim-instalador-v7";
 const ARQUIVOS_SHELL = [
   "./",
   "./index.html",

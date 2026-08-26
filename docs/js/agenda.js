@@ -38,6 +38,21 @@ export async function atualizarStatusVisita(visita, novoStatus) {
   }
 }
 
+// Edição/exclusão direta (admin) — online, sem passar pela fila offline
+// (diferente do fluxo do instalador em campo, o admin edita/apaga já
+// conectado, então não precisa da complexidade da outbox aqui).
+export async function atualizarVisitaAdmin(id, patch) {
+  const supabase = getSupabase();
+  const { error } = await supabase.from(TABELA).update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function excluirVisita(id) {
+  const supabase = getSupabase();
+  const { error } = await supabase.from(TABELA).delete().eq("id", id);
+  if (error) throw error;
+}
+
 // Quantas tarefas o Breno cadastrou pra esse instalador que ele ainda não
 // viu — alimenta o selinho de notificação na barra inferior. Se estiver
 // offline, conta pelo cache local (pode ficar um pouco desatualizado, mas

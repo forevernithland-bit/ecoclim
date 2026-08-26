@@ -69,6 +69,19 @@ export async function puxarTodosOsServicos() {
   return data || [];
 }
 
+// Edição/exclusão direta (admin) de um serviço/instalação.
+export async function atualizarServico(id, patch) {
+  const supabase = getSupabase();
+  const { error } = await supabase.from("servicos_andamento").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function excluirServico(id) {
+  const supabase = getSupabase();
+  const { error } = await supabase.from("servicos_andamento").delete().eq("id", id);
+  if (error) throw error;
+}
+
 export async function puxarServicosEmpresa() {
   const supabase = getSupabase();
   const { data, error } = await supabase
