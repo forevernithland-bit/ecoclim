@@ -605,6 +605,21 @@ def interpretar_lista_whatsapp(texto, catalogo):
             nao_reconhecidos.append({"texto_original": descricao, "qtd": qtd})
     return reconhecidos, nao_reconhecidos
 
+def sugerir_novo_material(supabase, item, instalador=None, cliente_nome=None, servico_id=None):
+    """Registra em `materiais_sugeridos` um item que o usuário (admin ou
+    instalador) precisou digitar fora do catálogo padrão — pro Breno ver na
+    tela de Serviços e decidir se entra pro catálogo. Nunca trava quem
+    chamou: falha de rede aqui não pode impedir salvar a lista. Mesmo padrão
+    (mesma tabela) que o app do instalador usa (materiais.js::sugerirNovoMaterial)."""
+    try:
+        supabase.table("materiais_sugeridos").insert({
+            "item": item, "instalador": instalador, "cliente_nome": cliente_nome,
+            "servico_id": servico_id, "visto_pelo_admin": False,
+        }).execute()
+    except Exception:
+        pass
+
+
 # Nomes de exibição das categorias na lista formatada — mesma ordem/rótulo
 # usados no app do instalador (NOMES_CATEGORIA_MATERIAL em app.js), pra ficar
 # igual não importa se a lista foi gerada lá ou aqui no admin.

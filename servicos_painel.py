@@ -211,6 +211,8 @@ def montar_itens_material(supabase, catalogo_mat, opcoes_catalogo, chave_itens):
                     _confirmado = True
                 if _col_manual.button("📝 Manter como veio", key=f"whats_pend_manual_{chave_itens}_{_i}"):
                     st.session_state[chave_itens].append({"item": _p['texto_original'], "qtd": _p['qtd'], "unidade": "un", "categoria": None})
+                    utils.sugerir_novo_material(supabase, _p['texto_original'])
+                    st.toast(f"\"{_p['texto_original']}\" não está no catálogo — adicionado mesmo assim, e já registrado pro Breno avaliar incluir.", icon="⚠️")
                     _confirmado = True
                 if not _confirmado:
                     _pendentes_restantes.append(_p)
@@ -235,6 +237,8 @@ def montar_itens_material(supabase, catalogo_mat, opcoes_catalogo, chave_itens):
         _item_manual = st.text_input("Ou item manual (fora do catálogo)", key=f"input_manual_{chave_itens}")
         if st.button("➕ Adicionar item manual", key=f"btn_add_manual_{chave_itens}") and _item_manual.strip():
             st.session_state[chave_itens].append({"item": _item_manual.strip(), "qtd": 1, "unidade": "un", "categoria": None})
+            utils.sugerir_novo_material(supabase, _item_manual.strip())
+            st.toast(f"\"{_item_manual.strip()}\" não está no catálogo — adicionado mesmo assim, e já registrado pro Breno avaliar incluir.", icon="⚠️")
             st.rerun()
 
 

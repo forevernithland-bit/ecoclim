@@ -673,6 +673,7 @@ async function viewDetalhe(id) {
       renderizarItensLista();
       document.getElementById("ml-busca").value = "";
       document.getElementById("ml-resultados-busca").innerHTML = "";
+      if (dados.manual) alert(`"${dados.item}" não está no nosso catálogo de materiais — adicionado do jeito que você digitou, e o Breno já foi avisado que esse item está faltando.`);
     });
   });
   document.getElementById("btn-salvar-lista").addEventListener("click", async () => {
@@ -1371,6 +1372,7 @@ async function viewMateriais() {
       renderizarItensLista();
       document.getElementById("ml-busca").value = "";
       document.getElementById("ml-resultados-busca").innerHTML = "";
+      if (dados.manual) alert(`"${dados.item}" não está no nosso catálogo de materiais — adicionado do jeito que você digitou, e o Breno já foi avisado que esse item está faltando.`);
     });
   });
 
