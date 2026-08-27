@@ -1,5 +1,5 @@
 import { login, sessaoAtual, logout } from "./auth.js";
-import { lerServicos, lerServico, enfileirar } from "./db.js";
+import { lerServicos, lerServico, enfileirar, removerDaCriacoesOutbox, atualizarCriacaoOutbox } from "./db.js";
 import { sincronizarTudo, iniciarSyncAutomatico, statusAtual, aoMudarStatusSync } from "./sync.js";
 import { adicionarMidia, enviarMidiasPendentes, puxarMidias, urlPublicaMidia, listarPendentesLocal } from "./midias.js";
 import { puxarVisitas, visitasPendentesNovas, criarVisita, atualizarStatusVisita, contarNaoVistas, marcarTodasComoVistas, salvarRespostaInstalador, atualizarVisitaAdmin, excluirVisita } from "./agenda.js";
@@ -1088,6 +1088,9 @@ let itensListaAtual = [];
 // id da lista sendo editada (via botão "✏️ Editar" numa lista já salva) —
 // null quando o formulário está criando uma lista nova.
 let listaEmEdicaoId = null;
+// Mesma ideia, mas pra lista que ainda está na fila local (criada sem sinal):
+// ela não tem id do servidor, então a edição é salva na própria fila.
+let listaEmEdicaoLocalId = null;
 
 // Remove acento/caixa pra busca funcionar digitando de qualquer jeito
 // ("cpvc", "CPVC", "cpvç" tudo bate igual).
@@ -1307,16 +1310,29 @@ async function viewMateriais() {
   ]);
   itensListaAtual = [];
   listaEmEdicaoId = null;
+  listaEmEdicaoLocalId = null;
 
-  const cartaoLista = (l, pendente, idx) => `
+  // Um array só, pendentes primeiro. Antes eram dois fluxos separados e a
+  // pendente ficava sem botão nenhum — mas copiar/mandar no WhatsApp funciona
+  // com os dados locais, e editar/excluir também: é só mexer na fila em vez do
+  // servidor. Sem isso, quem monta uma lista sem sinal fica sem poder nem
+  // mandar pro cliente nem corrigir um item errado até o sinal voltar.
+  const listas = [
+    ...pendentesNovas.map((p) => ({ ...p.dados, _pendente: true, _localId: p.localId })),
+    ...minhasListas.map((l) => ({ ...l, _pendente: false })),
+  ];
+
+  const cartaoLista = (l, idx) => `
     <div class="cartao">
-      ${pendente ? `<span class="etiqueta etiqueta--pendente">⏳ pendente</span>` : ""}
+      ${l._pendente ? `<span class="etiqueta etiqueta--pendente">⏳ ainda não sincronizada</span>` : ""}
       <div class="cartao-titulo">${escapeHTML(l.cliente_nome || "Lista sem cliente")}</div>
       <div class="cartao-sub">${(l.itens || []).length} item(ns) — ${l.servico_id ? "vinculada a uma instalação" : "avulsa"}</div>
       <div class="cartao-sub">${(l.itens || []).map((i) => `${i.qtd}x ${escapeHTML(i.item)} (${escapeHTML(i.unidade || "un")})`).join(", ")}</div>
-      ${pendente ? "" : `<button type="button" class="botao botao--secundario botao--mini" data-editar-lista="${idx}" style="margin-top:6px;">✏️ Editar</button>`}
-      ${!pendente && sessao.admin ? `<button type="button" class="botao botao--secundario botao--mini" data-excluir-lista="${l.id}" style="margin-top:6px;">🗑️ Excluir</button>` : ""}
-      ${pendente ? "" : botaoWhatsAppListaHTML(idx)}
+      <div style="display:flex; gap:8px; margin-top:6px;">
+        <button type="button" class="botao botao--secundario botao--mini" data-editar-lista="${idx}" style="flex:1;">✏️ Editar</button>
+        <button type="button" class="botao botao--secundario botao--mini" data-excluir-lista="${idx}" style="flex:1;">🗑️ Excluir</button>
+      </div>
+      ${botaoWhatsAppListaHTML(idx)}
     </div>`;
 
   raiz.innerHTML = `
@@ -1338,9 +1354,8 @@ async function viewMateriais() {
         <button type="button" id="btn-salvar-lista" class="botao botao--principal">💾 Salvar Lista</button>
       </div>
 
-      <h2 class="secao-titulo">📄 Minhas Listas (${minhasListas.length + pendentesNovas.length})</h2>
-      ${pendentesNovas.map((p) => cartaoLista(p.dados, true)).join("")}
-      ${minhasListas.length ? minhasListas.map((l, idx) => cartaoLista(l, false, idx)).join("") : (pendentesNovas.length ? "" : `<p class="vazio">Nenhuma lista criada ainda.</p>`)}
+      <h2 class="secao-titulo">📄 Minhas Listas (${listas.length})</h2>
+      ${listas.length ? listas.map((l, idx) => cartaoLista(l, idx)).join("") : `<p class="vazio">Nenhuma lista criada ainda.</p>`}
 
       <div id="faixa-sync" class="faixa-sync"></div>
     </div>
@@ -1380,7 +1395,11 @@ async function viewMateriais() {
     const itens = lerItensDoFormulario();
     if (!itens.length) { alert("Adicione pelo menos um item."); return; }
     const clienteNome = document.getElementById("ml-cliente").value.trim() || null;
-    if (listaEmEdicaoId) {
+    if (listaEmEdicaoLocalId) {
+      // Ainda não subiu: corrige direto na fila, sem depender de sinal.
+      await atualizarCriacaoOutbox(listaEmEdicaoLocalId, { cliente_nome: clienteNome, itens });
+      listaEmEdicaoLocalId = null;
+    } else if (listaEmEdicaoId) {
       try {
         await atualizarLista(listaEmEdicaoId, { cliente_nome: clienteNome, itens });
       } catch (e) {
@@ -1398,15 +1417,23 @@ async function viewMateriais() {
         await sugerirNovoMaterial({ item: it.item, instalador: sessao.instaladorVinculado, clienteNome });
       }
     }
-    sincronizarTudo(sessao.instaladorVinculado);
+    // Com `await`: sem ele a tela era redesenhada antes da sincronização
+    // terminar, e a lista recém-salva aparecia como "⏳ pendente" mesmo já
+    // tendo subido pro servidor — o que também escondia os botões de
+    // editar/excluir dela. Offline não trava: sincronizarTudo trata a falha
+    // e devolve o status "offline" na hora.
+    await sincronizarTudo(sessao.instaladorVinculado);
     await viewMateriais();
   });
 
   raiz.querySelectorAll("[data-editar-lista]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const lista = minhasListas[Number(btn.dataset.editarLista)];
+      const lista = listas[Number(btn.dataset.editarLista)];
       if (!lista) return;
-      listaEmEdicaoId = lista.id;
+      // Lista ainda na fila não tem id do servidor — guarda o localId pra
+      // salvar de volta na própria fila em vez de tentar atualizar lá.
+      listaEmEdicaoId = lista._pendente ? null : lista.id;
+      listaEmEdicaoLocalId = lista._pendente ? lista._localId : null;
       itensListaAtual = JSON.parse(JSON.stringify(lista.itens || []));
       document.getElementById("ml-cliente").value = lista.cliente_nome || "";
       const f = document.getElementById("form-nova-lista");
@@ -1419,9 +1446,18 @@ async function viewMateriais() {
 
   raiz.querySelectorAll("[data-excluir-lista]").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      if (!confirm("Excluir esta lista de materiais permanentemente?")) return;
+      const lista = listas[Number(btn.dataset.excluirLista)];
+      if (!lista) return;
+      const aviso = lista._pendente
+        ? "Esta lista ainda não foi enviada. Descartar?"
+        : "Excluir esta lista de materiais permanentemente?";
+      if (!confirm(aviso)) return;
       try {
-        await excluirLista(Number(btn.dataset.excluirLista));
+        if (lista._pendente) {
+          await removerDaCriacoesOutbox(lista._localId);
+        } else {
+          await excluirLista(lista.id);
+        }
         await viewMateriais();
       } catch (e) {
         alert("Não deu pra excluir agora — confira sua internet e tente de novo.");
@@ -1429,7 +1465,7 @@ async function viewMateriais() {
     });
   });
 
-  ligarBotoesWhatsAppLista("app", minhasListas);
+  ligarBotoesWhatsAppLista("app", listas);
 
   renderizarItensLista();
   ligarNav();

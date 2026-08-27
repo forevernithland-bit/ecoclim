@@ -265,3 +265,23 @@ export async function lerCriacoesOutbox(tabela) {
 export async function removerDaCriacoesOutbox(localId) {
   await tx("criacoes_outbox", "readwrite", (s) => s.delete(localId));
 }
+
+// Edita algo que ainda está na fila — criado offline, então sem id do servidor
+// pra atualizar por lá. Sem isso, quem montasse uma lista sem sinal ficaria
+// sem poder corrigir um item errado até o sinal voltar.
+export async function atualizarCriacaoOutbox(localId, dados) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const store = db.transaction("criacoes_outbox", "readwrite").objectStore("criacoes_outbox");
+    const req = store.get(localId);
+    req.onsuccess = () => {
+      const item = req.result;
+      if (!item) return resolve(false);
+      item.dados = { ...item.dados, ...dados };
+      const put = store.put(item);
+      put.onsuccess = () => resolve(true);
+      put.onerror = () => reject(put.error);
+    };
+    req.onerror = () => reject(req.error);
+  });
+}

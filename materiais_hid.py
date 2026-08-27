@@ -183,9 +183,14 @@ def renderizar():
             st.markdown("##### Listas já cadastradas")
             _editando_modelo_key = "editando_modelo_mat"
             for m in modelos_existentes:
-                with st.container(border=True):
-                    _itens_m = m.get('itens') or []
-                    st.markdown(f"**{m['nome']}** — {len(_itens_m)} item(ns)")
+                _itens_m = m.get('itens') or []
+                # Fechadas por padrão: são 4+ listas de 20 a 24 itens cada, e
+                # abertas de uma vez enchem a tela toda antes de chegar no que
+                # a pessoa veio fazer. Abre só a que ela quiser ver — mas a que
+                # está sendo editada continua aberta, senão o clique em "Editar"
+                # dispara o rerun e o editor some junto com o expander fechando.
+                with st.expander(f"**{m['nome']}** — {len(_itens_m)} item(ns)",
+                                 expanded=(st.session_state.get(_editando_modelo_key) == m['id'])):
                     if _itens_m:
                         _df_m = pd.DataFrame(_itens_m)
                         _cols_m = [c for c in ['item', 'qtd', 'unidade'] if c in _df_m.columns]
