@@ -153,7 +153,12 @@ def garantir_produto(supabase, material, tabela="materiais_padrao"):
     catálogo (HID-/EQP-) pra nunca colidir entre materiais_padrao e
     catalogo_produtos, nem com algo cadastrado manualmente lá. Chamada sempre
     que preço/estoque muda no ERP — ver pontos de chamada em
-    estoque_materiais.py, servicos_painel.py e tela_configuracoes.py."""
+    estoque_materiais.py, servicos_painel.py e tela_configuracoes.py.
+
+    O `corpo` abaixo lista os campos UM A UM de propósito: o registro local tem
+    colunas que existem só pro nosso controle (fornecedor, fabricante) e que o
+    Gestão Click não conhece. Mandar o registro inteiro faria a API recusar ou
+    gravar lixo — por isso nunca troque isto por um `**material`."""
     prefixo = PREFIXO_CODIGO_INTERNO.get(tabela, tabela.upper())
     corpo = {
         "nome": material.get("item"),

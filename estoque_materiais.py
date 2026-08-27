@@ -85,12 +85,22 @@ def _aba_catalogo(supabase, catalogo):
         st.info("Catálogo vazio.")
         return
 
+    # Fornecedor e fabricante são controle interno do dono (de quem comprar, de
+    # que marca é a peça) — não fazem parte do que o instalador ou o contador
+    # precisam ver, e nunca vão pro Gestão Click. Ver sql_fornecedor_fabricante.sql.
+    eh_admin = st.session_state.get('perfil_logado', 'Admin') == 'Admin'
+
     df = pd.DataFrame(catalogo)
     cols = ['id', 'categoria', 'item', 'unidade', 'custo', 'margem_percentual', 'venda', 'estoque_minimo']
+    if eh_admin:
+        cols += ['fornecedor', 'fabricante']
     for c in cols:
         if c not in df.columns:
-            df[c] = 0
+            df[c] = "" if c in ('fornecedor', 'fabricante') else 0
     df = df[cols]
+    for c in ('fornecedor', 'fabricante'):
+        if c in df.columns:
+            df[c] = df[c].fillna("")   # None vira "nan" no editor e polui a tela
 
     cfg = {
         "id": None,
@@ -102,12 +112,16 @@ def _aba_catalogo(supabase, catalogo):
         "venda": st.column_config.NumberColumn("Venda", format="R$ %.2f"),
         "estoque_minimo": st.column_config.NumberColumn("Estoque Mínimo"),
     }
+    if eh_admin:
+        cfg["fornecedor"] = st.column_config.TextColumn("Fornecedor", help="Onde você costuma comprar este item. Uso interno — não vai pro Gestão Click.")
+        cfg["fabricante"] = st.column_config.TextColumn("Fabricante", help="Marca do item (Krona, Amanco...). Uso interno — não vai pro Gestão Click.")
     df_edit = st.data_editor(df, column_config=cfg, hide_index=True, use_container_width=True, key="editor_catalogo_materiais")
 
     if st.button("💾 Salvar Catálogo", type="primary", key="btn_salvar_catalogo_materiais"):
         try:
             mapa_material_id = {c['id']: c for c in catalogo}
             erros_sync = []
+            faltou_migracao = False
             with st.spinner("Salvando e sincronizando com o Gestão Click..."):
                 for _, row in df_edit.iterrows():
                     dados_novos = {
@@ -117,14 +131,34 @@ def _aba_catalogo(supabase, catalogo):
                         "estoque_minimo": float(row['estoque_minimo'] or 0),
                     }
                     supabase.table('materiais_padrao').update(dados_novos).eq('id', int(row['id'])).execute()
+
+                    # Fornecedor/fabricante vão num update SEPARADO de propósito:
+                    # se a migração sql_fornecedor_fabricante.sql ainda não tiver
+                    # rodado, a coluna não existe e o update falha — num payload
+                    # único isso derrubaria o salvamento inteiro (preço, margem,
+                    # estoque), que é o que realmente importa. Só o admin grava
+                    # estes campos, senão salvar por outro perfil apagaria o que
+                    # ele preencheu.
+                    if eh_admin:
+                        try:
+                            supabase.table('materiais_padrao').update({
+                                "fornecedor": str(row.get('fornecedor') or "").strip() or None,
+                                "fabricante": str(row.get('fabricante') or "").strip() or None,
+                            }).eq('id', int(row['id'])).execute()
+                        except Exception:
+                            faltou_migracao = True
                     mat_atualizado = {**mapa_material_id.get(int(row['id']), {}), **dados_novos}
                     try:
                         gestao_click.garantir_produto(supabase, mat_atualizado)
                     except gestao_click.GestaoClickError as e:
                         erros_sync.append(f"{mat_atualizado.get('item')}: {e}")
+            if faltou_migracao:
+                st.warning("Preço, margem e estoque foram salvos, mas **Fornecedor/Fabricante não** — "
+                           "as colunas ainda não existem no banco. Rode `sql_fornecedor_fabricante.sql` "
+                           "no Supabase e salve de novo.")
             if erros_sync:
                 st.warning("Catálogo salvo, mas alguns itens não sincronizaram com o Gestão Click agora: " + "; ".join(erros_sync))
-            else:
+            elif not faltou_migracao:
                 _avisar_sincronizado()
             st.rerun()
         except Exception as e:
