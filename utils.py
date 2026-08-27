@@ -28,11 +28,34 @@ from googleapiclient.http import MediaIoBaseUpload
 # FUNÇÕES DE SEGURANÇA E DATA
 # ==========================================
 def safe_float(val):
+    """Converte em número sem quebrar a soma, inclusive no padrão brasileiro.
+
+    Antes isto era só um `float(val)` protegido, e valor digitado com vírgula
+    ("704,90") caía no except e virava 0,00 — silenciosamente, sem erro na
+    tela: o item simplesmente sumia do total e o orçamento fechava mais barato
+    do que deveria.
+
+    Regra: quando aparecem os dois separadores, o último é o decimal
+    ("1.234,56" -> 1234.56); vírgula sozinha também é decimal. Número que já
+    vem como float continua passando direto, então nada que funcionava muda.
+    """
     try:
-        if pd.isna(val) or val is None or str(val).strip() == '': 
+        if val is None or (isinstance(val, float) and pd.isna(val)):
             return 0.0
-        return float(val)
-    except:
+        if isinstance(val, (int, float)):
+            return float(val)
+
+        texto = str(val).strip()
+        if not texto or texto.lower() in ('nan', 'none', '-'):
+            return 0.0
+        texto = re.sub(r'[^\d,.\-]', '', texto)      # tira "R$", espaço, etc.
+        if ',' in texto and '.' in texto:
+            decimal = ',' if texto.rfind(',') > texto.rfind('.') else '.'
+            texto = texto.replace('.' if decimal == ',' else ',', '').replace(decimal, '.')
+        elif ',' in texto:
+            texto = texto.replace(',', '.')
+        return float(texto)
+    except Exception:
         return 0.0
 
 def obter_data_atual_br():

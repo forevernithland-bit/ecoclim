@@ -663,10 +663,10 @@ def renderizar(lista_nomes_produtos, limpar_func):
             "Produto Manual": st.column_config.TextColumn("Nome Manual", width="medium"),
             "Descrição": st.column_config.TextColumn("Detalhes / Garantia"), 
             "Quantidade": st.column_config.NumberColumn("Qtd", min_value=0, step=1, width="small"),
-            "Custo (R$)": st.column_config.NumberColumn("Custo Unt.", format="R$ %,.2f", width="small"),
-            "Venda (R$)": st.column_config.NumberColumn("Venda Unt.", format="R$ %,.2f", width="small"),
-            "Custo Total": st.column_config.NumberColumn("Custo Total", format="R$ %,.2f", disabled=True, width="small"),
-            "Venda Total": st.column_config.NumberColumn("Total", format="R$ %,.2f", disabled=True, width="small")
+            "Custo (R$)": st.column_config.NumberColumn("Custo Unt.", format="R$ %.2f", width="small"),
+            "Venda (R$)": st.column_config.NumberColumn("Venda Unt.", format="R$ %.2f", width="small"),
+            "Custo Total": st.column_config.NumberColumn("Custo Total", format="R$ %.2f", disabled=True, width="small"),
+            "Venda Total": st.column_config.NumberColumn("Total", format="R$ %.2f", disabled=True, width="small")
         }
         
         sequencia_colunas = ["Produto da Base", "Produto Manual", "Quantidade", "Custo (R$)", "Venda (R$)", "Custo Total", "Venda Total"]
@@ -681,8 +681,18 @@ def renderizar(lista_nomes_produtos, limpar_func):
         )
         df_editavel = df_editavel.reset_index(drop=True)
         
-        precisa_atualizar_tela = False
-        
+        # Só a escolha de um PRODUTO no selectbox obriga a redesenhar a tela: é
+        # quando o sistema precisa trazer preço e descrição do catálogo, dados
+        # que o usuário não digitou e portanto ainda não estão na tela.
+        #
+        # Recalcular Custo Total / Venda Total NÃO entra aqui de propósito. Eles
+        # são derivados (qtd × preço) e antes disparavam um redesenho a cada
+        # tecla digitada — e como o redesenho descartava o estado do editor, o
+        # que estava sendo preenchido se perdia. Agora eles são só recalculados
+        # em memória; o subtotal logo abaixo já sai correto, e a coluna Total da
+        # linha se acerta na próxima interação.
+        produto_trocado = False
+
         for i in range(len(df_editavel)):
             produto_atual = str(df_editavel.at[i, 'Produto da Base']).strip()
             if produto_atual.lower() in ['nan', 'none', '']: 
@@ -716,32 +726,33 @@ def renderizar(lista_nomes_produtos, limpar_func):
                     
                     if pd.isna(df_editavel.at[i, 'Quantidade']) or float(df_editavel.at[i, 'Quantidade']) <= 0:
                         df_editavel.at[i, 'Quantidade'] = 1
-                        
-                    precisa_atualizar_tela = True
 
-            qtd = float(df_editavel.at[i, 'Quantidade']) if pd.notna(df_editavel.at[i, 'Quantidade']) else 0.0
-            preco = float(df_editavel.at[i, 'Venda (R$)']) if pd.notna(df_editavel.at[i, 'Venda (R$)']) else 0.0
-            custo_un = float(df_editavel.at[i, 'Custo (R$)']) if pd.notna(df_editavel.at[i, 'Custo (R$)']) else 0.0
-            
-            total_venda_calc = qtd * preco
-            total_custo_calc = qtd * custo_un
-            
-            total_venda_tela = float(df_editavel.at[i, 'Venda Total']) if pd.notna(df_editavel.at[i, 'Venda Total']) else 0.0
-            total_custo_tela = float(df_editavel.at[i, 'Custo Total']) if pd.notna(df_editavel.at[i, 'Custo Total']) else 0.0
-            
-            if abs(total_venda_calc - total_venda_tela) > 0.01 or abs(total_custo_calc - total_custo_tela) > 0.01:
-                df_editavel.at[i, 'Venda Total'] = total_venda_calc
-                df_editavel.at[i, 'Custo Total'] = total_custo_calc
-                precisa_atualizar_tela = True
+                    produto_trocado = True
 
-        if precisa_atualizar_tela:
-            st.session_state.df_orc = df_editavel
-            st.session_state.df_orc_prev = df_editavel.copy()
-            if "editor_orc_base" in st.session_state:
-                del st.session_state["editor_orc_base"]
+            qtd = utils.safe_float(df_editavel.at[i, 'Quantidade'])
+            preco = utils.safe_float(df_editavel.at[i, 'Venda (R$)'])
+            custo_un = utils.safe_float(df_editavel.at[i, 'Custo (R$)'])
+
+            df_editavel.at[i, 'Quantidade'] = qtd
+            df_editavel.at[i, 'Venda (R$)'] = preco
+            df_editavel.at[i, 'Custo (R$)'] = custo_un
+            df_editavel.at[i, 'Venda Total'] = qtd * preco
+            df_editavel.at[i, 'Custo Total'] = qtd * custo_un
+
+        # Guarda o estado a cada passagem (sem redesenhar): é o que permite
+        # comparar o produto da próxima vez e é o que os botões de PDF/salvar
+        # leem depois.
+        st.session_state.df_orc = df_editavel
+        st.session_state.df_orc_prev = df_editavel.copy()
+
+        if produto_trocado:
+            # Aqui o redesenho é necessário e esperado — o preço acabou de vir
+            # do catálogo e precisa aparecer. A chave do editor é preservada de
+            # propósito: apagá-la descartaria o que o usuário digitou nas outras
+            # células antes de escolher o produto.
             deve_rerun = True
 
-        subtotal_equipamentos = df_editavel['Venda Total'].sum()
+        subtotal_equipamentos = pd.to_numeric(df_editavel['Venda Total'], errors='coerce').fillna(0).sum()
         st.markdown(f"**Subtotal Equipamentos:** :blue[{utils.to_br_currency(subtotal_equipamentos)}]")
         
         mostrar_lucro = st.toggle("Exibir Custos, Margem e Lucro Estimado", value=False)

@@ -145,10 +145,10 @@ def renderizar():
         config_editor = {
             "Item": st.column_config.TextColumn("Item", width="medium"),
             "Descrição": st.column_config.TextColumn("Descrição / Detalhes", width="large"),
-            "Custo (R$)": st.column_config.NumberColumn("Custo", format="R$ %,.2f"),
+            "Custo (R$)": st.column_config.NumberColumn("Custo", format="R$ %.2f"),
             "Margem (%)": st.column_config.NumberColumn("Margem %", format="%.2f %%"),
-            "Lucro (R$)": st.column_config.NumberColumn("Lucro", format="R$ %,.2f", disabled=True),
-            "Venda (R$)": st.column_config.NumberColumn("Preço Venda", format="R$ %,.2f")
+            "Lucro (R$)": st.column_config.NumberColumn("Lucro", format="R$ %.2f", disabled=True),
+            "Venda (R$)": st.column_config.NumberColumn("Preço Venda", format="R$ %.2f")
         }
         if "NCM" in df_exibicao.columns:
             config_editor["NCM"] = st.column_config.TextColumn("NCM", width="small", help="Obrigatório pra emitir Nota Fiscal desse item no Gestão Click. Não chutar — pesquisar em fonte de contabilidade confiável.")

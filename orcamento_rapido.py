@@ -100,7 +100,11 @@ def renderizar(lista_nomes_produtos, limpar_func):
 
     df_r_ed = st.data_editor(st.session_state.rapido_df_orc, column_config=cfg_grid, column_order=seq_r, num_rows="dynamic", use_container_width=True, key="editor_rapido", hide_index=True)
     
-    refresh_rapido = False
+    # Mesmo cuidado do Orçamento Personalizado: só a troca de PRODUTO redesenha
+    # a tela (é quando o preço precisa vir do catálogo). Recalcular os totais
+    # não redesenha — antes disso, cada tecla digitada descartava o estado do
+    # editor e apagava o que estava sendo preenchido.
+    produto_trocado_r = False
     for i in range(len(df_r_ed)):
         p_atual = str(df_r_ed.at[i, "Produto da Base"]).strip()
         
@@ -120,28 +124,24 @@ def renderizar(lista_nomes_produtos, limpar_func):
                 df_r_ed.at[i, "Venda (R$)"] = venda_n
                 if pd.isna(df_r_ed.at[i, "Quantidade"]) or float(df_r_ed.at[i, "Quantidade"]) <= 0:
                     df_r_ed.at[i, "Quantidade"] = 1
-                refresh_rapido = True
-        
-        qtd = float(df_r_ed.at[i, "Quantidade"]) if pd.notna(df_r_ed.at[i, "Quantidade"]) else 0.0
-        c_un = float(df_r_ed.at[i, "Custo (R$)"]) if pd.notna(df_r_ed.at[i, "Custo (R$)"]) else 0.0
-        v_un = float(df_r_ed.at[i, "Venda (R$)"]) if pd.notna(df_r_ed.at[i, "Venda (R$)"]) else 0.0
-        
-        tot_c_calc = qtd * c_un
-        tot_v_calc = qtd * v_un
-        
-        # Pega os totais da tela com segurança, prevenindo o erro NoneType em linhas novas
-        c_tot_tela = float(df_r_ed.at[i, "Custo Total"]) if pd.notna(df_r_ed.at[i, "Custo Total"]) else 0.0
-        v_tot_tela = float(df_r_ed.at[i, "Venda Total"]) if pd.notna(df_r_ed.at[i, "Venda Total"]) else 0.0
-        
-        if abs(tot_c_calc - c_tot_tela) > 0.01 or abs(tot_v_calc - v_tot_tela) > 0.01:
-            df_r_ed.at[i, "Custo Total"] = tot_c_calc
-            df_r_ed.at[i, "Venda Total"] = tot_v_calc
-            refresh_rapido = True
+                produto_trocado_r = True
 
-    if refresh_rapido:
-        st.session_state.rapido_df_orc = df_r_ed
-        if "editor_rapido" in st.session_state:
-            del st.session_state["editor_rapido"]
+        qtd = utils.safe_float(df_r_ed.at[i, "Quantidade"])
+        c_un = utils.safe_float(df_r_ed.at[i, "Custo (R$)"])
+        v_un = utils.safe_float(df_r_ed.at[i, "Venda (R$)"])
+
+        df_r_ed.at[i, "Quantidade"] = qtd
+        df_r_ed.at[i, "Custo (R$)"] = c_un
+        df_r_ed.at[i, "Venda (R$)"] = v_un
+        df_r_ed.at[i, "Custo Total"] = qtd * c_un
+        df_r_ed.at[i, "Venda Total"] = qtd * v_un
+
+    st.session_state.rapido_df_orc = df_r_ed
+
+    if produto_trocado_r:
+        # Redesenho necessário: o preço acabou de vir do catálogo e precisa
+        # aparecer. A chave do editor fica de propósito — apagá-la jogaria fora
+        # o que o usuário digitou nas outras células.
         deve_rerun = True
 
     custo_total_produtos_r = pd.to_numeric(df_r_ed["Custo Total"], errors='coerce').fillna(0).sum()
