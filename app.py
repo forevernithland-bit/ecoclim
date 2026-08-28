@@ -245,11 +245,22 @@ else:
         except Exception:
             _pend = 0.0
 
-        k1, k2, k3, k4 = st.columns(4)
+        # Empréstimos a receber — o espelho do "boletos a pagar". Fica em try
+        # próprio pra que a Home continue abrindo mesmo se a tabela ainda não
+        # existir no banco (sql_emprestimos.sql não rodado).
+        try:
+            _emp = st.session_state.supabase.table('emprestimos').select(
+                'valor_parcela').eq('status', 'Pendente').execute().data or []
+            _receber = sum(float(x.get('valor_parcela') or 0) for x in _emp)
+        except Exception:
+            _receber = 0.0
+
+        k1, k2, k3, k4, k5 = st.columns(5)
         k1.metric("🛠️ Serviços em andamento", str(_em_and))
         k2.metric("📝 Orçamentos enviados", str(_orc))
         k3.metric("💰 Faturamento do mês", utils.to_br_currency(_fat))
         k4.metric("📄 Boletos a pagar", utils.to_br_currency(_pend))
+        k5.metric("💸 Empréstimos a receber", utils.to_br_currency(_receber))
 
         st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
         st.markdown("<div class='eco-sectiontitle'>🔔 Lembretes de Pagamento</div>", unsafe_allow_html=True)
@@ -334,6 +345,72 @@ else:
                 st.info("🎉 Excelente! Nenhuma despesa ou boleto vencendo nos próximos 5 dias.")
         except Exception as e:
             st.caption("Conectando base de lembretes...")
+
+        # ---------- Lembretes de cobrança (empréstimos a receber) ----------
+        # Seção própria, separada dos boletos de propósito: um é dinheiro que
+        # sai, outro é dinheiro que entra, e juntar os dois numa lista só faz
+        # confundir na hora de bater o caixa. Aparece apenas quando há algo a
+        # cobrar, pra não poluir a Home de quem não empresta nada.
+        try:
+            res_emp = st.session_state.supabase.table('emprestimos').select('*').eq(
+                'status', 'Pendente').order('vencimento').execute()
+
+            cobrancas = []
+            for e in (res_emp.data or []):
+                venc_dt = datetime.datetime.strptime(e['vencimento'], "%Y-%m-%d").date()
+                diff = (venc_dt - hoje_br).days
+                if diff <= 5:
+                    cobrancas.append((e, venc_dt, diff))
+
+            if cobrancas:
+                st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+                st.markdown("<div class='eco-sectiontitle'>💸 Lembretes de Cobrança</div>", unsafe_allow_html=True)
+
+                for idx, (e, venc_dt, diff) in enumerate(cobrancas):
+                    if diff < 0:
+                        cor_card = "#ffe6e6"; icone = "🚨"; status_txt = f"ATRASADO {abs(diff)} DIA(S)"
+                    elif diff == 0:
+                        cor_card = "#fff2cc"; icone = "⚠️"; status_txt = "VENCE HOJE"
+                    else:
+                        cor_card = "#e6ffe6"; icone = "📅"; status_txt = f"EM {diff} DIAS"
+
+                    if idx > 0:
+                        st.markdown("<div style='margin-top: -16px;'></div>", unsafe_allow_html=True)
+
+                    total_p = int(e.get('total_parcelas') or 1)
+                    parcela_txt = f" ({int(e.get('parcela_num') or 1)}/{total_p})" if total_p > 1 else ""
+
+                    col_info, col_btn_ver, col_btn_receb = st.columns([7.5, 1.2, 1.2])
+                    with col_info:
+                        st.markdown(f"""
+                            <div class="card-lembrete" style="background-color: {cor_card}; border: 1px solid #d1d5db; border-radius: 4px; padding: 0 15px; display: flex; align-items: center; justify-content: space-between; height: 38px; margin: 0px;">
+                                <div style="display: flex; align-items: center; gap: 10px; overflow: hidden;">
+                                    <span style="font-size: 14px;">{icone}</span>
+                                    <span style="font-size: 14px; font-weight: 600; color: #111; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{e['pessoa']}{parcela_txt}</span>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 15px;">
+                                    <span style="font-size: 12px; color: #555; white-space: nowrap;">Venc: {venc_dt.strftime('%d/%m/%Y')} ({status_txt})</span>
+                                    <span style="font-size: 14px; font-weight: 700; color: #006600; white-space: nowrap;">{utils.to_br_currency(e['valor_parcela'])}</span>
+                                </div>
+                            </div>
+                        """, unsafe_allow_html=True)
+
+                    with col_btn_ver:
+                        if st.button("📂 Abrir", type="primary", key=f"emp_ir_{e['id']}", use_container_width=True):
+                            st.session_state.menu_option = "Documentos"
+                            st.session_state.doc_ir_para = "Empréstimos"
+                            st.rerun()
+
+                    with col_btn_receb:
+                        if st.button("✅ Recebi", type="primary", key=f"emp_rec_{e['id']}", use_container_width=True):
+                            st.session_state.supabase.table('emprestimos').update({
+                                'status': 'Recebido',
+                                'data_recebimento': hoje_br.strftime('%Y-%m-%d'),
+                            }).eq('id', e['id']).execute()
+                            st.success(f"✅ Recebido de {e['pessoa']}!")
+                            st.rerun()
+        except Exception:
+            pass  # tabela ainda não criada — a Home não pode deixar de abrir por isso
 
         st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
         st.markdown("<div class='eco-sectiontitle'>⚡ Acessos rápidos</div>", unsafe_allow_html=True)
