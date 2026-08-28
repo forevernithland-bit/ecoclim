@@ -1,10 +1,10 @@
 import { getSupabase } from "./supabase-client.js";
+import { API_BASE } from "./config.js";
 
 // Backend que gera o PDF idêntico ao ERP e faz a mesma detecção automática
 // de capa/serviço — nunca duplicamos essa lógica aqui em JS, pra qualquer
 // mudança no orcamento_personalizado.py (ERP desktop) valer automaticamente
 // pro celular também. Ver HANDOFF/memória do projeto.
-const API_BASE = "https://api.ecoclim.com.br";
 
 async function chamarApi(caminho, corpo) {
   const resp = await fetch(`${API_BASE}${caminho}`, {

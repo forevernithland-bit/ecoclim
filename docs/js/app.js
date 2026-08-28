@@ -2,12 +2,14 @@ import { login, sessaoAtual, logout } from "./auth.js";
 import { lerServicos, lerServico, enfileirar, removerDaCriacoesOutbox, atualizarCriacaoOutbox } from "./db.js";
 import { sincronizarTudo, iniciarSyncAutomatico, statusAtual, aoMudarStatusSync } from "./sync.js";
 import { adicionarMidia, enviarMidiasPendentes, puxarMidias, urlPublicaMidia, listarPendentesLocal } from "./midias.js";
-import { puxarVisitas, visitasPendentesNovas, criarVisita, atualizarStatusVisita, contarNaoVistas, marcarTodasComoVistas, salvarRespostaInstalador, atualizarVisitaAdmin, excluirVisita } from "./agenda.js";
+import { puxarVisitas, visitasPendentesNovas, criarVisita, atualizarStatusVisita, contarNaoVistas, marcarTodasComoVistas, salvarRespostaInstalador, atualizarVisitaAdmin, excluirVisita, atualizarConfirmacaoVisita } from "./agenda.js";
 import { puxarMinhasListas, puxarMateriaisPadrao, salvarLista, atualizarLista, excluirLista, listasPendentesNovas, puxarListaDoServico, sugerirNovoMaterial, puxarModelosMateriais } from "./materiais.js";
 import {
   agruparPorMes, formatarMes, servicosFinalizadosAReceber, servicosEmAndamentoSemData, totalGeralAReceber,
 } from "./financeiro.js";
 import { puxarAdiantamentos, totalAdiantadoAberto } from "./adiantamentos.js";
+import { ativarNotificacoes, podePedirPermissao, permissaoConcedida, notificar, limparSelo, ehIOS, rodandoInstalado, suportaPush } from "./push.js";
+import { registrar as registrarMov, listar as listarMov, frase as fraseMov, quando as quandoMov } from "./movimentacoes.js";
 import {
   puxarCatalogoProdutos, puxarCatalogoServicos, puxarCatalogoOutros,
   puxarRascunhos, carregarRascunho, excluirRascunho, salvarOrcamento,
@@ -450,6 +452,9 @@ async function viewLista() {
 
   const { pendentes } = await statusAtual();
   renderFaixaSync(navigator.onLine ? "sincronizado" : "offline", pendentes);
+
+  convidarNotificacoes();
+  renderLembreteConfirmacao();
 }
 
 // Liga um botão de "gravar áudio" (grava no próprio navegador, sem precisar
@@ -750,6 +755,14 @@ async function viewDetalhe(id) {
         }
         await enfileirar(id, patch);
         sincronizarTudo(sessao.instaladorVinculado);
+        // Avisa o Breno no celular dele — é a informação que ele mais espera
+        // e hoje só descobria abrindo o ERP.
+        notificar({
+          titulo: "✅ Instalação concluída",
+          mensagem: `${sessao.instaladorVinculado} concluiu a instalação de ${nomeComBairro(s)}.`,
+          perfil: "Admin",
+          tag: `conclusao-${id}`,
+        });
         await viewDetalhe(id);
       });
       document.getElementById("btn-cancelar-conclusao").addEventListener("click", () => {
@@ -881,6 +894,9 @@ async function viewAgenda() {
           <button class="botao botao--secundario botao--mini" data-add-midia-visita="${v.id}">📷 Foto/Vídeo</button>
           <button class="botao botao--secundario botao--mini" data-gravar-audio-visita="${v.id}">🎤 Áudio</button>
         </div>
+        <button class="botao botao--secundario botao--mini" data-historico="${v.id}" style="margin-top:6px;">🕓 Histórico</button>
+        <div id="historico-${v.id}" style="display:none; margin-top:8px;">
+        </div>
       ` : ""}
     </div>
   `;
@@ -977,16 +993,44 @@ async function viewAgenda() {
     await viewAgenda();
   });
   function ligarAcoesVisita() {
-    raiz.querySelectorAll("[data-realizar]").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        const v = visitas.find((x) => x.id === Number(btn.dataset.realizar));
-        if (v) { await atualizarStatusVisita(v, "Realizada"); sincronizarTudo(sessao.instaladorVinculado); await viewAgenda(); }
+    const mudarStatusVisita = async (v, novoStatus) => {
+      if (!v) return;
+      const anterior = v.status || "Agendada";
+      await atualizarStatusVisita(v, novoStatus);
+      await registrarMov("agenda", v.id, "status", {
+        usuario: sessao.instaladorVinculado, de: anterior, para: novoStatus,
       });
+      notificar({
+        titulo: `📅 Visita ${novoStatus.toLowerCase()}`,
+        mensagem: `${sessao.instaladorVinculado}: ${v.cliente_nome || "visita"} — ${novoStatus}.`,
+        perfil: "Admin",
+        tag: `agenda-${v.id}`,
+      });
+      sincronizarTudo(sessao.instaladorVinculado);
+      await viewAgenda();
+    };
+    raiz.querySelectorAll("[data-realizar]").forEach((btn) => {
+      btn.addEventListener("click", () =>
+        mudarStatusVisita(visitas.find((x) => x.id === Number(btn.dataset.realizar)), "Realizada"));
     });
     raiz.querySelectorAll("[data-cancelar]").forEach((btn) => {
+      btn.addEventListener("click", () =>
+        mudarStatusVisita(visitas.find((x) => x.id === Number(btn.dataset.cancelar)), "Cancelada"));
+    });
+
+    raiz.querySelectorAll("[data-historico]").forEach((btn) => {
       btn.addEventListener("click", async () => {
-        const v = visitas.find((x) => x.id === Number(btn.dataset.cancelar));
-        if (v) { await atualizarStatusVisita(v, "Cancelada"); sincronizarTudo(sessao.instaladorVinculado); await viewAgenda(); }
+        const vid = Number(btn.dataset.historico);
+        const bloco = document.getElementById(`historico-${vid}`);
+        const abrir = bloco.style.display === "none";
+        bloco.style.display = abrir ? "block" : "none";
+        if (!abrir) return;
+        bloco.innerHTML = `<p class="dica">Carregando...</p>`;
+        const movs = await listarMov("agenda", vid);
+        bloco.innerHTML = movs.length
+          ? movs.map((m) => `<div class="cartao-sub" style="padding:3px 0;">• ${escapeHTML(fraseMov(m))}
+               <span style="color:#999;">· ${escapeHTML(quandoMov(m))}</span></div>`).join("")
+          : `<p class="dica">Nada registrado ainda.</p>`;
       });
     });
 
@@ -1046,6 +1090,16 @@ async function viewAgenda() {
         const valorTxt = document.getElementById(`resp-valor-${vid}`).value;
         const valor = valorTxt ? Number(valorTxt) : null;
         await salvarRespostaInstalador(v, comentario, valor);
+        await registrarMov("agenda", v.id, "comentario", {
+          usuario: sessao.instaladorVinculado,
+          detalhe: comentario ? comentario.slice(0, 120) : (valor ? `valor sugerido R$ ${valor}` : ""),
+        });
+        notificar({
+          titulo: "💬 Resposta do instalador",
+          mensagem: `${sessao.instaladorVinculado} respondeu sobre ${v.cliente_nome || "uma visita"}: ${(comentario || "").slice(0, 90) || "valor sugerido"}`,
+          perfil: "Admin",
+          tag: `agenda-${v.id}`,
+        });
         btn.textContent = "✅ Enviado";
         sincronizarTudo(sessao.instaladorVinculado);
         setTimeout(() => { btn.textContent = "💾 Enviar pro Breno"; }, 1500);
@@ -1065,6 +1119,19 @@ async function viewAgenda() {
           await adicionarMidia({ visita_id: Number(vid) }, arquivo, sessao.instaladorVinculado);
         }
         e.target.value = "";
+        if (arquivos.length) {
+          const v = visitas.find((x) => x.id === Number(vid));
+          await registrarMov("agenda", Number(vid), "midia", {
+            usuario: sessao.instaladorVinculado,
+            detalhe: `${arquivos.length} arquivo(s)`,
+          });
+          notificar({
+            titulo: "📷 Mídia nova do instalador",
+            mensagem: `${sessao.instaladorVinculado} anexou ${arquivos.length} arquivo(s) em ${(v && v.cliente_nome) || "uma visita"}.`,
+            perfil: "Admin",
+            tag: `agenda-${vid}`,
+          });
+        }
         await renderizarMidias({ visita_id: Number(vid) }, `midias-visita-${vid}`);
       });
     });
@@ -2165,7 +2232,132 @@ async function viewOrcamentos() {
 }
 
 // ---------- Boot ----------
+/** Convite pra ligar as notificações, mostrado depois de entrar.
+ *  Fica na tela em vez de disparar sozinho porque navegador nenhum aceita
+ *  pedido de permissão sem um toque do usuário — e um pedido "do nada" é o
+ *  tipo de coisa que a pessoa nega por reflexo, queimando a chance. */
+function convidarNotificacoes() {
+  if (!podePedirPermissao()) return;
+  if (document.getElementById("convite-notif")) return;
+  const conteudo = document.querySelector(".conteudo");
+  if (!conteudo) return;
+
+  const div = document.createElement("div");
+  div.id = "convite-notif";
+  div.className = "cartao";
+  div.style.cssText = "margin-bottom:12px; border-left:4px solid #0f9d58;";
+  div.innerHTML = `
+    <div style="font-weight:700; margin-bottom:4px;">🔔 Receber avisos</div>
+    <p class="dica" style="margin-bottom:8px;">Seja avisado no celular quando houver tarefa nova ou novidade, mesmo com o app fechado.</p>
+    <button type="button" id="btn-ativar-notif" class="botao botao--principal botao--mini">Ativar avisos</button>
+    <button type="button" id="btn-dispensar-notif" class="botao botao--secundario botao--mini">Agora não</button>`;
+  conteudo.insertBefore(div, conteudo.firstChild);
+
+  document.getElementById("btn-ativar-notif").addEventListener("click", async () => {
+    const r = await ativarNotificacoes(sessao);
+    div.innerHTML = r.ok
+      ? `<div style="font-weight:700; color:#0f9d58;">🔔 Avisos ativados neste aparelho!</div>`
+      : `<div style="font-weight:700;">🔔 Não deu pra ativar</div><p class="dica" style="margin:4px 0 0;">${escapeHTML(r.erro)}</p>`;
+    if (r.ok) setTimeout(() => div.remove(), 2500);
+  });
+  document.getElementById("btn-dispensar-notif").addEventListener("click", () => div.remove());
+}
+
+/** Lembrete da véspera: visita marcada pra amanhã (ou hoje) que o instalador
+ *  ainda não confirmou. Fica no topo da tela inicial e não sai de lá até ele
+ *  responder — a ideia é justamente não deixar passar batido: descobrir no
+ *  dia, com o cliente esperando, é o problema que isso evita.
+ */
+async function renderLembreteConfirmacao() {
+  if (!sessao || sessao.admin) return;
+  const conteudo = document.querySelector(".conteudo");
+  if (!conteudo || document.getElementById("lembrete-confirmacao")) return;
+
+  let visitas = [];
+  try {
+    visitas = await puxarVisitas(sessao.instaladorVinculado);
+  } catch (e) { return; }
+
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  const limite = new Date(hoje); limite.setDate(limite.getDate() + 1);   // hoje e amanhã
+
+  const pendentes = visitas.filter((v) => {
+    if (v.confirmacao) return false;                       // já respondeu
+    if (v.status && v.status !== "Agendada") return false; // cancelada/realizada não pede confirmação
+    const d = new Date(v.data_hora);
+    if (isNaN(d)) return false;
+    d.setHours(0, 0, 0, 0);
+    return d >= hoje && d <= limite;
+  });
+  if (!pendentes.length) return;
+
+  const div = document.createElement("div");
+  div.id = "lembrete-confirmacao";
+  div.className = "cartao";
+  div.style.cssText = "margin-bottom:12px; border-left:5px solid #e8a100; background:#fffdf5;";
+  div.innerHTML = `
+    <div style="font-weight:800; margin-bottom:6px;">⏰ Confirme sua agenda</div>
+    ${pendentes.map((v) => {
+      const d = new Date(v.data_hora);
+      const dia = d.toDateString() === hoje.toDateString() ? "HOJE" : "AMANHÃ";
+      const hora = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+      return `
+        <div class="cartao" style="margin:8px 0; padding:10px;">
+          <div style="font-weight:700;">${dia} às ${hora} — ${escapeHTML(v.cliente_nome || "Sem nome")}</div>
+          ${v.endereco ? `<div class="cartao-sub">📍 ${escapeHTML(v.endereco)}</div>` : ""}
+          ${v.tipo ? `<div class="cartao-sub">${escapeHTML(v.tipo)}</div>` : ""}
+          <div style="display:flex; gap:8px; margin-top:8px;">
+            <button class="botao botao--principal botao--mini" data-confirmar-ok="${v.id}" style="flex:1;">✅ OK!</button>
+            <button class="botao botao--secundario botao--mini" data-confirmar-remarcar="${v.id}" style="flex:1;">📅 Remarcar</button>
+          </div>
+          <div id="motivo-remarcar-${v.id}" style="display:none; margin-top:8px;">
+            <label>Por que precisa remarcar?</label>
+            <textarea id="txt-remarcar-${v.id}" rows="2" placeholder="Ex: outro serviço atrasou, problema no carro..."></textarea>
+            <button class="botao botao--principal botao--mini" data-enviar-remarcar="${v.id}" style="margin-top:6px;">Enviar pro Breno</button>
+          </div>
+        </div>`;
+    }).join("")}`;
+  conteudo.insertBefore(div, conteudo.firstChild);
+
+  const responder = async (id, resposta, motivo) => {
+    const v = pendentes.find((x) => x.id === id);
+    try {
+      await atualizarConfirmacaoVisita(id, resposta, motivo);
+    } catch (e) {
+      alert("Não deu pra registrar agora — confira sua internet e tente de novo.");
+      return;
+    }
+    await registrarMov("agenda", id, resposta === "OK" ? "confirmou" : "remarcar", {
+      usuario: sessao.instaladorVinculado, detalhe: motivo || null,
+    });
+    notificar({
+      titulo: resposta === "OK" ? "✅ Agenda confirmada" : "📅 Pedido de remarcação",
+      mensagem: resposta === "OK"
+        ? `${sessao.instaladorVinculado} confirmou a visita de ${(v && v.cliente_nome) || ""}.`
+        : `${sessao.instaladorVinculado} precisa remarcar ${(v && v.cliente_nome) || ""}${motivo ? ": " + motivo : ""}.`,
+      perfil: "Admin",
+      tag: `agenda-${id}`,
+    });
+    div.remove();
+    await renderLembreteConfirmacao();   // mostra a próxima pendente, se houver
+  };
+
+  div.querySelectorAll("[data-confirmar-ok]").forEach((b) =>
+    b.addEventListener("click", () => responder(Number(b.dataset.confirmarOk), "OK")));
+  div.querySelectorAll("[data-confirmar-remarcar]").forEach((b) =>
+    b.addEventListener("click", () => {
+      const bloco = document.getElementById(`motivo-remarcar-${b.dataset.confirmarRemarcar}`);
+      bloco.style.display = bloco.style.display === "none" ? "block" : "none";
+    }));
+  div.querySelectorAll("[data-enviar-remarcar]").forEach((b) =>
+    b.addEventListener("click", () => {
+      const id = Number(b.dataset.enviarRemarcar);
+      responder(id, "Remarcar", document.getElementById(`txt-remarcar-${id}`).value.trim());
+    }));
+}
+
 async function iniciarApp() {
+  limparSelo();   // abriu o app: some o numerinho do ícone
   // Admin (Breno) não é vinculado a um instalador específico — as telas de
   // Instalações/Agenda/Materiais/Financeiro (e a sincronização automática)
   // são filtradas por instalador e ficariam vazias/sem sentido pra ele, então
@@ -2198,18 +2390,10 @@ window.addEventListener("appinstalled", () => {
   if (el) el.remove();
 });
 
-function rodandoComoApp() {
-  return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
-}
-
-function ehIOS() {
-  return /iphone|ipad|ipod/i.test(navigator.userAgent);
-}
-
 function mostrarConviteInstalacao() {
   // Só faz sentido convidar quem ainda está no navegador, e só na tela de
   // login: no meio do trabalho o convite viraria estorvo.
-  if (rodandoComoApp() || telaAtual !== "login") return;
+  if (rodandoInstalado() || telaAtual !== "login") return;
   if (document.getElementById("convite-instalar")) return;
   const alvo = document.querySelector(".tela-login");
   if (!alvo) return;

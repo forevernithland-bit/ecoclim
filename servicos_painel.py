@@ -4,6 +4,8 @@ import datetime
 import utils
 import traceback
 import gestao_click
+import push
+import movimentacoes
 
 def safe_float(val):
     try:
@@ -1153,14 +1155,32 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     "pago_avista_fornecedor": pago_avista
                 }
                 try:
+                    _status_antes = str(projeto_selecionado.get('status_projeto') or '')
                     supabase.table('servicos_andamento').update(dados).eq('id', id_projeto).execute()
+
+                    if novo_status != _status_antes:
+                        movimentacoes.registrar(
+                            supabase, "servico", id_projeto, "status",
+                            de=_status_antes or None, para=novo_status,
+                            detalhe=novo_nome_cliente,
+                        )
+                        # Entrar em "Em Andamento" é o momento em que a obra vira
+                        # trabalho do instalador — é aí que ele precisa saber.
+                        if novo_status == "Em Andamento" and novo_instalador:
+                            push.avisar_instalador(
+                                supabase, novo_instalador,
+                                "🛠️ Nova instalação pra você",
+                                f"{novo_nome_cliente} entrou em andamento.",
+                                tag=f"servico-{id_projeto}",
+                            )
+
                     if f"itens_state_{prefix_key}" in st.session_state:
                         del st.session_state[f"itens_state_{prefix_key}"]
-                    if f"last_status_{prefix_key}" in st.session_state: 
+                    if f"last_status_{prefix_key}" in st.session_state:
                         del st.session_state[f"last_status_{prefix_key}"]
-                    if f"data_edit_{prefix_key}" in st.session_state: 
+                    if f"data_edit_{prefix_key}" in st.session_state:
                         del st.session_state[f"data_edit_{prefix_key}"]
-                    
+
                     st.success("✅ Atualizado com sucesso!")
                     st.rerun()
                 except Exception as e: 

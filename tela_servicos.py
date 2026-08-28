@@ -6,6 +6,8 @@ import unicodedata
 import utils
 import servicos_painel
 import cronograma
+import push
+import movimentacoes
 
 def deve_ir_para_finalizados(status, data_conc_str):
     if status in ["Concluído PIX", "Concluído CARTÃO"]:
@@ -428,7 +430,7 @@ def _modal_agendar_tarefa_instalador(supabase, lista_instaladores):
         else:
             try:
                 data_hora_iso = datetime.datetime.combine(data_visita, hora_visita).isoformat()
-                supabase.table('agenda_visitas').insert({
+                _res_ag = supabase.table('agenda_visitas').insert({
                     "instalador": instalador_sel,
                     "tipo": tipo_sel,
                     "cliente_nome": cliente_nome.strip(),
@@ -440,6 +442,19 @@ def _modal_agendar_tarefa_instalador(supabase, lista_instaladores):
                     "visto_pelo_instalador": False,
                     "criado_por": "admin",
                 }).execute()
+
+                _id_visita = (_res_ag.data or [{}])[0].get("id")
+                if _id_visita:
+                    movimentacoes.registrar(
+                        supabase, "agenda", _id_visita, "criou",
+                        para="Agendada", detalhe=f"{tipo_sel} — {cliente_nome.strip()}",
+                    )
+                push.avisar_instalador(
+                    supabase, instalador_sel,
+                    f"📅 Nova tarefa: {tipo_sel}",
+                    f"{cliente_nome.strip()} — {data_visita.strftime('%d/%m')} às {hora_visita.strftime('%H:%M')}",
+                    tag=f"agenda-{_id_visita or 'nova'}",
+                )
                 st.success(f"✅ Tarefa agendada para {instalador_sel}! Vai aparecer no app dele com aviso de notificação.")
                 st.rerun()
             except Exception as e:

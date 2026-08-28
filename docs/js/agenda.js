@@ -107,3 +107,16 @@ export async function salvarRespostaInstalador(visita, comentario, valorSugerido
     });
   }
 }
+
+/** Confirmação da véspera: "OK" (vou) ou "Remarcar" (não vou dar conta).
+ *  Direto online, sem passar pela fila offline — é uma resposta que o Breno
+ *  precisa ver agora, não quando o sinal voltar. */
+export async function atualizarConfirmacaoVisita(id, resposta, motivo) {
+  const supabase = getSupabase();
+  const { error } = await supabase.from(TABELA).update({
+    confirmacao: resposta,
+    confirmacao_em: new Date().toISOString(),
+    confirmacao_motivo: motivo || null,
+  }).eq("id", id);
+  if (error) throw error;
+}

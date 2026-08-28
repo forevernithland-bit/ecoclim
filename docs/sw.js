@@ -1,7 +1,7 @@
 // Service Worker — cacheia o app shell pra abrir mesmo sem sinal.
 // Não intercepta chamadas ao Supabase nem ao esm.sh (essas precisam de rede
 // de verdade; os dados offline vêm do IndexedDB, não do cache do SW).
-const CACHE = "ecoclim-instalador-v9";
+const CACHE = "ecoclim-instalador-v12";
 const ARQUIVOS_SHELL = [
   "./",
   "./index.html",
@@ -17,6 +17,8 @@ const ARQUIVOS_SHELL = [
   "./js/financeiro.js",
   "./js/adiantamentos.js",
   "./js/orcamentos.js",
+  "./js/push.js",
+  "./js/movimentacoes.js",
   "./js/config.js",
   "./js/supabase-client.js",
   "./icons/icon-192.png",
@@ -58,4 +60,55 @@ self.addEventListener("fetch", (event) => {
       return cacheado || buscaRede;
     })
   );
+});
+
+// ---------- Notificações push ----------
+// Chega aqui mesmo com o app fechado — é o Service Worker que acorda. No
+// iPhone isso só acontece se o app tiver sido instalado na tela inicial
+// (regra da Apple), no Android funciona nos dois casos.
+self.addEventListener("push", (event) => {
+  let dados = {};
+  try {
+    dados = event.data ? event.data.json() : {};
+  } catch (e) {
+    dados = { title: "Ecoclim", body: event.data ? event.data.text() : "" };
+  }
+
+  const titulo = dados.title || "Ecoclim";
+  const opcoes = {
+    body: dados.body || "",
+    icon: "./icons/icon-192.png",
+    badge: "./icons/icon-192-maskable.png",
+    // `tag` faz o aviso novo substituir o anterior do mesmo assunto, em vez de
+    // empilhar cinco notificações iguais na barra.
+    tag: dados.tag || "ecoclim",
+    renotify: true,
+    data: { url: dados.url || "./index.html" },
+    vibrate: [80, 40, 80],
+  };
+
+  event.waitUntil((async () => {
+    await self.registration.showNotification(titulo, opcoes);
+    // Selo com número no ícone do app (Android; iOS ignora sem reclamar).
+    if (self.navigator && "setAppBadge" in self.navigator) {
+      try { await self.navigator.setAppBadge(dados.badge || 1); } catch (e) {}
+    }
+  })());
+});
+
+// Tocar na notificação: traz a janela já aberta pra frente em vez de abrir
+// outra — quem está no meio de um preenchimento não pode perder a tela.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const destino = (event.notification.data && event.notification.data.url) || "./index.html";
+  event.waitUntil((async () => {
+    if (self.navigator && "clearAppBadge" in self.navigator) {
+      try { await self.navigator.clearAppBadge(); } catch (e) {}
+    }
+    const janelas = await clients.matchAll({ type: "window", includeUncontrolled: true });
+    for (const j of janelas) {
+      if (j.url.includes(self.location.origin)) return j.focus();
+    }
+    return clients.openWindow(destino);
+  })());
 });

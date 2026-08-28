@@ -572,3 +572,76 @@ async def orcamento_personalizado_calculo_custos(req: CalculoCustosRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==========================================
+# NOTIFICAÇÕES PUSH (app do instalador — Android e iPhone)
+# ==========================================
+# O app registra o aparelho aqui uma vez (quando o usuário autoriza) e depois
+# o ERP/API disparam avisos por estes endpoints. Ver push.py para o envio em si.
+class PushSubscription(BaseModel):
+    usuario: str
+    perfil: Optional[str] = None
+    instalador_vinculado: Optional[str] = None
+    endpoint: str
+    p256dh: str
+    auth: str
+    user_agent: Optional[str] = None
+
+
+@app.post("/push/registrar")
+async def push_registrar(req: PushSubscription):
+    """Guarda (ou reativa) a assinatura deste aparelho.
+
+    O endpoint é único por aparelho: se a pessoa reinstala o app ou troca de
+    usuário no mesmo celular, o registro é atualizado em vez de duplicar —
+    senão a mesma notificação chegaria várias vezes.
+    """
+    try:
+        dados = req.model_dump()
+        existente = supabase.table("push_subscriptions").select("id").eq(
+            "endpoint", req.endpoint).execute().data
+        if existente:
+            supabase.table("push_subscriptions").update(
+                {**dados, "ativo": True}).eq("endpoint", req.endpoint).execute()
+        else:
+            supabase.table("push_subscriptions").insert({**dados, "ativo": True}).execute()
+        return {"sucesso": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/push/remover")
+async def push_remover(endpoint: str):
+    try:
+        supabase.table("push_subscriptions").update({"ativo": False}).eq(
+            "endpoint", endpoint).execute()
+        return {"sucesso": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class PushEnvio(BaseModel):
+    titulo: str
+    mensagem: str
+    usuario: Optional[str] = None
+    instalador: Optional[str] = None
+    perfil: Optional[str] = None
+    url: Optional[str] = "./index.html"
+    tag: Optional[str] = None
+
+
+@app.post("/push/enviar")
+async def push_enviar(req: PushEnvio):
+    """Dispara a notificação. Usado pelo app do instalador (quando ele conclui
+    algo e o Breno precisa saber) e por qualquer automação futura."""
+    try:
+        import push
+        enviadas, falhas = push.enviar(
+            supabase, req.titulo, req.mensagem,
+            usuario=req.usuario, instalador=req.instalador, perfil=req.perfil,
+            url=req.url, tag=req.tag,
+        )
+        return {"sucesso": True, "enviadas": enviadas, "falhas": falhas}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
