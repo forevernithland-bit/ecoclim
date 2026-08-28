@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import datetime
 import utils
+import emprestimos
 import zipfile
 import io
 from googleapiclient.http import MediaIoBaseUpload
@@ -757,6 +758,10 @@ def renderizar():
         ("📝 Orçamentos", "Orçamentos"),
         ("🤝 Contratos", "Contratos"),
         ("🧾 Boletos", "Boletos"),
+        # Fica ao lado de Boletos porque é onde se procura por "contas": um é o
+        # que sai, outro é o que tem pra entrar. Os dados são separados, ver
+        # emprestimos.py.
+        ("💸 Empréstimos", "Empréstimos"),
         ("🖼️ Imagens", "Imagens"),
         ("📊 Notas Fiscais (NF)", "Notas Fiscais"),
     ]
@@ -786,6 +791,8 @@ def renderizar():
         st.markdown("---")
         if st.toggle("📗 Ver Histórico de Pagos (mês a mês)", value=False, key="ver_hist_pagos"):
             _render_historico_pagos()
+    elif nome == "Empréstimos":
+        emprestimos.renderizar()
     elif nome == "Imagens":
         renderizar_aba("Imagens", subpastas=utils.meses_pt, is_imagens=True)
     elif nome == "Notas Fiscais":
