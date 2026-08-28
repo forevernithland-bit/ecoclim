@@ -1,7 +1,7 @@
 // Service Worker — cacheia o app shell pra abrir mesmo sem sinal.
 // Não intercepta chamadas ao Supabase nem ao esm.sh (essas precisam de rede
 // de verdade; os dados offline vêm do IndexedDB, não do cache do SW).
-const CACHE = "ecoclim-instalador-v8";
+const CACHE = "ecoclim-instalador-v9";
 const ARQUIVOS_SHELL = [
   "./",
   "./index.html",
@@ -21,6 +21,8 @@ const ARQUIVOS_SHELL = [
   "./js/supabase-client.js",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
+  "./icons/icon-192-maskable.png",
+  "./icons/icon-512-maskable.png",
 ];
 
 self.addEventListener("install", (event) => {
