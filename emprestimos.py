@@ -5,6 +5,7 @@ precisa lembrar de cobrar. Cada linha da tabela `emprestimos` é uma parcela;
 as parcelas do mesmo empréstimo compartilham o `grupo_id`.
 """
 import datetime
+import uuid
 import urllib.parse
 
 import pandas as pd
@@ -80,10 +81,16 @@ def _gravar(supabase, pessoa, telefone, valor_total, data_emp, parcelas, primeir
     valor_parcela = round(valor_total / parcelas, 2)
     ajuste_ultima = round(valor_total - (valor_parcela * parcelas), 2)
 
+    # Gera o grupo aqui em vez de deixar o banco sortear um por linha: assim as
+    # parcelas já nascem amarradas umas às outras, sem depender de um segundo
+    # update que pode falhar no meio e deixar o empréstimo partido.
+    grupo = str(uuid.uuid4())
+
     linhas = []
     for n in range(1, parcelas + 1):
         valor = valor_parcela + (ajuste_ultima if n == parcelas else 0)
         linhas.append({
+            "grupo_id": grupo,
             "pessoa": pessoa,
             "telefone": telefone or None,
             "data_emprestimo": data_emp.strftime("%Y-%m-%d"),
@@ -97,14 +104,7 @@ def _gravar(supabase, pessoa, telefone, valor_total, data_emp, parcelas, primeir
         })
 
     try:
-        # Um insert só: as parcelas nascem com o mesmo grupo_id (default do banco)
-        # apenas se forem do mesmo comando — por isso o grupo é resolvido depois.
-        res = supabase.table("emprestimos").insert(linhas).execute()
-        ids = [r["id"] for r in (res.data or [])]
-        if ids:
-            grupo = (res.data or [{}])[0].get("grupo_id")
-            if grupo:
-                supabase.table("emprestimos").update({"grupo_id": grupo}).in_("id", ids).execute()
+        supabase.table("emprestimos").insert(linhas).execute()
         st.success(f"Empréstimo registrado! {parcelas}x pra {pessoa}.")
         st.cache_data.clear()
         st.rerun()
