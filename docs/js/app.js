@@ -207,6 +207,10 @@ function viewLogin(erro) {
       viewLogin(r.erro);
     }
   });
+
+  // O evento de instalação costuma chegar antes desta tela existir; por isso o
+  // convite também é tentado aqui, depois que o HTML do login já está na tela.
+  mostrarConviteInstalacao();
 }
 
 // Uma instalação conta como concluída se o instalador marcou pelo app OU se
@@ -2175,6 +2179,66 @@ async function iniciarApp() {
   iniciarSyncAutomatico(sessao.instaladorVinculado);
   await atualizarContadorAgenda();
   iniciarAtualizacaoPeriodica(sessao.instaladorVinculado);
+}
+
+// ---------- Instalar como aplicativo ----------
+// O Android dispara `beforeinstallprompt` e deixa a gente abrir o instalador
+// na hora; o iPhone não tem esse evento — lá o caminho é o menu Compartilhar
+// do Safari, então mostramos a instrução em vez do botão.
+let promptInstalacao = null;
+
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();           // segura o balão automático do navegador...
+  promptInstalacao = e;         // ...pra disparar no nosso botão, no momento certo
+  mostrarConviteInstalacao();
+});
+window.addEventListener("appinstalled", () => {
+  promptInstalacao = null;
+  const el = document.getElementById("convite-instalar");
+  if (el) el.remove();
+});
+
+function rodandoComoApp() {
+  return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+}
+
+function ehIOS() {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent);
+}
+
+function mostrarConviteInstalacao() {
+  // Só faz sentido convidar quem ainda está no navegador, e só na tela de
+  // login: no meio do trabalho o convite viraria estorvo.
+  if (rodandoComoApp() || telaAtual !== "login") return;
+  if (document.getElementById("convite-instalar")) return;
+  const alvo = document.querySelector(".tela-login");
+  if (!alvo) return;
+
+  const div = document.createElement("div");
+  div.id = "convite-instalar";
+  div.className = "cartao";
+  div.style.cssText = "margin-top:14px; text-align:center;";
+
+  if (promptInstalacao) {
+    div.innerHTML = `
+      <div style="font-weight:700; margin-bottom:4px;">📲 Instalar o aplicativo</div>
+      <p class="dica" style="margin-bottom:8px;">Fica igual a um app no seu celular: abre direto do ícone, sem digitar endereço.</p>
+      <button type="button" id="btn-instalar-app" class="botao botao--principal">Instalar agora</button>`;
+    alvo.appendChild(div);
+    document.getElementById("btn-instalar-app").addEventListener("click", async () => {
+      if (!promptInstalacao) return;
+      promptInstalacao.prompt();
+      await promptInstalacao.userChoice;
+      promptInstalacao = null;
+      div.remove();
+    });
+  } else if (ehIOS()) {
+    div.innerHTML = `
+      <div style="font-weight:700; margin-bottom:4px;">📲 Instalar o aplicativo</div>
+      <p class="dica" style="margin:0;">Toque em <b>Compartilhar</b> (o quadrado com a seta, embaixo)
+      e depois em <b>Adicionar à Tela de Início</b>. O ícone da Ecoclim aparece junto dos seus apps.</p>`;
+    alvo.appendChild(div);
+  }
 }
 
 async function boot() {
