@@ -1,7 +1,7 @@
 // Service Worker — cacheia o app shell pra abrir mesmo sem sinal.
 // Não intercepta chamadas ao Supabase nem ao esm.sh (essas precisam de rede
 // de verdade; os dados offline vêm do IndexedDB, não do cache do SW).
-const CACHE = "ecoclim-instalador-v12";
+const CACHE = "ecoclim-instalador-v13";
 const ARQUIVOS_SHELL = [
   "./",
   "./index.html",
@@ -19,6 +19,7 @@ const ARQUIVOS_SHELL = [
   "./js/orcamentos.js",
   "./js/push.js",
   "./js/movimentacoes.js",
+  "./js/atualizacao.js",
   "./js/config.js",
   "./js/supabase-client.js",
   "./icons/icon-192.png",
@@ -111,4 +112,11 @@ self.addEventListener("notificationclick", (event) => {
     }
     return clients.openWindow(destino);
   })());
+});
+
+// A tela pede a troca imediata quando o usuário toca em "Atualizar" — sem
+// isso, a versão nova só assumiria quando todas as abas do app fossem
+// fechadas, que é justamente o que queremos evitar que ele tenha que fazer.
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") self.skipWaiting();
 });

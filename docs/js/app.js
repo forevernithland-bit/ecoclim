@@ -10,6 +10,7 @@ import {
 import { puxarAdiantamentos, totalAdiantadoAberto } from "./adiantamentos.js";
 import { ativarNotificacoes, podePedirPermissao, permissaoConcedida, notificar, limparSelo, ehIOS, rodandoInstalado, suportaPush } from "./push.js";
 import { registrar as registrarMov, listar as listarMov, frase as fraseMov, quando as quandoMov } from "./movimentacoes.js";
+import { VERSAO_APP, observarAtualizacoes, verificarAtualizacao, aplicarAtualizacao } from "./atualizacao.js";
 import {
   puxarCatalogoProdutos, puxarCatalogoServicos, puxarCatalogoOutros,
   puxarRascunhos, carregarRascunho, excluirRascunho, salvarOrcamento,
@@ -213,6 +214,9 @@ function viewLogin(erro) {
   // O evento de instalação costuma chegar antes desta tela existir; por isso o
   // convite também é tentado aqui, depois que o HTML do login já está na tela.
   mostrarConviteInstalacao();
+
+  const telaLogin = document.querySelector(".tela-login");
+  if (telaLogin) telaLogin.appendChild(blocoVerificarAtualizacao());
 }
 
 // Uma instalação conta como concluída se o instalador marcou pelo app OU se
@@ -2356,6 +2360,55 @@ async function renderLembreteConfirmacao() {
     }));
 }
 
+/** Faixa fixa no topo avisando que saiu versão nova.
+ *  Fica sobre tudo e não some sozinha: se a pessoa continuar usando a versão
+ *  antiga, pode acabar salvando algo por um caminho que já mudou. */
+function mostrarFaixaAtualizacao() {
+  if (document.getElementById("faixa-atualizacao")) return;
+  const barra = document.createElement("div");
+  barra.id = "faixa-atualizacao";
+  barra.style.cssText = "position:fixed; top:0; left:0; right:0; z-index:9999;" +
+    "background:#0f9d58; color:#fff; padding:10px 14px; display:flex; align-items:center;" +
+    "justify-content:space-between; gap:10px; font-size:0.92rem; box-shadow:0 2px 10px rgba(0,0,0,.2);";
+  barra.innerHTML = `
+    <span>✨ <b>Nova versão disponível</b></span>
+    <button type="button" id="btn-aplicar-att" style="background:#fff; color:#0f7a45; border:none;
+      border-radius:8px; padding:7px 14px; font-weight:700; cursor:pointer;">Atualizar</button>`;
+  document.body.appendChild(barra);
+  document.getElementById("btn-aplicar-att").addEventListener("click", async (e) => {
+    e.target.textContent = "Atualizando...";
+    e.target.disabled = true;
+    await aplicarAtualizacao();
+  });
+}
+
+/** Botão manual — pra quando o Breno avisa "subi uma correção" e o instalador
+ *  quer puxar na hora, sem esperar o app perceber sozinho. */
+function blocoVerificarAtualizacao() {
+  const div = document.createElement("div");
+  div.style.cssText = "text-align:center; margin-top:16px;";
+  div.innerHTML = `
+    <button type="button" id="btn-buscar-att" class="botao botao--secundario botao--mini">🔄 Buscar atualização</button>
+    <div class="dica" style="margin-top:6px;">versão ${VERSAO_APP}</div>`;
+  setTimeout(() => {
+    const b = document.getElementById("btn-buscar-att");
+    if (!b) return;
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      b.textContent = "Verificando...";
+      const tem = await verificarAtualizacao();
+      if (tem) {
+        b.textContent = "Atualizando...";
+        await aplicarAtualizacao();
+      } else {
+        b.textContent = "✅ Já está atualizado";
+        setTimeout(() => { b.disabled = false; b.textContent = "🔄 Buscar atualização"; }, 2500);
+      }
+    });
+  }, 0);
+  return div;
+}
+
 async function iniciarApp() {
   limparSelo();   // abriu o app: some o numerinho do ícone
   // Admin (Breno) não é vinculado a um instalador específico — as telas de
@@ -2427,7 +2480,15 @@ function mostrarConviteInstalacao() {
 
 async function boot() {
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./sw.js").catch(() => {});
+    // updateViaCache:"none" faz o navegador sempre buscar o sw.js na rede —
+    // sem isso ele pode servir o arquivo antigo do cache HTTP e o app nunca
+    // descobriria que existe versão nova.
+    navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" }).catch(() => {});
+    observarAtualizacoes(mostrarFaixaAtualizacao);
+    // Confere ao abrir e depois de hora em hora, pra quem deixa o app aberto
+    // o dia inteiro em campo.
+    verificarAtualizacao();
+    setInterval(verificarAtualizacao, 60 * 60 * 1000);
   }
   // Se o armazenamento local (IndexedDB) falhar por qualquer motivo (modo
   // privado restrito, política do aparelho, etc.), mostra a tela de login
