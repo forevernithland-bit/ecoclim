@@ -10,7 +10,7 @@ import {
 import { puxarAdiantamentos, totalAdiantadoAberto } from "./adiantamentos.js";
 import { ativarNotificacoes, podePedirPermissao, permissaoConcedida, notificar, limparSelo, ehIOS, rodandoInstalado, suportaPush } from "./push.js";
 import { registrar as registrarMov, listar as listarMov, frase as fraseMov, quando as quandoMov } from "./movimentacoes.js";
-import { puxarLembretes, criarLembrete, marcarFeito, adiarLembrete, excluirLembrete } from "./lembretes.js";
+import { puxarLembretes, criarLembrete, marcarFeito, adiarLembrete, mudarCategoria, excluirLembrete, CATEGORIAS as CATS_LEMBRETE, CATEGORIA_PADRAO as CAT_LEMBRETE_PADRAO, rotuloCategoria } from "./lembretes.js";
 import { VERSAO_APP, observarAtualizacoes, verificarAtualizacao, aplicarAtualizacao } from "./atualizacao.js";
 import {
   puxarCatalogoProdutos, puxarCatalogoServicos, puxarCatalogoOutros,
