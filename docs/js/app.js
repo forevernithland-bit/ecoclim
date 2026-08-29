@@ -2136,8 +2136,7 @@ async function viewOrcamentos() {
       alvo.querySelectorAll("[data-sel]").forEach((b) => {
         b.addEventListener("click", () => {
           const s = achados[Number(b.dataset.sel)];
-          document.getElementById(idDesc).value = (s.item + "
-" + (s.descricao || "")).trim();
+          document.getElementById(idDesc).value = (s.item + "\n" + (s.descricao || "")).trim();
           document.getElementById(idValor).value = Number(s.venda) || 0;
           campo.value = "";
           alvo.innerHTML = "";
