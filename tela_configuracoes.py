@@ -136,8 +136,10 @@ def renderizar():
         termo_busca = st.text_input("🔍 Buscar Item ou Descrição...", key=f"busca_{nome_tabela}").strip().lower()
 
         if termo_busca:
-            mascara = df_atual['Item'].astype(str).str.lower().str.contains(termo_busca) | \
-                      df_atual['Descrição'].astype(str).str.lower().str.contains(termo_busca)
+            mascara = df_atual.apply(
+                lambda row: utils.bate_busca(termo_busca, row.get('Item', ''), row.get('Descrição', '')),
+                axis=1
+            )
             df_exibicao = df_atual[mascara].copy()
         else:
             df_exibicao = df_atual.copy()

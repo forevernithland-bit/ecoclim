@@ -3,6 +3,7 @@ import pandas as pd
 import datetime
 import re
 import unicodedata
+import difflib
 import utils
 
 # ---------------------------------------------------------------------------
@@ -493,7 +494,7 @@ def renderizar(lista_nomes_produtos, limpar_func):
         st.success(st.session_state.pop('calc_custos_msg'))
 
     try:
-        res_rascunhos = st.session_state.supabase.table('servicos_andamento').select('id, nome_cliente, valor_venda_total').eq('status_projeto', 'Rascunho').execute()
+        res_rascunhos = st.session_state.supabase.table('servicos_andamento').select('id, nome_cliente, telefone_cliente, valor_venda_total').eq('status_projeto', 'Rascunho').execute()
         rascunhos_db = res_rascunhos.data
     except Exception:
         rascunhos_db = []
@@ -506,8 +507,11 @@ def renderizar(lista_nomes_produtos, limpar_func):
                     limpar_func()
                     deve_rerun = True
             else:
-                busca_rasc = st.text_input("🔍 Buscar cliente...", key="busca_rascunho_orc", placeholder="Digite o nome do cliente")
-                rascunhos_filtrados = [r for r in rascunhos_db if _norm(busca_rasc) in _norm(r.get('nome_cliente', ''))] if busca_rasc.strip() else rascunhos_db
+                busca_rasc = st.text_input("🔍 Buscar cliente...", key="busca_rascunho_orc", placeholder="Nome ou telefone do cliente")
+                rascunhos_filtrados = [
+                    r for r in rascunhos_db
+                    if utils.bate_busca(busca_rasc, r.get('nome_cliente', ''), r.get('telefone_cliente', ''))
+                ] if busca_rasc.strip() else rascunhos_db
 
                 c_sel, c_btn_load, c_btn_del = st.columns([3, 1, 1])
                 opcoes_rascunhos = {f"{r['nome_cliente']} (R$ {r.get('valor_venda_total', 0):.2f}) - ID: {r['id']}": r['id'] for r in rascunhos_filtrados}

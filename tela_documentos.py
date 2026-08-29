@@ -368,8 +368,8 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
         st.info("Nenhum arquivo ou lembrete encontrado nesta pasta.")
         return
 
-    if termo_busca: 
-        df = df[df['Nome'].str.lower().str.contains(termo_busca)]
+    if termo_busca:
+        df = df[df['Nome'].apply(lambda n: utils.bate_busca(termo_busca, n))]
         
     hoje_filtro = datetime.date.today()
     if filtro_tipo == "Hoje": 

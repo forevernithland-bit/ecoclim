@@ -525,6 +525,56 @@ def parse_br_currency(texto_valor):
     except: return 0.0
 
 # ---------------------------------------------------------------
+# Busca de cliente por nome, telefone ou código — usada em todo campo
+# "Buscar cliente" do sistema (rascunhos, agenda, listas de serviço). Casa por
+# substring (nome/código), por dígitos (telefone, ignorando formatação como
+# parênteses/traço/espaço) e por aproximação (tolera erro de digitação no
+# nome, tipo "Paluo" achando "Paulo").
+# ---------------------------------------------------------------
+import difflib as _difflib
+
+def _norm_busca(texto):
+    """minúsculas, sem acento, espaços colapsados — para comparar buscas."""
+    t = str(texto or "").strip().lower()
+    t = unicodedata.normalize("NFD", t)
+    t = "".join(c for c in t if unicodedata.category(c) != "Mn")
+    return re.sub(r"\s+", " ", t)
+
+def _so_digitos(texto):
+    return re.sub(r"\D", "", str(texto or ""))
+
+def bate_busca(termo, *campos, min_similaridade=0.72):
+    """True se `termo` casa com algum dos `campos` (nome, telefone, código...).
+
+    - substring simples, sem acento/maiúscula (nome ou código);
+    - por dígitos, ignorando formatação — só entra em jogo se o termo digitado
+      tiver 3+ dígitos, pra "31" não bater em qualquer telefone;
+    - por aproximação: tolera erro de digitação comparando o termo com cada
+      palavra do campo (difflib), pra achar "Paulo" mesmo com "Paluo".
+
+    Termo vazio sempre bate (campo de busca vazio = mostra tudo).
+    """
+    termo_norm = _norm_busca(termo)
+    if not termo_norm:
+        return True
+    termo_dig = _so_digitos(termo)
+    for campo in campos:
+        campo_norm = _norm_busca(campo)
+        if not campo_norm:
+            continue
+        if termo_norm in campo_norm:
+            return True
+        if len(termo_dig) >= 3:
+            campo_dig = _so_digitos(campo)
+            if campo_dig and termo_dig in campo_dig:
+                return True
+        if len(termo_norm) >= 3:
+            candidatos = campo_norm.split() + [campo_norm]
+            if _difflib.get_close_matches(termo_norm, candidatos, n=1, cutoff=min_similaridade):
+                return True
+    return False
+
+# ---------------------------------------------------------------
 # Interpretador de lista de materiais colada do WhatsApp — o instalador
 # manda um texto tipo "2 joelhos cpvc 22mm 90*" por linha, às vezes agrupado
 # sob um título de categoria ("Material Água Quente - CPVC"). A função casa

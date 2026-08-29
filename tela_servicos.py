@@ -51,11 +51,8 @@ def barra_busca_servicos(df, key_prefix):
     out = df.copy()
     termo = str(termo or "").strip()
     if termo:
-        alvo = _norm_txt(termo)
         cols_busca = [c for c in ['nome_cliente', 'telefone_cliente', 'numero_orcamento'] if c in out.columns]
-        mask = pd.Series(False, index=out.index)
-        for c in cols_busca:
-            mask = mask | out[c].fillna("").astype(str).map(_norm_txt).str.contains(alvo, regex=False)
+        mask = out.apply(lambda row: utils.bate_busca(termo, *(row.get(c, '') for c in cols_busca)), axis=1)
         out = out[mask]
 
     out = out.copy()
@@ -920,7 +917,7 @@ def renderizar():
             with fc2:
                 _filtro_status = st.selectbox("Status", ["Todos", "Agendada", "Realizada", "Cancelada"], key="filtro_agenda_status")
             with fc3:
-                _filtro_busca = st.text_input("Buscar cliente", key="filtro_agenda_busca", placeholder="Nome do cliente...")
+                _filtro_busca = st.text_input("Buscar cliente", key="filtro_agenda_busca", placeholder="Nome ou telefone...")
 
             df_ag_filtrado = df_agenda.copy()
             if _filtro_inst != "Todos":
@@ -928,7 +925,12 @@ def renderizar():
             if _filtro_status != "Todos":
                 df_ag_filtrado = df_ag_filtrado[df_ag_filtrado['status'] == _filtro_status]
             if _filtro_busca.strip():
-                df_ag_filtrado = df_ag_filtrado[df_ag_filtrado['cliente_nome'].fillna('').str.contains(_filtro_busca.strip(), case=False)]
+                df_ag_filtrado = df_ag_filtrado[
+                    df_ag_filtrado.apply(
+                        lambda row: utils.bate_busca(_filtro_busca, row.get('cliente_nome', ''), row.get('telefone', '')),
+                        axis=1
+                    )
+                ]
             df_ag_filtrado = df_ag_filtrado.reset_index(drop=True)
 
             df_ag_view = df_ag_filtrado.copy()
