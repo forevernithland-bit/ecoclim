@@ -38,6 +38,9 @@ def _parse(iso):
     return dt.replace(tzinfo=TZ_UTC) if dt.tzinfo is None else dt.astimezone(TZ_UTC)
 
 
+CAT_ROTULO = {"ecoclim": "Ecoclim", "consorbens": "Consorbens", "maggi": "Maggi", "pessoal": "Pessoal"}
+
+
 def proxima_ocorrencia(dt, repetir):
     """Próxima data de um lembrete recorrente (mesma regra da skill Lembretes)."""
     if not dt:
@@ -83,13 +86,15 @@ def main(simular=False):
     for lem in pendentes:
         texto = lem.get("texto") or "(sem texto)"
         prio = " ‼️" if (lem.get("prioridade") or 0) >= 1 else ""
-        print(f"  #{lem['id']} — {texto}{prio}")
+        cat = CAT_ROTULO.get(lem.get("categoria"), "")
+        titulo = f"⏰ Lembrete · {cat}" if cat else "⏰ Lembrete"
+        print(f"  #{lem['id']} [{cat or '-'}] — {texto}{prio}")
         if simular:
             continue
 
         enviadas, falhas = push.enviar(
             supabase,
-            "⏰ Lembrete",
+            titulo,
             f"{texto}{prio}",
             perfil="Admin",
             url="./index.html",
@@ -110,6 +115,7 @@ def main(simular=False):
                         "lembrar_em": _iso(prox),
                         "repetir": lem["repetir"],
                         "prioridade": lem.get("prioridade") or 0,
+                        "categoria": lem.get("categoria") or "pessoal",
                         "origem": "cron",
                     }).execute().data or [{}]
                     print(f"      ⟳ próxima (#{novo[0].get('id')}): {prox:%d/%m %H:%M} UTC")

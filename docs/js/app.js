@@ -812,9 +812,9 @@ async function viewDetalhe(id) {
   renderFaixaSync(navigator.onLine ? "sincronizado" : "offline", pendentes);
 }
 
-// ---------- Lembretes pessoais (só admin) ----------
+// ---------- Lembretes (só o login breno.lima) ----------
 // Mesma tabela `lembretes` que o Claude e o cron da VPS usam. Marcar aqui
-// aparece nos outros na hora. Admin edita online, sem fila offline.
+// aparece nos outros na hora. Edição online, sem fila offline.
 function lembreteQuandoTexto(iso) {
   if (!iso) return "";
   const d = new Date(iso);
@@ -833,13 +833,24 @@ function isoParaInputLocal(iso) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 const REPETIR_LABEL = { diario: "todo dia", semanal: "toda semana", uteis: "dias úteis" };
+const LEM_LS_FILTRO = "lem_filtro_cat";   // "" = tudo, ou um slug
+const LEM_LS_CAT_NOVA = "lem_cat_nova";   // categoria pré-selecionada ao criar
+
+function lemLerLS(k, padrao = "") {
+  try { const v = localStorage.getItem(k); return v === null ? padrao : v; } catch (e) { return padrao; }
+}
+function lemGravarLS(k, v) {
+  try { localStorage.setItem(k, v); } catch (e) { /* modo privado: sem persistência, tudo bem */ }
+}
 
 async function viewLembretes() {
   if (!podeVerLembretes()) { await viewOrcamentos(); return; }
   telaAtual = "lembretes";
+
+  const filtro = lemLerLS(LEM_LS_FILTRO, "");           // "" | slug
   let todos = [];
   try {
-    todos = await puxarLembretes({ incluirFeitos: true });
+    todos = await puxarLembretes({ incluirFeitos: true, categoria: filtro || null });
   } catch (e) {
     todos = [];
   }
@@ -850,22 +861,36 @@ async function viewLembretes() {
   const comHora = abertos.filter((l) => l.lembrar_em && new Date(l.lembrar_em).getTime() >= agora);
   const semHora = abertos.filter((l) => !l.lembrar_em);
 
+  const catNova = lemLerLS(LEM_LS_CAT_NOVA, "") || filtro || CAT_LEMBRETE_PADRAO;
+  const optsCategoria = (sel) => CATS_LEMBRETE
+    .map((c) => `<option value="${c.slug}" ${c.slug === sel ? "selected" : ""}>${c.label}</option>`).join("");
+
+  const filtrosHTML = `
+    <div class="lem-filtros">
+      <button type="button" class="lem-filtro ${filtro === "" ? "lem-filtro--ativo" : ""}" data-filtro="">Tudo</button>
+      ${CATS_LEMBRETE.map((c) => `
+        <button type="button" class="lem-filtro lem-filtro--${c.slug} ${filtro === c.slug ? "lem-filtro--ativo" : ""}" data-filtro="${c.slug}">${c.label}</button>
+      `).join("")}
+    </div>`;
+
   const linha = (l, atrasado) => `
     <div class="lem-item" data-id="${l.id}">
-      <input type="checkbox" class="lem-check" data-id="${l.id}" ${l.feito ? "checked" : ""} aria-label="Concluir" />
+      <button type="button" class="lem-check-btn ${l.feito ? "lem-check-btn--feito" : ""}" data-check="${l.id}" aria-label="${l.feito ? "Reabrir" : "Concluir"}">${l.feito ? "✓" : ""}</button>
       <div class="lem-corpo">
         <div class="lem-texto ${l.feito ? "lem-texto--feito" : ""}">${escapeHTML(l.texto)}${(l.prioridade || 0) >= 1 ? " ‼️" : ""}</div>
         <div class="lem-meta">
+          <span class="lem-cat lem-cat--${l.categoria || "pessoal"}">${rotuloCategoria(l.categoria)}</span>
           ${l.lembrar_em ? `<span class="etiqueta ${atrasado ? "etiqueta--atrasada" : ""}">${lembreteQuandoTexto(l.lembrar_em)}</span>` : ""}
           ${l.repetir ? `<span class="etiqueta">⟳ ${REPETIR_LABEL[l.repetir] || l.repetir}</span>` : ""}
         </div>
         <div class="lem-acoes" id="lem-acoes-${l.id}" style="display:none;">
+          <select data-cat-de="${l.id}" aria-label="Categoria">${optsCategoria(l.categoria || "pessoal")}</select>
           <input type="datetime-local" id="lem-adiar-${l.id}" value="${isoParaInputLocal(l.lembrar_em)}" />
           <button type="button" class="botao botao--secundario botao--mini" data-adiar="${l.id}">Adiar</button>
           <button type="button" class="botao botao--secundario botao--mini" data-excluir="${l.id}" style="color:#a00;">🗑️ Excluir</button>
         </div>
       </div>
-      ${l.feito ? "" : `<button type="button" class="lem-mais" data-mais="${l.id}" aria-label="Mais">⋯</button>`}
+      <button type="button" class="lem-mais" data-mais="${l.id}" aria-label="Mais">⋯</button>
     </div>`;
 
   const secao = (titulo, itens, atrasado = false) => itens.length
@@ -881,9 +906,11 @@ async function viewLembretes() {
       <div class="cartao">
         <label>O que precisa fazer?</label>
         <input type="text" id="lem-novo-texto" placeholder="Ex: pagar o boleto da luz" autocomplete="off" />
-        <label>Quando avisar (opcional)</label>
-        <input type="datetime-local" id="lem-novo-quando" />
         <div style="display:flex; gap:8px; margin-top:8px;">
+          <select id="lem-novo-cat" style="flex:1;">${optsCategoria(catNova)}</select>
+          <input type="datetime-local" id="lem-novo-quando" style="flex:1;" />
+        </div>
+        <div style="display:flex; gap:8px; margin-top:8px; align-items:center;">
           <select id="lem-novo-repetir" style="flex:1;">
             <option value="">Não repete</option>
             <option value="diario">Todo dia</option>
@@ -897,10 +924,12 @@ async function viewLembretes() {
         <button type="button" id="btn-lem-add" class="botao botao--principal" style="margin-top:10px;">Adicionar</button>
       </div>
 
+      ${filtrosHTML}
+
       ${secao("Atrasados", atrasados, true)}
       ${secao("Com hora", comHora)}
       ${secao("Sem hora", semHora)}
-      ${abertos.length === 0 ? `<p class="vazio">Nada na lista. 🎉</p>` : ""}
+      ${abertos.length === 0 ? `<p class="vazio">Nada na lista${filtro ? ` em ${rotuloCategoria(filtro)}` : ""}. 🎉</p>` : ""}
 
       ${feitos.length ? `
         <details class="cartao" style="margin-top:12px;">
@@ -918,19 +947,29 @@ async function viewLembretes() {
 
   const recarregar = () => viewLembretes();
 
+  raiz.querySelectorAll("[data-filtro]").forEach((b) => {
+    b.addEventListener("click", async () => {
+      lemGravarLS(LEM_LS_FILTRO, b.dataset.filtro);
+      await recarregar();
+    });
+  });
+
   document.getElementById("btn-lem-add").addEventListener("click", async () => {
     const texto = document.getElementById("lem-novo-texto").value.trim();
     if (!texto) { alert("Escreva o que precisa fazer."); return; }
     const qv = document.getElementById("lem-novo-quando").value;
+    const cat = document.getElementById("lem-novo-cat").value;
     const btn = document.getElementById("btn-lem-add");
     btn.disabled = true; btn.textContent = "Salvando...";
     try {
       await criarLembrete({
         texto,
+        categoria: cat,
         lembrar_em: qv ? new Date(qv).toISOString() : null,
         repetir: document.getElementById("lem-novo-repetir").value || null,
         prioridade: document.getElementById("lem-novo-prio").checked ? 1 : 0,
       });
+      lemGravarLS(LEM_LS_CAT_NOVA, cat);
       await recarregar();
     } catch (e) {
       btn.disabled = false; btn.textContent = "Adicionar";
@@ -938,12 +977,13 @@ async function viewLembretes() {
     }
   });
 
-  raiz.querySelectorAll(".lem-check").forEach((cb) => {
-    cb.addEventListener("change", async () => {
-      const l = todos.find((x) => x.id === Number(cb.dataset.id));
+  raiz.querySelectorAll("[data-check]").forEach((b) => {
+    b.addEventListener("click", async () => {
+      const l = todos.find((x) => x.id === Number(b.dataset.check));
       if (!l) return;
-      try { await marcarFeito(l, cb.checked); await recarregar(); }
-      catch (e) { cb.checked = !cb.checked; alert("Não deu pra atualizar agora."); }
+      b.disabled = true;
+      try { await marcarFeito(l, !l.feito); await recarregar(); }
+      catch (e) { b.disabled = false; alert("Não deu pra atualizar agora."); }
     });
   });
 
@@ -951,6 +991,13 @@ async function viewLembretes() {
     b.addEventListener("click", () => {
       const el = document.getElementById(`lem-acoes-${b.dataset.mais}`);
       if (el) el.style.display = el.style.display === "none" ? "flex" : "none";
+    });
+  });
+
+  raiz.querySelectorAll("[data-cat-de]").forEach((sel) => {
+    sel.addEventListener("change", async () => {
+      try { await mudarCategoria(Number(sel.dataset.catDe), sel.value); await recarregar(); }
+      catch (e) { alert("Não deu pra mudar a categoria agora."); }
     });
   });
 
