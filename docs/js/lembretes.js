@@ -1,16 +1,34 @@
 // Lembretes pessoais do Breno — a mesma tabela `lembretes` que o Claude e o
-// cron da VPS usam. Só o perfil Admin enxerga esta aba. Admin edita sempre
+// cron da VPS usam. Só o login breno.lima enxerga esta aba. Admin edita sempre
 // online (sem a fila offline dos instaladores), então aqui é chamada direta
 // ao Supabase, sem passar por db.js.
 import { getSupabase } from "./supabase-client.js";
 
 const TABELA = "lembretes";
 
-/** Aberto por padrão; `incluirFeitos` traz também os concluídos (p/ aba "Feitos"). */
-export async function puxarLembretes({ incluirFeitos = false } = {}) {
+// Classificação. Slug no banco, rótulo curto na tela.
+export const CATEGORIAS = [
+  { slug: "ecoclim", label: "Ecoclim" },
+  { slug: "consorbens", label: "Consorbens" },
+  { slug: "maggi", label: "Maggi" },
+  { slug: "pessoal", label: "Pessoal" },
+];
+export const CATEGORIA_PADRAO = "pessoal";
+export function rotuloCategoria(slug) {
+  const c = CATEGORIAS.find((x) => x.slug === slug);
+  return c ? c.label : "Pessoal";
+}
+function catValida(slug) {
+  return CATEGORIAS.some((x) => x.slug === slug) ? slug : CATEGORIA_PADRAO;
+}
+
+/** Aberto por padrão; `incluirFeitos` traz também os concluídos.
+ *  `categoria` (slug) filtra no banco; sem ela, traz tudo. */
+export async function puxarLembretes({ incluirFeitos = false, categoria = null } = {}) {
   const supabase = getSupabase();
   let q = supabase.from(TABELA).select("*");
   if (!incluirFeitos) q = q.eq("feito", false);
+  if (categoria) q = q.eq("categoria", categoria);
   q = q
     .order("feito", { ascending: true })
     .order("lembrar_em", { ascending: true, nullsFirst: false });
@@ -19,9 +37,9 @@ export async function puxarLembretes({ incluirFeitos = false } = {}) {
   return data || [];
 }
 
-export async function criarLembrete({ texto, lembrar_em = null, repetir = null, prioridade = 0 }) {
+export async function criarLembrete({ texto, lembrar_em = null, repetir = null, prioridade = 0, categoria = CATEGORIA_PADRAO }) {
   const supabase = getSupabase();
-  const linha = { texto: String(texto || "").trim(), origem: "app" };
+  const linha = { texto: String(texto || "").trim(), origem: "app", categoria: catValida(categoria) };
   if (!linha.texto) throw new Error("Texto vazio.");
   if (lembrar_em) linha.lembrar_em = lembrar_em;
   if (repetir) linha.repetir = repetir;
@@ -50,6 +68,7 @@ export async function marcarFeito(lem, feito) {
         lembrar_em: prox.toISOString(),
         repetir: lem.repetir,
         prioridade: lem.prioridade || 0,
+        categoria: catValida(lem.categoria),
         origem: "app",
       });
     }
@@ -62,6 +81,15 @@ export async function adiarLembrete(id, lembrar_em) {
     lembrar_em,
     avisado_em: null,
     feito: false,
+    atualizado_em: new Date().toISOString(),
+  }).eq("id", id);
+  if (error) throw error;
+}
+
+export async function mudarCategoria(id, categoria) {
+  const supabase = getSupabase();
+  const { error } = await supabase.from(TABELA).update({
+    categoria: catValida(categoria),
     atualizado_em: new Date().toISOString(),
   }).eq("id", id);
   if (error) throw error;
