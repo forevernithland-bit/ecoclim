@@ -1925,6 +1925,42 @@ function resetarFormularioOrcamento() {
   orcAssinaturaAuto = "";
 }
 
+/** Busca do catálogo de orçamento: cada palavra digitada precisa aparecer no
+ *  nome, em qualquer ordem — "acoplado 20" acha "AQUECEDOR A VÁCUO ACOPLADO
+ *  20 TUBOS 304". Buscar a frase inteira, como um `includes` simples faria,
+ *  obrigaria a digitar o nome exato, que é justamente o que ninguém lembra.
+ */
+// O jeito de falar não bate com o nome cadastrado: no dia a dia é "modular",
+// no catálogo é "MODULO A VACUO"; é "placa" na obra e "COLETOR" no cadastro.
+// Sem isso a busca devolve vazio para o termo mais natural de digitar.
+const SINONIMOS_ORC = {
+  modular: "modulo", modulos: "modulo",
+  placa: "coletor", placas: "coletor",
+  reservatorio: "boiler", reservatorios: "boiler",
+  pressurizador: "bomba", pressurizacao: "bomba",
+  controlador: "controlador", termostato: "controlador",
+  litro: "litros", lt: "litros", l: "litros",
+  tubo: "tubos",
+};
+
+function filtrarCatalogoOrc(lista, termo) {
+  const palavras = normalizarBuscaTexto(termo).split(/\s+/).filter(Boolean)
+    .map((w) => SINONIMOS_ORC[w] || w);
+  if (!palavras.length) return [];
+  return lista
+    .map((p) => {
+      const nome = normalizarBuscaTexto(p.item || "");
+      if (!palavras.every((w) => nome.includes(w))) return null;
+      // Quem começa com o que foi digitado vem primeiro; depois, nome mais curto
+      // (item genérico costuma ser o procurado, não a variação comprida).
+      const peso = (nome.startsWith(palavras[0]) ? 0 : 1) * 1000 + nome.length;
+      return { p, peso };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.peso - b.peso)
+    .map((x) => x.p);
+}
+
 async function viewOrcamentos() {
   telaAtual = "orcamentos";
   const [produtos, servicos, outros, rascunhos] = await Promise.all([
@@ -1967,28 +2003,18 @@ async function viewOrcamentos() {
         <div class="cartao-titulo">⚙️ 1. Equipamentos</div>
         <label style="display:flex; align-items:center; gap:6px; font-weight:400;"><input type="checkbox" id="orc-detalhar-itens" style="width:auto;" /> Detalhar valor de cada item no PDF</label>
         <label style="display:flex; align-items:center; gap:6px; font-weight:400;"><input type="checkbox" id="orc-mostrar-precos" style="width:auto;" /> Mostrar preços unitários no PDF</label>
-        <div style="display:flex; gap:8px; align-items:flex-end; margin-top:8px;">
-          <div style="flex:1;">
-            <label>Adicionar produto do catálogo</label>
-            <select id="orc-select-produto">
-              <option value="">-- escolher --</option>
-              ${produtos.map((p) => `<option value="${escapeAttr(p.item)}">${escapeHTML(p.item)}</option>`).join("")}
-              <option value="__manual__">OUTRO (digitar manualmente)</option>
-            </select>
-          </div>
-          <button type="button" id="btn-orc-add-produto" class="botao botao--secundario botao--mini">➕</button>
-        </div>
+        <label style="margin-top:8px;">Buscar produto</label>
+        <input type="text" id="orc-busca-produto" placeholder="Ex: acoplado 20, boiler 400, bomba..." autocomplete="off" />
+        <div id="orc-resultados-produto" class="ml-resultados"></div>
         <div id="orc-itens" style="margin-top:10px;"></div>
         <div class="campo" style="margin-top:6px;"><span class="rotulo">Subtotal Equipamentos</span><span id="orc-subtotal-equip" style="font-weight:800; color:#004488;"></span></div>
       </div>
 
       <div class="cartao" style="margin-bottom:12px;">
         <div class="cartao-titulo">🛠️ 2. Serviços</div>
-        <select id="orc-select-servico">
-          <option value="">-- escolher --</option>
-          ${servicos.map((s) => `<option value="${escapeAttr(s.item)}">${escapeHTML(s.item)}</option>`).join("")}
-          <option value="__manual__">Manual</option>
-        </select>
+        <label>Buscar serviço</label>
+        <input type="text" id="orc-busca-servico" placeholder="Ex: instalacao acoplado 20..." autocomplete="off" />
+        <div id="orc-resultados-servico" class="ml-resultados"></div>
         <label>Descrição</label>
         <textarea id="orc-servico-desc" rows="3"></textarea>
         <label>Valor do Serviço (R$)</label>
@@ -1997,11 +2023,9 @@ async function viewOrcamentos() {
 
       <div class="cartao" style="margin-bottom:12px;">
         <div class="cartao-titulo">🤝 3. Outros / Terceiros</div>
-        <select id="orc-select-outros">
-          <option value="">-- escolher --</option>
-          ${outros.map((o) => `<option value="${escapeAttr(o.item)}">${escapeHTML(o.item)}</option>`).join("")}
-          <option value="__manual__">Manual</option>
-        </select>
+        <label>Buscar item de terceiros</label>
+        <input type="text" id="orc-busca-outros" placeholder="Ex: guindaste, andaime..." autocomplete="off" />
+        <div id="orc-resultados-outros" class="ml-resultados"></div>
         <label>Descrição</label>
         <textarea id="orc-outros-desc" rows="2"></textarea>
         <label>Valor Adicional (R$)</label>
@@ -2054,47 +2078,79 @@ async function viewOrcamentos() {
     });
   }
 
-  document.getElementById("btn-orc-add-produto").addEventListener("click", () => {
-    const sel = document.getElementById("orc-select-produto");
-    const valor = sel.value;
-    if (!valor) return;
-    if (valor === "__manual__") {
-      const nome = prompt("Nome do produto:");
-      if (!nome) return;
-      orcItens.push({ nome, descricao: "", quantidade: 1, custo_unitario: 0, venda_unitario: 0 });
-    } else {
-      const p = produtos.find((x) => x.item === valor);
-      orcItens.push({ nome: p.item, descricao: p.descricao, quantidade: 1, custo_unitario: p.custo, venda_unitario: p.venda });
-    }
-    sel.value = "";
+  // Busca de produto: tocar no resultado JÁ adiciona o item com custo e venda
+  // do catálogo. Antes era um <select> com 65 opções + botão "+" — no celular
+  // dava trabalho achar o item, e quem escolhia sem tocar no "+" achava que o
+  // preço não tinha vindo.
+  const buscaProduto = document.getElementById("orc-busca-produto");
+  const resultadosProduto = document.getElementById("orc-resultados-produto");
+
+  const adicionarProduto = (p) => {
+    orcItens.push({
+      nome: p.item, descricao: p.descricao || "", quantidade: 1,
+      custo_unitario: Number(p.custo) || 0, venda_unitario: Number(p.venda) || 0,
+    });
+    buscaProduto.value = "";
+    resultadosProduto.innerHTML = "";
     renderizarItensOrcamento();
     atualizarSugestaoAutomatica();
+  };
+
+  buscaProduto.addEventListener("input", () => {
+    const termo = buscaProduto.value.trim();
+    if (!termo) { resultadosProduto.innerHTML = ""; return; }
+    const achados = filtrarCatalogoOrc(produtos, termo).slice(0, 8);
+    resultadosProduto.innerHTML =
+      achados.map((p, i) => `
+        <button type="button" class="resultado-busca" data-add-prod="${i}">
+          <span class="resultado-busca-nome">${escapeHTML(p.item)}</span>
+          <span class="resultado-busca-cat">${p.venda ? formatarBRL(p.venda) : "sem preço"}</span>
+        </button>`).join("") +
+      `<button type="button" class="resultado-busca resultado-busca--manual" data-add-prod-manual="1">
+         ➕ Adicionar "${escapeHTML(termo)}" (fora do catálogo)
+       </button>`;
+
+    resultadosProduto.querySelectorAll("[data-add-prod]").forEach((b) => {
+      b.addEventListener("click", () => adicionarProduto(achados[Number(b.dataset.addProd)]));
+    });
+    const manual = resultadosProduto.querySelector("[data-add-prod-manual]");
+    if (manual) manual.addEventListener("click", () =>
+      adicionarProduto({ item: termo, descricao: "", custo: 0, venda: 0 }));
   });
 
-  document.getElementById("orc-select-servico").addEventListener("change", (e) => {
-    if (e.target.value === "__manual__") {
-      document.getElementById("orc-servico-desc").value = "";
-      document.getElementById("orc-servico-valor").value = 0;
-    } else if (e.target.value) {
-      const s = servicos.find((x) => x.item === e.target.value);
-      document.getElementById("orc-servico-desc").value = `${s.item}\n${s.descricao}`.trim();
-      document.getElementById("orc-servico-valor").value = s.venda;
-    }
-    atualizarTotalOrcamentoDOM();
-  });
+  // Serviço e Outros usam a mesma busca dos produtos: tocar no resultado já
+  // preenche descrição e valor, sem passo extra.
+  const ligarBuscaSimples = (lista, idBusca, idResultados, idDesc, idValor) => {
+    const campo = document.getElementById(idBusca);
+    const alvo = document.getElementById(idResultados);
+    if (!campo || !alvo) return;
+    campo.addEventListener("input", () => {
+      const termo = campo.value.trim();
+      if (!termo) { alvo.innerHTML = ""; return; }
+      const achados = filtrarCatalogoOrc(lista, termo).slice(0, 8);
+      alvo.innerHTML = achados.map((s, i) => `
+        <button type="button" class="resultado-busca" data-sel="${i}">
+          <span class="resultado-busca-nome">${escapeHTML(s.item)}</span>
+          <span class="resultado-busca-cat">${s.venda ? formatarBRL(s.venda) : "sem preço"}</span>
+        </button>`).join("") || `<p class="dica" style="padding:6px;">Nada encontrado — preencha à mão abaixo.</p>`;
+      alvo.querySelectorAll("[data-sel]").forEach((b) => {
+        b.addEventListener("click", () => {
+          const s = achados[Number(b.dataset.sel)];
+          document.getElementById(idDesc).value = (s.item + "
+" + (s.descricao || "")).trim();
+          document.getElementById(idValor).value = Number(s.venda) || 0;
+          campo.value = "";
+          alvo.innerHTML = "";
+          atualizarTotalOrcamentoDOM();
+        });
+      });
+    });
+  };
+
+  ligarBuscaSimples(servicos, "orc-busca-servico", "orc-resultados-servico", "orc-servico-desc", "orc-servico-valor");
+  ligarBuscaSimples(outros, "orc-busca-outros", "orc-resultados-outros", "orc-outros-desc", "orc-outros-valor");
   document.getElementById("orc-servico-valor").addEventListener("input", atualizarTotalOrcamentoDOM);
-
-  document.getElementById("orc-select-outros").addEventListener("change", (e) => {
-    if (e.target.value === "__manual__") {
-      document.getElementById("orc-outros-desc").value = "";
-      document.getElementById("orc-outros-valor").value = 0;
-    } else if (e.target.value) {
-      const o = outros.find((x) => x.item === e.target.value);
-      document.getElementById("orc-outros-desc").value = `${o.item}\n${o.descricao}`.trim();
-      document.getElementById("orc-outros-valor").value = o.venda;
-    }
-    atualizarTotalOrcamentoDOM();
-  });
+  document.getElementById("orc-outros-valor").addEventListener("input", atualizarTotalOrcamentoDOM);
   document.getElementById("orc-outros-valor").addEventListener("input", atualizarTotalOrcamentoDOM);
 
   if (rascunhos.length) {
