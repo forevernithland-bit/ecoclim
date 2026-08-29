@@ -10,6 +10,7 @@ import {
 import { puxarAdiantamentos, totalAdiantadoAberto } from "./adiantamentos.js";
 import { ativarNotificacoes, podePedirPermissao, permissaoConcedida, notificar, limparSelo, ehIOS, rodandoInstalado, suportaPush } from "./push.js";
 import { registrar as registrarMov, listar as listarMov, frase as fraseMov, quando as quandoMov } from "./movimentacoes.js";
+import { puxarLembretes, criarLembrete, marcarFeito, adiarLembrete, excluirLembrete } from "./lembretes.js";
 import { VERSAO_APP, observarAtualizacoes, verificarAtualizacao, aplicarAtualizacao } from "./atualizacao.js";
 import {
   puxarCatalogoProdutos, puxarCatalogoServicos, puxarCatalogoOutros,
@@ -132,8 +133,18 @@ const ITENS_NAV_BASE = [
 // instalador + Orçamentos Personalizados, idêntico ao ERP desktop.
 // Ordem pedida pro admin: Orçamentos primeiro, depois o resto igual.
 const ITEM_ORCAMENTOS = { id: "orcamentos", icone: "🧾", label: "Orçamentos" };
+// Lembretes pessoais — lista particular do Breno, não é recurso de time.
+// Aparece SÓ para o login dele (não para "qualquer Admin"). Primeiro da
+// barra: é a lista que ele confere de manhã.
+const ITEM_LEMBRETES = { id: "lembretes", icone: "⏰", label: "Lembretes" };
+const USUARIO_LEMBRETES = "breno.lima";
+function podeVerLembretes() {
+  return !!sessao && sessao.usuario === USUARIO_LEMBRETES;
+}
 function itensNav() {
-  return sessao && sessao.admin ? [ITEM_ORCAMENTOS, ...ITENS_NAV_BASE] : ITENS_NAV_BASE;
+  if (!sessao || !sessao.admin) return ITENS_NAV_BASE;
+  const extras = podeVerLembretes() ? [ITEM_LEMBRETES, ITEM_ORCAMENTOS] : [ITEM_ORCAMENTOS];
+  return [...extras, ...ITENS_NAV_BASE];
 }
 
 function navBarHTML(ativo) {
@@ -172,6 +183,7 @@ function ligarNav() {
       else if (alvo === "materiais") viewMateriais();
       else if (alvo === "financeiro") viewFinanceiro();
       else if (alvo === "orcamentos") viewOrcamentos();
+      else if (alvo === "lembretes") viewLembretes();
     });
   });
 }
@@ -798,6 +810,166 @@ async function viewDetalhe(id) {
 
   const { pendentes } = await statusAtual();
   renderFaixaSync(navigator.onLine ? "sincronizado" : "offline", pendentes);
+}
+
+// ---------- Lembretes pessoais (só admin) ----------
+// Mesma tabela `lembretes` que o Claude e o cron da VPS usam. Marcar aqui
+// aparece nos outros na hora. Admin edita online, sem fila offline.
+function lembreteQuandoTexto(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const hoje = new Date();
+  const soData = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate());
+  const dias = Math.round((soData(d) - soData(hoje)) / 86400000);
+  const hm = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  if (dias === 0) return `hoje ${hm}`;
+  if (dias === 1) return `amanhã ${hm}`;
+  if (dias === -1) return `ontem ${hm}`;
+  return `${d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} ${hm}`;
+}
+function isoParaInputLocal(iso) {
+  const d = iso ? new Date(iso) : new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+const REPETIR_LABEL = { diario: "todo dia", semanal: "toda semana", uteis: "dias úteis" };
+
+async function viewLembretes() {
+  if (!podeVerLembretes()) { await viewOrcamentos(); return; }
+  telaAtual = "lembretes";
+  let todos = [];
+  try {
+    todos = await puxarLembretes({ incluirFeitos: true });
+  } catch (e) {
+    todos = [];
+  }
+  const agora = Date.now();
+  const abertos = todos.filter((l) => !l.feito);
+  const feitos = todos.filter((l) => l.feito).slice(0, 15);
+  const atrasados = abertos.filter((l) => l.lembrar_em && new Date(l.lembrar_em).getTime() < agora);
+  const comHora = abertos.filter((l) => l.lembrar_em && new Date(l.lembrar_em).getTime() >= agora);
+  const semHora = abertos.filter((l) => !l.lembrar_em);
+
+  const linha = (l, atrasado) => `
+    <div class="lem-item" data-id="${l.id}">
+      <input type="checkbox" class="lem-check" data-id="${l.id}" ${l.feito ? "checked" : ""} aria-label="Concluir" />
+      <div class="lem-corpo">
+        <div class="lem-texto ${l.feito ? "lem-texto--feito" : ""}">${escapeHTML(l.texto)}${(l.prioridade || 0) >= 1 ? " ‼️" : ""}</div>
+        <div class="lem-meta">
+          ${l.lembrar_em ? `<span class="etiqueta ${atrasado ? "etiqueta--atrasada" : ""}">${lembreteQuandoTexto(l.lembrar_em)}</span>` : ""}
+          ${l.repetir ? `<span class="etiqueta">⟳ ${REPETIR_LABEL[l.repetir] || l.repetir}</span>` : ""}
+        </div>
+        <div class="lem-acoes" id="lem-acoes-${l.id}" style="display:none;">
+          <input type="datetime-local" id="lem-adiar-${l.id}" value="${isoParaInputLocal(l.lembrar_em)}" />
+          <button type="button" class="botao botao--secundario botao--mini" data-adiar="${l.id}">Adiar</button>
+          <button type="button" class="botao botao--secundario botao--mini" data-excluir="${l.id}" style="color:#a00;">🗑️ Excluir</button>
+        </div>
+      </div>
+      ${l.feito ? "" : `<button type="button" class="lem-mais" data-mais="${l.id}" aria-label="Mais">⋯</button>`}
+    </div>`;
+
+  const secao = (titulo, itens, atrasado = false) => itens.length
+    ? `<h2 class="secao-titulo">${titulo} (${itens.length})</h2>${itens.map((l) => linha(l, atrasado)).join("")}`
+    : "";
+
+  raiz.innerHTML = `
+    <div class="topo">
+      <div class="topo-titulo">⏰ Lembretes</div>
+      <button id="btn-sair" class="botao-icone" title="Sair">🚪</button>
+    </div>
+    <div class="conteudo">
+      <div class="cartao">
+        <label>O que precisa fazer?</label>
+        <input type="text" id="lem-novo-texto" placeholder="Ex: pagar o boleto da luz" autocomplete="off" />
+        <label>Quando avisar (opcional)</label>
+        <input type="datetime-local" id="lem-novo-quando" />
+        <div style="display:flex; gap:8px; margin-top:8px;">
+          <select id="lem-novo-repetir" style="flex:1;">
+            <option value="">Não repete</option>
+            <option value="diario">Todo dia</option>
+            <option value="semanal">Toda semana</option>
+            <option value="uteis">Dias úteis</option>
+          </select>
+          <label style="display:flex; align-items:center; gap:6px; white-space:nowrap;">
+            <input type="checkbox" id="lem-novo-prio" /> ‼️ importante
+          </label>
+        </div>
+        <button type="button" id="btn-lem-add" class="botao botao--principal" style="margin-top:10px;">Adicionar</button>
+      </div>
+
+      ${secao("Atrasados", atrasados, true)}
+      ${secao("Com hora", comHora)}
+      ${secao("Sem hora", semHora)}
+      ${abertos.length === 0 ? `<p class="vazio">Nada na lista. 🎉</p>` : ""}
+
+      ${feitos.length ? `
+        <details class="cartao" style="margin-top:12px;">
+          <summary>Já feitos (${feitos.length})</summary>
+          ${feitos.map((l) => linha(l, false)).join("")}
+        </details>` : ""}
+    </div>
+    ${navBarHTML("lembretes")}
+  `;
+
+  document.getElementById("btn-sair").addEventListener("click", async () => {
+    await logout(); sessao = null; viewLogin();
+  });
+  ligarNav();
+
+  const recarregar = () => viewLembretes();
+
+  document.getElementById("btn-lem-add").addEventListener("click", async () => {
+    const texto = document.getElementById("lem-novo-texto").value.trim();
+    if (!texto) { alert("Escreva o que precisa fazer."); return; }
+    const qv = document.getElementById("lem-novo-quando").value;
+    const btn = document.getElementById("btn-lem-add");
+    btn.disabled = true; btn.textContent = "Salvando...";
+    try {
+      await criarLembrete({
+        texto,
+        lembrar_em: qv ? new Date(qv).toISOString() : null,
+        repetir: document.getElementById("lem-novo-repetir").value || null,
+        prioridade: document.getElementById("lem-novo-prio").checked ? 1 : 0,
+      });
+      await recarregar();
+    } catch (e) {
+      btn.disabled = false; btn.textContent = "Adicionar";
+      alert("Não deu pra salvar agora — confira a internet e tente de novo.");
+    }
+  });
+
+  raiz.querySelectorAll(".lem-check").forEach((cb) => {
+    cb.addEventListener("change", async () => {
+      const l = todos.find((x) => x.id === Number(cb.dataset.id));
+      if (!l) return;
+      try { await marcarFeito(l, cb.checked); await recarregar(); }
+      catch (e) { cb.checked = !cb.checked; alert("Não deu pra atualizar agora."); }
+    });
+  });
+
+  raiz.querySelectorAll("[data-mais]").forEach((b) => {
+    b.addEventListener("click", () => {
+      const el = document.getElementById(`lem-acoes-${b.dataset.mais}`);
+      if (el) el.style.display = el.style.display === "none" ? "flex" : "none";
+    });
+  });
+
+  raiz.querySelectorAll("[data-adiar]").forEach((b) => {
+    b.addEventListener("click", async () => {
+      const v = document.getElementById(`lem-adiar-${b.dataset.adiar}`).value;
+      if (!v) return;
+      try { await adiarLembrete(Number(b.dataset.adiar), new Date(v).toISOString()); await recarregar(); }
+      catch (e) { alert("Não deu pra adiar agora."); }
+    });
+  });
+
+  raiz.querySelectorAll("[data-excluir]").forEach((b) => {
+    b.addEventListener("click", async () => {
+      if (!confirm("Apagar este lembrete de vez?")) return;
+      try { await excluirLembrete(Number(b.dataset.excluir)); await recarregar(); }
+      catch (e) { alert("Não deu pra apagar agora."); }
+    });
+  });
 }
 
 // ---------- Agenda (visitas de orçamento e manutenção) ----------

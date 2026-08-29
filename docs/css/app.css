@@ -299,3 +299,27 @@ textarea:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 4p
   font-weight: 800; font-size: 1.02rem; letter-spacing: -0.005em;
 }
 .cartao--destaque-corpo { padding: 18px; }
+
+/* ---------- Lembretes (aba do admin) ---------- */
+.lem-item {
+  display: flex; align-items: flex-start; gap: 10px;
+  background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+  padding: 12px 14px; margin-bottom: 8px;
+}
+.lem-check { width: 20px; height: 20px; margin-top: 2px; flex-shrink: 0; accent-color: var(--brand); }
+.lem-corpo { flex: 1; min-width: 0; }
+.lem-texto { font-size: 0.95rem; font-weight: 600; word-break: break-word; }
+.lem-texto--feito { text-decoration: line-through; color: var(--muted); font-weight: 500; }
+.lem-meta { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.etiqueta--atrasada { background: var(--danger-soft); color: var(--danger); }
+.lem-acoes { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+.lem-acoes input[type="datetime-local"] { flex: 1; min-width: 150px; }
+.lem-mais {
+  flex-shrink: 0; background: none; border: none; font-size: 1.2rem; color: var(--muted);
+  cursor: pointer; padding: 0 4px; line-height: 1; align-self: center;
+}
+details.cartao > summary {
+  font-family: var(--font-heading); font-size: 0.78rem; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.06em; cursor: pointer; list-style: revert;
+}
+details.cartao[open] > summary { margin-bottom: 12px; }
