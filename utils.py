@@ -844,13 +844,13 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
     impacto.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, -1), GRAFITE),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('TOPPADDING', (0, 0), (-1, -1), 5), ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ('TOPPADDING', (0, 0), (-1, -1), 4), ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
         ('LINEAFTER', (0, 0), (-2, -1), 0.5, colors.HexColor("#454e5b")),
     ]))
     story.append(impacto)
-    story.append(Spacer(1, 0.2*cm))
+    story.append(Spacer(1, 0.15*cm))
     story.append(Paragraph("Mais conforto, mais economia, <b>mais sustentabilidade</b>", s_tag))
-    story.append(Spacer(1, 0.4*cm))
+    story.append(Spacer(1, 0.25*cm))
 
     # ---------- Imagem do produto (conforme a capa) ----------
     img_map = {
@@ -867,28 +867,38 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
             img = RLImage(caminho_img)
             # Preserva o aspecto original (não estica): ajusta pela largura e,
             # se passar da altura máxima, reduz a largura proporcionalmente.
+            # Todas as fotos de capa hoje são bem "baixas" (proporção ~0,55–0,70),
+            # então esse teto é quem decide o tamanho final — por isso ele fica
+            # numa constante, não um número solto no meio do cálculo.
+            ALTURA_MAX_IMG = 5.0 * cm
             ratio = float(img.drawHeight) / float(img.drawWidth) if float(img.drawWidth) else 0.5
             larg_img = LU
             alt_img = larg_img * ratio
-            if alt_img > 4.0 * cm:
-                alt_img = 4.0 * cm
+            if alt_img > ALTURA_MAX_IMG:
+                alt_img = ALTURA_MAX_IMG
                 larg_img = alt_img / ratio
             img.drawWidth = larg_img
             img.drawHeight = alt_img
             img.hAlign = 'CENTER'
+            # A barra de legenda usa a largura TOTAL da página (LU), não a da
+            # imagem: como o teto de altura acima deixa a foto bem mais estreita
+            # que a página, presa à largura da imagem a célula "SELECIONADO"
+            # ficava tão apertada que a palavra quebrava em duas linhas
+            # ("SELECIONA" / "DO") — largura fixa em LU garante espaço de sobra
+            # nas duas células, não importa o quão estreita a foto fique.
             legenda = Table([[Paragraph(f"<b>{capa}</b>", _st('cap', fontName='Helvetica-Bold', fontSize=11, textColor=colors.white)),
                               Paragraph("SELECIONADO", _st('capr', fontName='Helvetica-Bold', fontSize=7.5, textColor=GRAFITE_DEEP, alignment=TA_RIGHT))]],
-                            colWidths=[larg_img*0.68, larg_img*0.32])
+                            colWidths=[LU*0.68, LU*0.32])
             legenda.hAlign = 'CENTER'
             legenda.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (0, -1), GRAFITE),
                 ('BACKGROUND', (1, 0), (1, -1), GOLD),
                 ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
                 ('LEFTPADDING', (0, 0), (-1, -1), 10), ('RIGHTPADDING', (0, 0), (-1, -1), 10),
-                ('TOPPADDING', (0, 0), (-1, -1), 5), ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+                ('TOPPADDING', (0, 0), (-1, -1), 4), ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
             ]))
             story.append(KeepTogether([img, legenda]))
-            story.append(Spacer(1, 0.2*cm))
+            story.append(Spacer(1, 0.15*cm))
         except Exception:
             pass
 
@@ -902,10 +912,10 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
         ('LINEAFTER', (0, 0), (-2, -1), 0.6, HAIR),
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
         ('LEFTPADDING', (0, 0), (-1, -1), 10), ('RIGHTPADDING', (0, 0), (-1, -1), 10),
-        ('TOPPADDING', (0, 0), (-1, -1), 5), ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ('TOPPADDING', (0, 0), (-1, -1), 4), ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
     ]))
     story.append(cliente)
-    story.append(Spacer(1, 0.22*cm))
+    story.append(Spacer(1, 0.12*cm))
 
     # ---------- barra de seção ----------
     def barra(titulo, direita=""):
@@ -914,7 +924,7 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
             ('BACKGROUND', (0, 0), (-1, -1), GRAFITE),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
             ('LEFTPADDING', (0, 0), (-1, -1), 10), ('RIGHTPADDING', (0, 0), (-1, -1), 10),
-            ('TOPPADDING', (0, 0), (-1, -1), 6), ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ('TOPPADDING', (0, 0), (-1, -1), 5), ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
         ]))
         return t
 
@@ -980,20 +990,20 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
         ('BOX', (0, 0), (-1, -1), 0.6, HAIR),
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
         ('LEFTPADDING', (0, 0), (-1, -1), 10), ('RIGHTPADDING', (0, 0), (-1, -1), 10),
-        ('TOPPADDING', (0, 0), (-1, -1), 5), ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ('TOPPADDING', (0, 0), (-1, -1), 4), ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
         ('ROWBACKGROUNDS', (0, 1), (-1, n_last - 1), [colors.white, ZEBRA]),
         ('BACKGROUND', (0, n_last), (-1, n_last), colors.HexColor("#eef1f5")),
     ] + ([] if not detalhar_itens else [('SPAN', (0, n_last), (-2, n_last))])))
     story.append(barra("1.  EQUIPAMENTOS", "Qtd · Valor" if detalhar_itens else "Qtd"))
     story.append(tbl)
-    story.append(Spacer(1, 0.22*cm))
+    story.append(Spacer(1, 0.15*cm))
 
     # ---------- bloco descritivo (Serviços / Outros) ----------
     estilo_bloco = TableStyle([
         ('BOX', (0, 0), (-1, -1), 0.6, HAIR),
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
         ('LEFTPADDING', (0, 0), (-1, -1), 10), ('RIGHTPADDING', (0, 0), (-1, -1), 10),
-        ('TOPPADDING', (0, 0), (-1, -1), 7), ('BOTTOMPADDING', (0, 0), (-1, -1), 7),
+        ('TOPPADDING', (0, 0), (-1, -1), 6), ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
     ])
 
     def bloco_desc(texto, valor, vazio_msg):
@@ -1004,16 +1014,28 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
         return tab
 
     # ---------- 2. Serviços ----------
-    story.append(barra("2.  SERVIÇOS", "Instalação"))
-    story.append(bloco_desc(d_s, v_s, "Nenhum serviço incluído nesta proposta."))
-    story.append(Spacer(1, 0.22*cm))
+    # KeepTogether: a barra do título nunca pode ficar sozinha no fim de uma
+    # página com o conteúdo dela migrando pra próxima — isso aconteceu com
+    # "3. OUTROS/TERCEIROS" num teste com muitos itens (o título ficou no
+    # rodapé da página 2 e a única linha do bloco foi parar, sozinha, na 3).
+    story.append(KeepTogether([barra("2.  SERVIÇOS", "Instalação"),
+                               bloco_desc(d_s, v_s, "Nenhum serviço incluído nesta proposta.")]))
+    story.append(Spacer(1, 0.15*cm))
 
     # ---------- 3. Outros / Terceiros ----------
-    story.append(barra("3.  OUTROS / TERCEIROS", "Adicionais"))
-    story.append(bloco_desc(d_o, v_o, "Nenhum item adicional nesta proposta."))
-    story.append(Spacer(1, 0.22*cm))
+    story.append(KeepTogether([barra("3.  OUTROS / TERCEIROS", "Adicionais"),
+                               bloco_desc(d_o, v_o, "Nenhum item adicional nesta proposta.")]))
+    story.append(Spacer(1, 0.15*cm))
 
-    # ---------- Investimento total ----------
+    # ---------- Fechamento: Total + Observações + Condições + Contato ----------
+    # As quatro peças finais viajam juntas num único KeepTogether. É pouca
+    # coisa (cabe de sobra numa página, mesmo com uma observação longa) — e
+    # isso importa mais do que parece: sem isso, um orçamento que enche a
+    # página 1 quase até o fim deixa só a sobra (às vezes só Condições +
+    # Contato, às vezes só o Total) escorrer sozinha pra página 2, que sobra
+    # quase em branco. Migrando o bloco inteiro, a página seguinte — quando
+    # precisar existir — sempre chega com o fechamento completo da proposta,
+    # nunca um fragmento pequeno perdido no topo de uma folha vazia.
     total_tbl = Table([[Paragraph("INVESTIMENTO TOTAL", _st('tl', fontName='Helvetica-Bold', fontSize=12, textColor=colors.white)),
                         Paragraph(to_br_currency(total), _st('tv', fontName='Helvetica-Bold', fontSize=17, textColor=colors.white, alignment=TA_RIGHT))]],
                       colWidths=[LU*0.5, LU*0.5])
@@ -1021,27 +1043,24 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
         ('BACKGROUND', (0, 0), (-1, -1), GRAFITE_DEEP),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ('LEFTPADDING', (0, 0), (-1, -1), 14), ('RIGHTPADDING', (0, 0), (-1, -1), 14),
-        ('TOPPADDING', (0, 0), (-1, -1), 10), ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+        ('TOPPADDING', (0, 0), (-1, -1), 9), ('BOTTOMPADDING', (0, 0), (-1, -1), 9),
         ('LINEBEFORE', (1, 0), (1, 0), 3, GOLD),
     ]))
-    story.append(total_tbl)
 
-    # ---------- Observações ----------
+    bloco_fechamento = [total_tbl]
+
     obs_txt = _limpo(obs)
     if obs_txt:
-        story.append(Spacer(1, 0.22*cm))
         obs_tbl = Table([[[Paragraph("OBSERVAÇÕES", s_obs_t), Spacer(1, 0.15*cm), Paragraph(obs_txt.replace('\n', '<br/>'), s_obs)]]],
                         colWidths=[LU])
         obs_tbl.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, -1), GOLD_SOFT),
             ('LINEBEFORE', (0, 0), (0, -1), 3, GOLD),
             ('LEFTPADDING', (0, 0), (-1, -1), 12), ('RIGHTPADDING', (0, 0), (-1, -1), 12),
-            ('TOPPADDING', (0, 0), (-1, -1), 10), ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+            ('TOPPADDING', (0, 0), (-1, -1), 7), ('BOTTOMPADDING', (0, 0), (-1, -1), 7),
         ]))
-        story.append(obs_tbl)
+        bloco_fechamento += [Spacer(1, 0.15*cm), obs_tbl]
 
-    # ---------- Condições ----------
-    story.append(Spacer(1, 0.22*cm))
     def _cond(k, v):
         return [Paragraph(k, s_cond_k), Spacer(1, 0.08*cm), Paragraph(v, s_cond_v)]
     cond = Table([[_cond("PRAZO DE EXECUÇÃO", "A combinar."),
@@ -1052,12 +1071,10 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
         ('BOX', (0, 0), (-1, -1), 0.6, HAIR), ('INNERGRID', (0, 0), (-1, -1), 0.6, HAIR),
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
         ('LEFTPADDING', (0, 0), (-1, -1), 10), ('RIGHTPADDING', (0, 0), (-1, -1), 10),
-        ('TOPPADDING', (0, 0), (-1, -1), 8), ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ('TOPPADDING', (0, 0), (-1, -1), 5), ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
     ]))
-    story.append(cond)
+    bloco_fechamento += [Spacer(1, 0.15*cm), cond]
 
-    # ---------- Barra de contato ----------
-    story.append(Spacer(1, 0.22*cm))
     contato = Table([[Paragraph("<b>ECOCLIM</b>  ·  Especialistas em energia solar e sustentabilidade",
                                 _st('c1', fontName='Helvetica', fontSize=9, textColor=colors.white)),
                       Paragraph("(31) 99867-7808  ·  WWW.ECOCLIM.COM.BR",
@@ -1067,9 +1084,11 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
         ('BACKGROUND', (0, 0), (-1, -1), GRAFITE_DEEP),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ('LEFTPADDING', (0, 0), (-1, -1), 14), ('RIGHTPADDING', (0, 0), (-1, -1), 14),
-        ('TOPPADDING', (0, 0), (-1, -1), 7), ('BOTTOMPADDING', (0, 0), (-1, -1), 7),
+        ('TOPPADDING', (0, 0), (-1, -1), 5), ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
     ]))
-    story.append(contato)
+    bloco_fechamento += [Spacer(1, 0.1*cm), contato]
+
+    story.append(KeepTogether(bloco_fechamento))
 
     # ---------- Cabeçalho/rodapé repetidos em cada página ----------
     def _moldura(canv, _doc):

@@ -640,9 +640,14 @@ def renderizar(lista_nomes_produtos, limpar_func):
 
     with st.container(border=True):
         st.subheader("⚙️ 1. Equipamentos")
+        # Um único controle (antes eram dois: "Detalhar valor de cada item" +
+        # "Mostrar Preços Unitários", o segundo só liberado se o primeiro
+        # estivesse marcado — redundante e confuso). Desmarcado é o padrão:
+        # o PDF sai só com quantidade, sem nenhum valor por item. Marcado,
+        # mostra valor unitário E subtotal de cada item.
         detalhar_itens_pdf = st.checkbox("Detalhar valor de cada item no PDF?", value=False,
-                                          help="Desmarcado (padrão): o PDF mostra só o subtotal de Equipamentos, sem preço por item. Marque pra listar o valor de cada peça.")
-        mostrar_precos_unitarios = st.checkbox("Mostrar Preços Unitários no PDF?", value=False, disabled=not detalhar_itens_pdf)
+                                          help="Desmarcado (padrão): o PDF mostra só o subtotal de Equipamentos, sem preço por item. Marque pra listar o valor unitário e o subtotal de cada peça.")
+        mostrar_precos_unitarios = detalhar_itens_pdf
         
         if 'df_orc' not in st.session_state:
             linhas_iniciais = []
