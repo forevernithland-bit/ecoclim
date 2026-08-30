@@ -10,7 +10,6 @@ import {
 import { puxarAdiantamentos, totalAdiantadoAberto } from "./adiantamentos.js";
 import { ativarNotificacoes, podePedirPermissao, permissaoConcedida, notificar, limparSelo, ehIOS, rodandoInstalado, suportaPush } from "./push.js";
 import { registrar as registrarMov, listar as listarMov, frase as fraseMov, quando as quandoMov } from "./movimentacoes.js";
-import { puxarLembretes, criarLembrete, marcarFeito, adiarLembrete, mudarCategoria, excluirLembrete, CATEGORIAS as CATS_LEMBRETE, CATEGORIA_PADRAO as CAT_LEMBRETE_PADRAO, rotuloCategoria } from "./lembretes.js";
 import { VERSAO_APP, observarAtualizacoes, verificarAtualizacao, aplicarAtualizacao } from "./atualizacao.js";
 import {
   puxarCatalogoProdutos, puxarCatalogoServicos, puxarCatalogoOutros,
@@ -133,18 +132,14 @@ const ITENS_NAV_BASE = [
 // instalador + Orçamentos Personalizados, idêntico ao ERP desktop.
 // Ordem pedida pro admin: Orçamentos primeiro, depois o resto igual.
 const ITEM_ORCAMENTOS = { id: "orcamentos", icone: "🧾", label: "Orçamentos" };
-// Lembretes pessoais — lista particular do Breno, não é recurso de time.
-// Aparece SÓ para o login dele (não para "qualquer Admin"). Primeiro da
-// barra: é a lista que ele confere de manhã.
-const ITEM_LEMBRETES = { id: "lembretes", icone: "⏰", label: "Lembretes" };
-const USUARIO_LEMBRETES = "breno.lima";
-function podeVerLembretes() {
-  return !!sessao && sessao.usuario === USUARIO_LEMBRETES;
-}
 function itensNav() {
-  if (!sessao || !sessao.admin) return ITENS_NAV_BASE;
-  const extras = podeVerLembretes() ? [ITEM_LEMBRETES, ITEM_ORCAMENTOS] : [ITEM_ORCAMENTOS];
-  return [...extras, ...ITENS_NAV_BASE];
+  if (sessao && sessao.admin) {
+    // Materiais é ferramenta de campo do instalador (lista por cliente); o
+    // admin já tem isso completo no ERP desktop, então some daqui — só
+    // ocupa espaço na barra de baixo do celular dele (pedido 2026-08-30).
+    return [ITEM_ORCAMENTOS, ...ITENS_NAV_BASE.filter((i) => i.id !== "materiais")];
+  }
+  return ITENS_NAV_BASE;
 }
 
 function navBarHTML(ativo) {
@@ -183,7 +178,6 @@ function ligarNav() {
       else if (alvo === "materiais") viewMateriais();
       else if (alvo === "financeiro") viewFinanceiro();
       else if (alvo === "orcamentos") viewOrcamentos();
-      else if (alvo === "lembretes") viewLembretes();
     });
   });
 }
@@ -292,6 +286,21 @@ function renderConcluidosFiltrado(grupos, filtro, cartaoFn) {
 
 // Admin não é vinculado a um instalador (não tem cache offline dessa lista)
 // — vê tudo, de todos os instaladores, direto do Supabase.
+// Abas do detalhe do admin — mesmas 4 seções da versão web (Equipamento/
+// Serviços, Fiscal→aqui "Financeiro", Mídia/Fotos, Lista de Materiais).
+// Fora do que web tem: emissão de PDF de Orçamento/Contrato e upload de
+// boleto de fornecedor com leitura por IA — essas dependem do Google Drive
+// (credencial de servidor, nunca pode ir pro JS público do celular) e de
+// gerar PDF em Python (reportlab, não existe no navegador). Ficam só no
+// ERP desktop mesmo; tudo que é só dado (financeiro, mídia, materiais)
+// veio pra cá.
+const ABAS_DETALHE_ADMIN = [
+  { id: "equip", label: "🛠️ Equip./Serviço" },
+  { id: "financeiro", label: "💰 Financeiro" },
+  { id: "midia", label: "📷 Mídia" },
+  { id: "materiais", label: "📋 Materiais" },
+];
+
 async function viewDetalheAdmin(s) {
   telaAtual = "detalhe";
   raiz.innerHTML = `
@@ -301,43 +310,97 @@ async function viewDetalheAdmin(s) {
       <div style="width:34px"></div>
     </div>
     <div class="conteudo">
-      <div class="cartao">
-        <div class="campo"><span class="rotulo">Instalador</span><span>${escapeHTML(s.instalador || "-")}</span></div>
-        <div class="campo"><span class="rotulo">Telefone</span><span>${escapeHTML(s.telefone_cliente || "-")}</span></div>
-        <div class="campo"><span class="rotulo">Endereço</span><span>${escapeHTML(s.endereco_cliente || "Não informado")}</span></div>
-        ${s.endereco_cliente ? `
-          <div style="display:flex; gap:8px; margin-top:8px;">
-            <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s.endereco_cliente)}" target="_blank" rel="noopener" class="botao botao--secundario botao--mini" style="display:inline-block; text-decoration:none; text-align:center; flex:1;">🗺️ Maps</a>
-            <a href="https://waze.com/ul?q=${encodeURIComponent(s.endereco_cliente)}&navigate=yes" target="_blank" rel="noopener" class="botao botao--secundario botao--mini" style="display:inline-block; text-decoration:none; text-align:center; flex:1;">🚗 Waze</a>
-          </div>
-        ` : ""}
-        <div class="campo"><span class="rotulo">Status</span><span>${escapeHTML(s.status_projeto || "")}</span></div>
-        ${s.data_prevista_instalacao ? `<div class="campo"><span class="rotulo">Data Prevista</span><span>${formatarData(s.data_prevista_instalacao)}</span></div>` : ""}
-      </div>
-      <div class="cartao">
-        <h3 class="cartao-secao">🛠️ Equipamentos</h3>
-        <p>${escapeHTML(s.produtos_adquiridos || "Nenhum produto listado.")}</p>
-        ${s.servicos_adquiridos ? `<h3 class="cartao-secao">🔧 Serviço</h3><p>${escapeHTML(s.servicos_adquiridos)}</p>` : ""}
+      <div class="abas-segmento">
+        ${ABAS_DETALHE_ADMIN.map((a, i) => `<button type="button" class="${i === 0 ? "ativa" : ""}" data-aba-admin="${a.id}">${a.label}</button>`).join("")}
       </div>
 
-      <button type="button" id="btn-editar-servico-admin" class="botao botao--secundario">✏️ Editar</button>
-      <div id="edicao-servico-admin" class="cartao" style="display:none; margin-top:10px;">
-        <label>Status</label>
-        <select id="es-status">
-          ${STATUS_SERVICO_EDITAVEL.map((st) => `<option value="${escapeAttr(st)}" ${st === s.status_projeto ? "selected" : ""}>${escapeHTML(st)}</option>`).join("")}
-        </select>
-        <label>Telefone</label>
-        <input type="text" id="es-telefone" value="${escapeAttr(s.telefone_cliente || "")}" />
-        <label>Endereço</label>
-        <input type="text" id="es-endereco" value="${escapeAttr(s.endereco_cliente || "")}" />
-        <label>Data Prevista de Instalação</label>
-        <input type="date" id="es-data-prevista" value="${s.data_prevista_instalacao ? String(s.data_prevista_instalacao).slice(0, 10) : ""}" />
-        <button type="button" id="btn-salvar-servico-admin" class="botao botao--principal" style="margin-top:8px;">💾 Salvar</button>
+      <div id="aba-admin-equip" style="margin-top:12px;">
+        <div class="cartao">
+          <div class="campo"><span class="rotulo">Instalador</span><span>${escapeHTML(s.instalador || "-")}</span></div>
+          <div class="campo"><span class="rotulo">Telefone</span><span>${escapeHTML(s.telefone_cliente || "-")}</span></div>
+          <div class="campo"><span class="rotulo">Endereço</span><span>${escapeHTML(s.endereco_cliente || "Não informado")}</span></div>
+          ${s.endereco_cliente ? `
+            <div style="display:flex; gap:8px; margin-top:8px;">
+              <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s.endereco_cliente)}" target="_blank" rel="noopener" class="botao botao--secundario botao--mini" style="display:inline-block; text-decoration:none; text-align:center; flex:1;">🗺️ Maps</a>
+              <a href="https://waze.com/ul?q=${encodeURIComponent(s.endereco_cliente)}&navigate=yes" target="_blank" rel="noopener" class="botao botao--secundario botao--mini" style="display:inline-block; text-decoration:none; text-align:center; flex:1;">🚗 Waze</a>
+            </div>
+          ` : ""}
+          <div class="campo"><span class="rotulo">Status</span><span>${escapeHTML(s.status_projeto || "")}</span></div>
+          ${s.data_prevista_instalacao ? `<div class="campo"><span class="rotulo">Data Prevista</span><span>${formatarData(s.data_prevista_instalacao)}</span></div>` : ""}
+        </div>
+        <div class="cartao">
+          <h3 class="cartao-secao">🛠️ Equipamentos</h3>
+          <p>${escapeHTML(s.produtos_adquiridos || "Nenhum produto listado.")}</p>
+          ${s.servicos_adquiridos ? `<h3 class="cartao-secao">🔧 Serviço</h3><p>${escapeHTML(s.servicos_adquiridos)}</p>` : ""}
+        </div>
+
+        <button type="button" id="btn-editar-servico-admin" class="botao botao--secundario">✏️ Editar</button>
+        <div id="edicao-servico-admin" class="cartao" style="display:none; margin-top:10px;">
+          <label>Status</label>
+          <select id="es-status">
+            ${STATUS_SERVICO_EDITAVEL.map((st) => `<option value="${escapeAttr(st)}" ${st === s.status_projeto ? "selected" : ""}>${escapeHTML(st)}</option>`).join("")}
+          </select>
+          <label>Telefone</label>
+          <input type="text" id="es-telefone" value="${escapeAttr(s.telefone_cliente || "")}" />
+          <label>Endereço</label>
+          <input type="text" id="es-endereco" value="${escapeAttr(s.endereco_cliente || "")}" />
+          <label>Data Prevista de Instalação</label>
+          <input type="date" id="es-data-prevista" value="${s.data_prevista_instalacao ? String(s.data_prevista_instalacao).slice(0, 10) : ""}" />
+          <button type="button" id="btn-salvar-servico-admin" class="botao botao--principal" style="margin-top:8px;">💾 Salvar</button>
+        </div>
+        <button type="button" id="btn-excluir-servico-admin" class="botao botao--secundario" style="margin-top:10px; color:#a00;">🗑️ Excluir</button>
       </div>
-      <button type="button" id="btn-excluir-servico-admin" class="botao botao--secundario" style="margin-top:10px; color:#a00;">🗑️ Excluir</button>
+
+      <div id="aba-admin-financeiro" style="display:none; margin-top:12px;">
+        ${viewFinanceiroAdminHTML(s)}
+      </div>
+
+      <div id="aba-admin-midia" style="display:none; margin-top:12px;">
+        <div class="cartao">
+          <h3 class="cartao-secao">📷 Fotos, Vídeos e Áudios</h3>
+          <div id="midias-lista-admin" class="midias-grade"><p class="dica">Carregando...</p></div>
+          <input type="file" id="in-midia-admin" accept="image/*,video/*,audio/*" multiple style="display:none" />
+          <button id="btn-add-midia-admin" class="botao botao--secundario">📷 Adicionar Foto/Vídeo</button>
+          <button id="btn-gravar-audio-admin" class="botao botao--secundario">🎤 Gravar Áudio</button>
+        </div>
+      </div>
+
+      <div id="aba-admin-materiais" style="display:none; margin-top:12px;">
+        <div class="cartao">
+          <h3 class="cartao-secao">📋 Lista de Materiais</h3>
+          <div id="materiais-lista-cliente-admin"><p class="dica">Carregando...</p></div>
+          <p class="dica">Criar ou editar lista é feito pelo instalador em campo, direto no aparelho dele.</p>
+        </div>
+      </div>
+
+      <div id="faixa-sync" class="faixa-sync"></div>
     </div>
   `;
   document.getElementById("btn-voltar").addEventListener("click", () => viewLista());
+
+  // Troca de aba: só um <div id="aba-admin-*"> visível por vez, igual ao
+  // segmento "Em Andamento/Finalizadas" da lista. Mídia e Materiais só
+  // carregam de verdade na primeira vez que a aba é aberta — não pesa a
+  // troca das outras abas com uma consulta que talvez nem seja usada.
+  let midiaCarregada = false, materiaisCarregados = false;
+  document.querySelectorAll("[data-aba-admin]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const alvo = btn.dataset.abaAdmin;
+      document.querySelectorAll("[data-aba-admin]").forEach((b) => b.classList.toggle("ativa", b === btn));
+      ABAS_DETALHE_ADMIN.forEach((a) => {
+        document.getElementById(`aba-admin-${a.id}`).style.display = a.id === alvo ? "block" : "none";
+      });
+      if (alvo === "midia" && !midiaCarregada) {
+        midiaCarregada = true;
+        renderizarMidias({ servico_id: s.id }, "midias-lista-admin");
+      }
+      if (alvo === "materiais" && !materiaisCarregados) {
+        materiaisCarregados = true;
+        renderizarListaMateriaisCliente(s.id, "materiais-lista-cliente-admin");
+      }
+    });
+  });
+
   document.getElementById("btn-editar-servico-admin").addEventListener("click", () => {
     const bloco = document.getElementById("edicao-servico-admin");
     bloco.style.display = bloco.style.display === "none" ? "block" : "none";
@@ -364,6 +427,79 @@ async function viewDetalheAdmin(s) {
       alert("Não deu pra excluir agora — confira sua internet e tente de novo.");
     }
   });
+
+  const btnSalvarFin = document.getElementById("btn-salvar-financeiro-admin");
+  if (btnSalvarFin) {
+    btnSalvarFin.addEventListener("click", async () => {
+      try {
+        const pago = document.getElementById("fin-pago-instalador").checked;
+        const dataPag = document.getElementById("fin-data-pagamento").value || null;
+        await atualizarServico(s.id, {
+          pago_instalador: pago,
+          data_pagamento_instalador: pago ? (dataPag || hojeLocalISO()) : null,
+        });
+        btnSalvarFin.textContent = "✅ Salvo";
+        setTimeout(() => { btnSalvarFin.textContent = "💾 Salvar"; }, 1500);
+      } catch (e) {
+        alert("Não deu pra salvar agora — confira sua internet e tente de novo.");
+      }
+    });
+    document.getElementById("fin-pago-instalador").addEventListener("change", (e) => {
+      document.getElementById("fin-data-pagamento").disabled = !e.target.checked;
+    });
+  }
+
+  document.getElementById("btn-add-midia-admin").addEventListener("click", () => {
+    document.getElementById("in-midia-admin").click();
+  });
+  document.getElementById("in-midia-admin").addEventListener("change", async (e) => {
+    const arquivos = Array.from(e.target.files || []);
+    const el = document.getElementById("midias-lista-admin");
+    if (el) el.innerHTML = `<p class="dica">Enviando...</p>`;
+    for (const arquivo of arquivos) {
+      await adicionarMidia({ servico_id: s.id }, arquivo, sessao.instaladorVinculado || "Breno (Admin)");
+    }
+    e.target.value = "";
+    await renderizarMidias({ servico_id: s.id }, "midias-lista-admin");
+  });
+  ligarBotaoGravarAudio(document.getElementById("btn-gravar-audio-admin"), { servico_id: s.id }, "midias-lista-admin");
+}
+
+// Aba Financeiro do admin: mesmos valores da seção de Cálculo de Custos da
+// versão web (venda, custos, comissão, impostos, cartão, lucro) — só
+// leitura, exceto o "pago ao instalador" (isso o Breno mexe direto do
+// celular, é a pergunta mais comum: "já paguei o Fulano dessa obra?").
+function viewFinanceiroAdminHTML(s) {
+  const linha = (label, valor) => valor ? `<div class="campo"><span class="rotulo">${label}</span><span>${formatarBRL(valor)}</span></div>` : "";
+  return `
+    <div class="cartao">
+      <h3 class="cartao-secao">💰 Investimento Total</h3>
+      <p class="valor-somente-leitura">${formatarBRL(s.valor_venda_total)}</p>
+    </div>
+    <div class="cartao">
+      <h3 class="cartao-secao">🧾 Custos</h3>
+      ${linha("Materiais extras", s.custo_adicional_materiais)}
+      ${linha("Mão de obra / Instalador", s.custo_terceirizados)}
+      ${linha("Comissão", s.custo_comissao)}
+      ${linha("Impostos / NF", s.custo_impostos)}
+      ${linha("Taxa Cartão", s.custo_cartao)}
+      ${!(s.custo_adicional_materiais || s.custo_terceirizados || s.custo_comissao || s.custo_impostos || s.custo_cartao) ? `<p class="dica">Nenhum custo lançado ainda.</p>` : ""}
+    </div>
+    <div class="cartao">
+      <h3 class="cartao-secao">📈 Lucro Estimado</h3>
+      <p class="valor-somente-leitura">${formatarBRL(s.lucro_estimado)}</p>
+    </div>
+    <div class="cartao">
+      <h3 class="cartao-secao">👷 Pagamento ao Instalador</h3>
+      <label style="display:flex; align-items:center; gap:8px; font-weight:400;">
+        <input type="checkbox" id="fin-pago-instalador" style="width:auto;" ${s.pago_instalador ? "checked" : ""} /> Pago ao instalador
+      </label>
+      <label>Data do pagamento</label>
+      <input type="date" id="fin-data-pagamento" ${s.pago_instalador ? "" : "disabled"}
+        value="${s.data_pagamento_instalador ? String(s.data_pagamento_instalador).slice(0, 10) : ""}" />
+      <button type="button" id="btn-salvar-financeiro-admin" class="botao botao--principal" style="margin-top:8px;">💾 Salvar</button>
+    </div>
+  `;
 }
 
 async function viewLista() {
@@ -810,213 +946,6 @@ async function viewDetalhe(id) {
 
   const { pendentes } = await statusAtual();
   renderFaixaSync(navigator.onLine ? "sincronizado" : "offline", pendentes);
-}
-
-// ---------- Lembretes (só o login breno.lima) ----------
-// Mesma tabela `lembretes` que o Claude e o cron da VPS usam. Marcar aqui
-// aparece nos outros na hora. Edição online, sem fila offline.
-function lembreteQuandoTexto(iso) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  const hoje = new Date();
-  const soData = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate());
-  const dias = Math.round((soData(d) - soData(hoje)) / 86400000);
-  const hm = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-  if (dias === 0) return `hoje ${hm}`;
-  if (dias === 1) return `amanhã ${hm}`;
-  if (dias === -1) return `ontem ${hm}`;
-  return `${d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} ${hm}`;
-}
-function isoParaInputLocal(iso) {
-  const d = iso ? new Date(iso) : new Date();
-  const p = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
-}
-const REPETIR_LABEL = { diario: "todo dia", semanal: "toda semana", uteis: "dias úteis" };
-const LEM_LS_FILTRO = "lem_filtro_cat";   // "" = tudo, ou um slug
-const LEM_LS_CAT_NOVA = "lem_cat_nova";   // categoria pré-selecionada ao criar
-
-function lemLerLS(k, padrao = "") {
-  try { const v = localStorage.getItem(k); return v === null ? padrao : v; } catch (e) { return padrao; }
-}
-function lemGravarLS(k, v) {
-  try { localStorage.setItem(k, v); } catch (e) { /* modo privado: sem persistência, tudo bem */ }
-}
-
-async function viewLembretes() {
-  if (!podeVerLembretes()) { await viewOrcamentos(); return; }
-  telaAtual = "lembretes";
-
-  const filtro = lemLerLS(LEM_LS_FILTRO, "");           // "" | slug
-  let todos = [];
-  try {
-    todos = await puxarLembretes({ incluirFeitos: true, categoria: filtro || null });
-  } catch (e) {
-    todos = [];
-  }
-  const agora = Date.now();
-  const abertos = todos.filter((l) => !l.feito);
-  const feitos = todos.filter((l) => l.feito).slice(0, 15);
-  const atrasados = abertos.filter((l) => l.lembrar_em && new Date(l.lembrar_em).getTime() < agora);
-  const comHora = abertos.filter((l) => l.lembrar_em && new Date(l.lembrar_em).getTime() >= agora);
-  const semHora = abertos.filter((l) => !l.lembrar_em);
-
-  const catNova = lemLerLS(LEM_LS_CAT_NOVA, "") || filtro || CAT_LEMBRETE_PADRAO;
-  const optsCategoria = (sel) => CATS_LEMBRETE
-    .map((c) => `<option value="${c.slug}" ${c.slug === sel ? "selected" : ""}>${c.label}</option>`).join("");
-
-  const filtrosHTML = `
-    <div class="lem-filtros">
-      <button type="button" class="lem-filtro ${filtro === "" ? "lem-filtro--ativo" : ""}" data-filtro="">Tudo</button>
-      ${CATS_LEMBRETE.map((c) => `
-        <button type="button" class="lem-filtro lem-filtro--${c.slug} ${filtro === c.slug ? "lem-filtro--ativo" : ""}" data-filtro="${c.slug}">${c.label}</button>
-      `).join("")}
-    </div>`;
-
-  const linha = (l, atrasado) => `
-    <div class="lem-item" data-id="${l.id}">
-      <button type="button" class="lem-check-btn ${l.feito ? "lem-check-btn--feito" : ""}" data-check="${l.id}" aria-label="${l.feito ? "Reabrir" : "Concluir"}">${l.feito ? "✓" : ""}</button>
-      <div class="lem-corpo">
-        <div class="lem-texto ${l.feito ? "lem-texto--feito" : ""}">${escapeHTML(l.texto)}${(l.prioridade || 0) >= 1 ? " ‼️" : ""}</div>
-        <div class="lem-meta">
-          <span class="lem-cat lem-cat--${l.categoria || "pessoal"}">${rotuloCategoria(l.categoria)}</span>
-          ${l.lembrar_em ? `<span class="etiqueta ${atrasado ? "etiqueta--atrasada" : ""}">${lembreteQuandoTexto(l.lembrar_em)}</span>` : ""}
-          ${l.repetir ? `<span class="etiqueta">⟳ ${REPETIR_LABEL[l.repetir] || l.repetir}</span>` : ""}
-        </div>
-        <div class="lem-acoes" id="lem-acoes-${l.id}" style="display:none;">
-          <select data-cat-de="${l.id}" aria-label="Categoria">${optsCategoria(l.categoria || "pessoal")}</select>
-          <input type="datetime-local" id="lem-adiar-${l.id}" value="${isoParaInputLocal(l.lembrar_em)}" />
-          <button type="button" class="botao botao--secundario botao--mini" data-adiar="${l.id}">Adiar</button>
-          <button type="button" class="botao botao--secundario botao--mini" data-excluir="${l.id}" style="color:#a00;">🗑️ Excluir</button>
-        </div>
-      </div>
-      <button type="button" class="lem-mais" data-mais="${l.id}" aria-label="Mais">⋯</button>
-    </div>`;
-
-  const secao = (titulo, itens, atrasado = false) => itens.length
-    ? `<h2 class="secao-titulo">${titulo} (${itens.length})</h2>${itens.map((l) => linha(l, atrasado)).join("")}`
-    : "";
-
-  raiz.innerHTML = `
-    <div class="topo">
-      <div class="topo-titulo">⏰ Lembretes</div>
-      <button id="btn-sair" class="botao-icone" title="Sair">🚪</button>
-    </div>
-    <div class="conteudo">
-      <div class="cartao">
-        <label>O que precisa fazer?</label>
-        <input type="text" id="lem-novo-texto" placeholder="Ex: pagar o boleto da luz" autocomplete="off" />
-        <div style="display:flex; gap:8px; margin-top:8px;">
-          <select id="lem-novo-cat" style="flex:1;">${optsCategoria(catNova)}</select>
-          <input type="datetime-local" id="lem-novo-quando" style="flex:1;" />
-        </div>
-        <div style="display:flex; gap:8px; margin-top:8px; align-items:center;">
-          <select id="lem-novo-repetir" style="flex:1;">
-            <option value="">Não repete</option>
-            <option value="diario">Todo dia</option>
-            <option value="semanal">Toda semana</option>
-            <option value="uteis">Dias úteis</option>
-          </select>
-          <label style="display:flex; align-items:center; gap:6px; white-space:nowrap;">
-            <input type="checkbox" id="lem-novo-prio" /> ‼️ importante
-          </label>
-        </div>
-        <button type="button" id="btn-lem-add" class="botao botao--principal" style="margin-top:10px;">Adicionar</button>
-      </div>
-
-      ${filtrosHTML}
-
-      ${secao("Atrasados", atrasados, true)}
-      ${secao("Com hora", comHora)}
-      ${secao("Sem hora", semHora)}
-      ${abertos.length === 0 ? `<p class="vazio">Nada na lista${filtro ? ` em ${rotuloCategoria(filtro)}` : ""}. 🎉</p>` : ""}
-
-      ${feitos.length ? `
-        <details class="cartao" style="margin-top:12px;">
-          <summary>Já feitos (${feitos.length})</summary>
-          ${feitos.map((l) => linha(l, false)).join("")}
-        </details>` : ""}
-    </div>
-    ${navBarHTML("lembretes")}
-  `;
-
-  document.getElementById("btn-sair").addEventListener("click", async () => {
-    await logout(); sessao = null; viewLogin();
-  });
-  ligarNav();
-
-  const recarregar = () => viewLembretes();
-
-  raiz.querySelectorAll("[data-filtro]").forEach((b) => {
-    b.addEventListener("click", async () => {
-      lemGravarLS(LEM_LS_FILTRO, b.dataset.filtro);
-      await recarregar();
-    });
-  });
-
-  document.getElementById("btn-lem-add").addEventListener("click", async () => {
-    const texto = document.getElementById("lem-novo-texto").value.trim();
-    if (!texto) { alert("Escreva o que precisa fazer."); return; }
-    const qv = document.getElementById("lem-novo-quando").value;
-    const cat = document.getElementById("lem-novo-cat").value;
-    const btn = document.getElementById("btn-lem-add");
-    btn.disabled = true; btn.textContent = "Salvando...";
-    try {
-      await criarLembrete({
-        texto,
-        categoria: cat,
-        lembrar_em: qv ? new Date(qv).toISOString() : null,
-        repetir: document.getElementById("lem-novo-repetir").value || null,
-        prioridade: document.getElementById("lem-novo-prio").checked ? 1 : 0,
-      });
-      lemGravarLS(LEM_LS_CAT_NOVA, cat);
-      await recarregar();
-    } catch (e) {
-      btn.disabled = false; btn.textContent = "Adicionar";
-      alert("Não deu pra salvar agora — confira a internet e tente de novo.");
-    }
-  });
-
-  raiz.querySelectorAll("[data-check]").forEach((b) => {
-    b.addEventListener("click", async () => {
-      const l = todos.find((x) => x.id === Number(b.dataset.check));
-      if (!l) return;
-      b.disabled = true;
-      try { await marcarFeito(l, !l.feito); await recarregar(); }
-      catch (e) { b.disabled = false; alert("Não deu pra atualizar agora."); }
-    });
-  });
-
-  raiz.querySelectorAll("[data-mais]").forEach((b) => {
-    b.addEventListener("click", () => {
-      const el = document.getElementById(`lem-acoes-${b.dataset.mais}`);
-      if (el) el.style.display = el.style.display === "none" ? "flex" : "none";
-    });
-  });
-
-  raiz.querySelectorAll("[data-cat-de]").forEach((sel) => {
-    sel.addEventListener("change", async () => {
-      try { await mudarCategoria(Number(sel.dataset.catDe), sel.value); await recarregar(); }
-      catch (e) { alert("Não deu pra mudar a categoria agora."); }
-    });
-  });
-
-  raiz.querySelectorAll("[data-adiar]").forEach((b) => {
-    b.addEventListener("click", async () => {
-      const v = document.getElementById(`lem-adiar-${b.dataset.adiar}`).value;
-      if (!v) return;
-      try { await adiarLembrete(Number(b.dataset.adiar), new Date(v).toISOString()); await recarregar(); }
-      catch (e) { alert("Não deu pra adiar agora."); }
-    });
-  });
-
-  raiz.querySelectorAll("[data-excluir]").forEach((b) => {
-    b.addEventListener("click", async () => {
-      if (!confirm("Apagar este lembrete de vez?")) return;
-      try { await excluirLembrete(Number(b.dataset.excluir)); await recarregar(); }
-      catch (e) { alert("Não deu pra apagar agora."); }
-    });
-  });
 }
 
 // ---------- Agenda (visitas de orçamento e manutenção) ----------

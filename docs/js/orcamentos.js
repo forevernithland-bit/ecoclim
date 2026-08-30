@@ -58,11 +58,15 @@ const STATUS_FINALIZADOS = ["Concluído PIX", "Concluído CARTÃO"];
 // Instalações de TODOS os instaladores — usado pela tela "Instalações" do
 // admin (que normalmente lê do cache offline de UM instalador só, e o admin
 // não é vinculado a nenhum). Mesmos campos que a tela já sabe renderizar.
+// Colunas financeiras (venda, custos, comissão, lucro) só entram aqui —
+// nunca em `puxarServicos` (sync.js), que é o cache do instalador. Esta
+// função só roda pra sessão admin (viewLista checa `sessao.admin` antes de
+// chamar), então mostrar a margem do Breno pra ele mesmo é seguro.
 export async function puxarTodosOsServicos() {
   const supabase = getSupabase();
   const { data, error } = await supabase
     .from("servicos_andamento")
-    .select("id, nome_cliente, bairro_cliente, telefone_cliente, endereco_cliente, produtos_adquiridos, servicos_adquiridos, status_projeto, instalacao_concluida_instalador, data_conclusao_instalador, data_conclusao, data_prevista_instalacao, instalador")
+    .select("id, nome_cliente, bairro_cliente, telefone_cliente, endereco_cliente, produtos_adquiridos, servicos_adquiridos, status_projeto, instalacao_concluida_instalador, data_conclusao_instalador, data_conclusao, data_prevista_instalacao, instalador, valor_venda_total, custo_adicional_materiais, custo_terceirizados, custo_comissao, custo_impostos, custo_cartao, lucro_estimado, pago_instalador, data_pagamento_instalador")
     .in("status_projeto", [...STATUS_EM_ANDAMENTO, ...STATUS_FINALIZADOS])
     .order("id", { ascending: false });
   if (error) throw error;
