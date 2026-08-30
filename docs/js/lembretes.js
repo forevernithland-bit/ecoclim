@@ -101,6 +101,25 @@ export async function excluirLembrete(id) {
   if (error) throw error;
 }
 
+// ---- Notas secretas (bloco de texto único, atrás do gesto no título) ----
+// NÃO é criptografado: mora numa tabela alcançável pela anon key pública.
+// Serve pra referência (CNPJs, códigos fiscais, procedimentos). Nada de
+// senha de servidor aqui.
+export async function lerNotaSecreta() {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from("notas_secretas").select("conteudo").eq("id", 1).maybeSingle();
+  if (error) throw error;
+  return data ? (data.conteudo || "") : "";
+}
+
+export async function salvarNotaSecreta(conteudo) {
+  const supabase = getSupabase();
+  const { error } = await supabase.from("notas_secretas")
+    .upsert({ id: 1, conteudo: String(conteudo || ""), atualizado_em: new Date().toISOString() });
+  if (error) throw error;
+}
+
 /** Próxima data de um recorrente. `uteis` pula sábado e domingo. */
 export function proximaOcorrencia(dt, repetir) {
   const d = new Date(dt);
