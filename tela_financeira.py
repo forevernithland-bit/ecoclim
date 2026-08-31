@@ -100,15 +100,23 @@ def salvar_dados_fin(nome_tabela, df, ano):
 # APORTES DE CAPITAL — lista de lançamentos (vários por mês) na fin_aportes_itens
 # =============================================================================
 def carregar_aportes_itens(ano):
-    """Lê os lançamentos de aporte do ano. Retorna DataFrame [Mês, Conta, Valor, Obs].
+    """Lê os lançamentos de aporte do ano. Retorna DataFrame [Data, Mês, Conta, Valor, Obs].
     Nunca quebra a tela (se a tabela não existir ainda, devolve vazio)."""
-    cols = ["Mês", "Conta", "Valor", "Origem", "Obs"]
+    cols = ["Data", "Mês", "Conta", "Valor", "Origem", "Obs"]
     try:
         res = st.session_state.supabase.table('fin_aportes_itens').select("*").eq("ano", ano).order("mes").execute()
         linhas = []
         for r in (res.data or []):
             mes_idx = int(r.get("mes") or 0)
+            data_str = r.get("data")
+            data_obj = None
+            if data_str:
+                try:
+                    data_obj = pd.to_datetime(data_str).date()
+                except Exception:
+                    data_obj = None
             linhas.append({
+                "Data": data_obj,
                 "Mês": utils.meses_pt[mes_idx - 1] if 1 <= mes_idx <= 12 else "",
                 "Conta": str(r.get("conta") or "").upper(),
                 "Valor": utils.safe_float(r.get("valor")),
@@ -129,6 +137,13 @@ def salvar_aportes_itens(ano, df_itens):
             conta = str(r.get("Conta", "")).strip().upper()
             valor = utils.safe_float(r.get("Valor", 0))
             if mes_nome in utils.meses_pt and conta in ("XP", "INTER", "ITAU") and valor != 0:
+                data_val = r.get("Data")
+                data_iso = None
+                if pd.notna(data_val) and str(data_val).strip():
+                    try:
+                        data_iso = pd.to_datetime(data_val).strftime("%Y-%m-%d")
+                    except Exception:
+                        data_iso = None
                 registros.append({
                     "ano": ano,
                     "mes": utils.meses_pt.index(mes_nome) + 1,
@@ -136,11 +151,21 @@ def salvar_aportes_itens(ano, df_itens):
                     "valor": valor,
                     "origem": str(r.get("Origem", "") or "Capital externo"),
                     "obs": str(r.get("Obs", "") or ""),
+                    "data": data_iso,
                 })
     try:
         supabase.table('fin_aportes_itens').delete().eq("ano", ano).execute()
         if registros:
-            supabase.table('fin_aportes_itens').insert(registros).execute()
+            try:
+                supabase.table('fin_aportes_itens').insert(registros).execute()
+            except Exception:
+                # Coluna "data" ainda não existe (sql_fin_aportes_data.sql não
+                # rodado nesse Supabase) — grava sem ela em vez de perder o
+                # lançamento inteiro; a data só passa a ficar disponível
+                # depois que a migração rodar.
+                supabase.table('fin_aportes_itens').insert(
+                    [{k: v for k, v in reg.items() if k != "data"} for reg in registros]
+                ).execute()
     except Exception as e:
         st.error(f"Erro ao salvar aportes: {e}")
 
@@ -712,7 +737,9 @@ def renderizar():
         with st.expander("Registrar depósitos (pode haver vários no mesmo mês)", expanded=False):
             st.caption("Lance cada DEPÓSITO feito. O sistema soma por mês/conta e desconta do rendimento e do Limite de Gasto — não é juros. Registre só no mês em que o dinheiro entrou.")
             st.caption("**Origem**: use *Reinvestimento de renda* quando o dinheiro veio de um recebimento já lançado (ex.: salário Maggi) — assim fica claro que não é dinheiro novo. Não muda nenhum número; só o cálculo de juros usa o valor.")
+            st.caption("**Data** é opcional — só ajuda a diferenciar dois depósitos na mesma conta no mesmo mês (ex.: dois recebimentos da Maggi). Quem decide o mês pro cálculo continua sendo a coluna **Mês**, não a Data.")
             cfg_ap = {
+                "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY", width="small"),
                 "Mês": st.column_config.SelectboxColumn("Mês", options=utils.meses_pt, width="small", required=True),
                 "Conta": st.column_config.SelectboxColumn("Conta", options=["XP", "INTER", "ITAU"], width="small", required=True),
                 "Valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f", min_value=0.0, width="small"),
