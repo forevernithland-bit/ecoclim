@@ -231,6 +231,20 @@ def gerar_nome_arquivo_orcamento(numero, nome_cliente, df):
 # e na falta pelo nome), pra nunca duplicar o mesmo cliente várias vezes na
 # lista de rascunhos só porque foram geradas várias prévias/versões pra ele.
 # ---------------------------------------------------------------------------
+def _dt_rascunho(r):
+    """Data/hora em que a prévia foi gerada, lida do próprio número do
+    orçamento (RASC-YYMMDD-HHMM) — não existe coluna created_at em
+    servicos_andamento. Usada pra ordenar a lista de rascunhos (mais recente
+    primeiro) e pra mostrar a data pro Breno sem precisar de coluna nova."""
+    m = re.search(r'(\d{6})-(\d{4})', str(r.get('numero_orcamento') or ''))
+    if not m:
+        return datetime.datetime.min
+    try:
+        return datetime.datetime.strptime(m.group(1) + m.group(2), '%y%m%d%H%M')
+    except Exception:
+        return datetime.datetime.min
+
+
 def _achar_rascunho_existente(supabase, nome_cliente, telefone):
     """Procura um Rascunho já existente pro mesmo cliente — telefone primeiro
     (mais confiável), nome como fallback (case/acento-insensível)."""
@@ -494,8 +508,13 @@ def renderizar(lista_nomes_produtos, limpar_func):
         st.success(st.session_state.pop('calc_custos_msg'))
 
     try:
-        res_rascunhos = st.session_state.supabase.table('servicos_andamento').select('id, nome_cliente, telefone_cliente, valor_venda_total').eq('status_projeto', 'Rascunho').execute()
+        res_rascunhos = st.session_state.supabase.table('servicos_andamento').select('id, nome_cliente, telefone_cliente, valor_venda_total, numero_orcamento').eq('status_projeto', 'Rascunho').execute()
         rascunhos_db = res_rascunhos.data
+        # Mais recente primeiro. Não existe coluna created_at nesta tabela —
+        # o número do orçamento já carrega a data/hora de quando a prévia foi
+        # gerada ("RASC-YYMMDD-HHMM"), então é dali que a ordem (e a data
+        # mostrada pro Breno) vêm, sem precisar de coluna nova.
+        rascunhos_db.sort(key=_dt_rascunho, reverse=True)
     except Exception:
         rascunhos_db = []
 
@@ -507,17 +526,21 @@ def renderizar(lista_nomes_produtos, limpar_func):
                     limpar_func()
                     deve_rerun = True
             else:
-                busca_rasc = st.text_input("🔍 Buscar cliente...", key="busca_rascunho_orc", placeholder="Nome ou telefone do cliente")
+                busca_rasc = st.text_input("🔍 Buscar cliente...", key="busca_rascunho_orc", placeholder="Nome, telefone ou nº do orçamento")
                 rascunhos_filtrados = [
                     r for r in rascunhos_db
-                    if utils.bate_busca(busca_rasc, r.get('nome_cliente', ''), r.get('telefone_cliente', ''))
+                    if utils.bate_busca(busca_rasc, r.get('nome_cliente', ''), r.get('telefone_cliente', ''), r.get('numero_orcamento', ''))
                 ] if busca_rasc.strip() else rascunhos_db
 
                 c_sel, c_btn_load, c_btn_del = st.columns([3, 1, 1])
-                opcoes_rascunhos = {f"{r['nome_cliente']} (R$ {r.get('valor_venda_total', 0):.2f}) - ID: {r['id']}": r['id'] for r in rascunhos_filtrados}
+                def _rotulo_rascunho(r):
+                    dt = _dt_rascunho(r)
+                    data_txt = dt.strftime('%d/%m %H:%M') if dt != datetime.datetime.min else "sem data"
+                    return f"{r['nome_cliente']} (R$ {r.get('valor_venda_total', 0):.2f}) — {data_txt} - ID: {r['id']}"
+                opcoes_rascunhos = {_rotulo_rascunho(r): r['id'] for r in rascunhos_filtrados}
                 if not opcoes_rascunhos:
                     st.caption("Nenhum rascunho encontrado com esse nome.")
-                rasc_selecionado = c_sel.selectbox("Selecione um rascunho:", list(opcoes_rascunhos.keys()), label_visibility="collapsed")
+                rasc_selecionado = c_sel.selectbox("Selecione um rascunho (mais recentes primeiro):", list(opcoes_rascunhos.keys()), label_visibility="collapsed")
 
                 if c_btn_load.button("📥 Carregar", use_container_width=True, disabled=not opcoes_rascunhos):
                     id_r = opcoes_rascunhos[rasc_selecionado]
