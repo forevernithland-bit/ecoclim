@@ -990,16 +990,23 @@ function lemGravarLS(k, v) {
   try { localStorage.setItem(k, v); } catch (e) { /* modo privado: sem persistência, tudo bem */ }
 }
 
-// Gesto secreto: segurar o título ~1,5s abre as Notas (não tem botão à vista).
+// Gesto secreto: tocar 5x seguidas (rápido) no título abre as Notas.
+// Toque-longo no texto no celular abre a seleção do navegador e não é
+// confiável — 5 toques rápidos é à prova de falha e não conflita com nada.
 function ligarGestoSecreto(el) {
   if (!el) return;
-  let t = null;
-  const cancela = () => { if (t) { clearTimeout(t); t = null; } };
-  el.addEventListener("pointerdown", () => {
-    cancela();
-    t = setTimeout(() => { t = null; viewNotaSecreta(); }, 1500);
+  el.style.webkitUserSelect = "none";
+  el.style.userSelect = "none";
+  el.style.webkitTouchCallout = "none";
+  el.style.cursor = "default";
+  let taps = 0;
+  let ultimo = 0;
+  el.addEventListener("click", () => {
+    const agora = Date.now();
+    taps = (agora - ultimo < 700) ? taps + 1 : 1;
+    ultimo = agora;
+    if (taps >= 5) { taps = 0; viewNotaSecreta(); }
   });
-  ["pointerup", "pointerleave", "pointercancel"].forEach((ev) => el.addEventListener(ev, cancela));
 }
 
 async function viewLembretes() {
