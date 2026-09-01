@@ -189,6 +189,22 @@ def _painel_lembretes_erp():
                     L.marcar_feito(lem, False)
                     st.rerun(scope="fragment")
 
+    # Acesso discreto ao bloco de Notas (o diálogo já é só-Admin).
+    st.markdown("""
+    <style>
+      .st-key-lem_erp_abrir_notas button {
+        background:transparent !important; border:none !important; box-shadow:none !important;
+        color:var(--muted,#94a3b8) !important; font-size:.8rem !important; opacity:.65 !important;
+      }
+      .st-key-lem_erp_abrir_notas button:hover { opacity:1 !important; color:var(--brand,#0f9d58) !important; }
+    </style>
+    """, unsafe_allow_html=True)
+    _nn1, _nn2, _nn3 = st.columns([1, 1, 1])
+    with _nn2:
+        if st.button("🔒 Notas", key="lem_erp_abrir_notas", use_container_width=True):
+            st.session_state["lem_erp_notas"] = True
+            st.rerun(scope="fragment")
+
 
 # =============================================================================
 # 4. CONEXÃO COM O BANCO DE DADOS
