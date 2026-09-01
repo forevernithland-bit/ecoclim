@@ -165,3 +165,19 @@ def adiar(lem_id, lembrar_em_iso):
 
 def excluir(lem_id):
     _sb().table("lembretes").delete().eq("id", lem_id).execute()
+
+
+# --- Notas (bloco de texto único, tabela `notas_secretas`) ------------------
+# NÃO é criptografado. Referência (CNPJs, códigos fiscais, procedimentos).
+def ler_notas():
+    try:
+        d = _sb().table("notas_secretas").select("conteudo").eq("id", 1).execute().data
+        return (d[0].get("conteudo") if d else "") or ""
+    except Exception:
+        return ""
+
+
+def salvar_notas(conteudo):
+    _sb().table("notas_secretas").upsert(
+        {"id": 1, "conteudo": conteudo or "", "atualizado_em": _iso(_agora_utc())}
+    ).execute()

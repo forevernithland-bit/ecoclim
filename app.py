@@ -64,6 +64,28 @@ def _painel_lembretes_erp():
     import datetime as _dt
     L = lembretes_erp
 
+    # --- Bloco de Notas (oculto): abre digitando "notas" no campo de adicionar.
+    if st.session_state.get("lem_erp_notas"):
+        st.caption("🔒 Notas — texto puro, some da lista mas não é cofre.")
+        if "lem_erp_notas_txt" not in st.session_state:
+            st.session_state["lem_erp_notas_txt"] = L.ler_notas()
+        st.text_area("Notas", key="lem_erp_notas_txt", height=380,
+                     label_visibility="collapsed")
+        if st.session_state.pop("lem_erp_notas_msg", None):
+            st.success("Salvo ✓")
+        n1, n2 = st.columns(2)
+        if n1.button("💾 Salvar", type="primary", use_container_width=True,
+                     key="lem_erp_notas_save"):
+            L.salvar_notas(st.session_state.get("lem_erp_notas_txt", ""))
+            st.session_state["lem_erp_notas_msg"] = 1
+            st.rerun(scope="fragment")
+        if n2.button("← Voltar aos lembretes", use_container_width=True,
+                     key="lem_erp_notas_back"):
+            st.session_state.pop("lem_erp_notas", None)
+            st.session_state.pop("lem_erp_notas_txt", None)
+            st.rerun(scope="fragment")
+        return
+
     opcoes = ["Tudo"] + [lbl for _, lbl in L.CATEGORIAS]
     sel = st.radio("Filtrar", opcoes, horizontal=True,
                    key="lem_erp_filtro", label_visibility="collapsed")
@@ -143,7 +165,12 @@ def _painel_lembretes_erp():
             t = h2.time_input("Hora", value=_dt.time(9, 0), key="lem_erp_novo_hora")
         prio = st.checkbox("‼️ Importante", key="lem_erp_novo_prio")
         if st.button("Adicionar", type="primary", use_container_width=True, key="lem_erp_novo_add"):
-            if not txt.strip():
+            if txt.strip().lower() in ("notas", "notas secretas", ".notas"):
+                # gatilho oculto pro bloco de Notas
+                st.session_state["lem_erp_notas"] = True
+                st.session_state.pop("lem_erp_novo_txt", None)
+                st.rerun(scope="fragment")
+            elif not txt.strip():
                 st.warning("Escreva o texto do lembrete.")
             else:
                 L.criar(txt, categoria=cat,
