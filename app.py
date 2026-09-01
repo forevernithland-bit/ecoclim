@@ -264,41 +264,44 @@ else:
         st.session_state.menu_option = lista_paginas[0]
 
     with st.sidebar:
-        st.markdown("<br>", unsafe_allow_html=True)
-        if os.path.exists("logo.png"):
-            st.image("logo.png", use_container_width=True)
-
-        # --- Ícone de Lembretes: logo abaixo da logo, só Admin. Abre um
+        # --- Ícone de Lembretes: bem no topo, discreto, só Admin. Abre um
         #     diálogo (não é item de menu, de propósito). ---
         if perfil == "Admin":
             try:
                 _lem_atras = lembretes_erp.contar_atrasados()
             except Exception:
                 _lem_atras = 0
-            st.markdown("""
+            _dot = (".st-key-abrir_lembretes_erp button::after{content:'';position:absolute;"
+                    "top:4px;right:4px;width:7px;height:7px;border-radius:999px;"
+                    "background:#dc2626;box-shadow:0 0 0 2px var(--bg,#fff);}") if _lem_atras else ""
+            st.markdown(f"""
             <style>
-              .st-key-abrir_lembretes_erp button {
-                border-radius:999px !important; border:none !important;
-                background:linear-gradient(135deg,var(--brand),var(--brand-dark)) !important;
-                color:#fff !important; font-size:1.05rem !important; font-weight:700 !important;
-                padding:5px 0 !important; min-height:0 !important;
-                box-shadow:0 4px 14px rgba(15,157,88,.35) !important;
-                transition:transform .15s ease, box-shadow .15s ease !important;
-              }
-              .st-key-abrir_lembretes_erp button:hover {
-                transform:translateY(-1px) !important;
-                box-shadow:0 7px 18px rgba(15,157,88,.5) !important;
-              }
-              .st-key-abrir_lembretes_erp button p { font-size:1.05rem !important; }
+              .st-key-abrir_lembretes_erp {{ display:flex; justify-content:flex-end; margin-bottom:-6px; }}
+              .st-key-abrir_lembretes_erp button {{
+                width:32px !important; height:32px !important; min-height:32px !important;
+                padding:0 !important; border-radius:999px !important; line-height:1 !important;
+                background:transparent !important;
+                border:1px solid var(--field-line,#e3e8ef) !important;
+                color:var(--muted,#64748b) !important; font-size:.9rem !important;
+                box-shadow:none !important; opacity:.7 !important; position:relative !important;
+                transition:opacity .15s ease, background .15s ease, border-color .15s ease, color .15s ease !important;
+              }}
+              .st-key-abrir_lembretes_erp button:hover {{
+                opacity:1 !important; background:var(--brand-soft,#ecfdf5) !important;
+                border-color:var(--brand,#0f9d58) !important; color:var(--brand,#0f9d58) !important;
+              }}
+              .st-key-abrir_lembretes_erp button p {{ font-size:.9rem !important; margin:0 !important; }}
+              {_dot}
             </style>
             """, unsafe_allow_html=True)
-            _lc1, _lc2, _lc3 = st.columns([1, 1.4, 1])
-            with _lc2:
-                _lbl = "⏰" if not _lem_atras else f"⏰ {_lem_atras}"
-                if st.button(_lbl, key="abrir_lembretes_erp",
-                             use_container_width=True, help="Seus lembretes"):
-                    st.session_state["_abrir_lem_erp"] = True
-                    st.rerun()
+            if st.button("⏰", key="abrir_lembretes_erp",
+                         help=(f"{_lem_atras} lembrete(s) atrasado(s)" if _lem_atras else "Seus lembretes")):
+                st.session_state["_abrir_lem_erp"] = True
+                st.rerun()
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        if os.path.exists("logo.png"):
+            st.image("logo.png", use_container_width=True)
 
         nome_logado = st.session_state.get('usuario_logado', 'Usuário')
         st.markdown(
