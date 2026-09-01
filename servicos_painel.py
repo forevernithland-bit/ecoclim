@@ -338,10 +338,10 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
 
             st.markdown("#### 🧮 Abatimentos e Impostos")
             with st.container(border=True):
-                f_col1, f_col2, f_col3 = st.columns(3)
+                f_col1, f_col2 = st.columns(2)
                 venda_final = f_col1.number_input("Valor da Venda (R$)", value=safe_float(projeto_selecionado.get('valor_venda_total')), format="%.2f", step=None, key=f"venda_{prefix_key}")
-                f_col1.caption(f"Custo Produtos: - {utils.to_br_currency(custo_total_produtos)}") 
-            
+                f_col1.caption(f"Custo Produtos: - {utils.to_br_currency(custo_total_produtos)}")
+
                 emite_nf = f_col2.radio("Nota Fiscal?", ["Não", "Sim"], index=1 if safe_float(projeto_selecionado.get('custo_impostos')) > 0 else 0, key=f"nf_{prefix_key}")
                 valor_nf = 0.0
                 if emite_nf == "Sim":
@@ -355,10 +355,10 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     f_col2.caption(f"Imposto ({taxa_nf_pct}%): - {utils.to_br_currency(valor_nf)}")
                 else:
                     f_col2.caption("&nbsp;", unsafe_allow_html=True)
-            
+
                 opcoes_cartao = ["Nenhum / Dinheiro / PIX"]
                 dict_taxas = {"Nenhum / Dinheiro / PIX": 0.0}
-            
+
                 if not df_taxas_config.empty:
                     for _, t_row in df_taxas_config.iterrows():
                         item_nome = str(t_row.get('Item', '')).strip()
@@ -369,17 +369,79 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
 
                 custo_c_salvo = safe_float(projeto_selecionado.get('custo_cartao'))
                 perc_previo = (custo_c_salvo / venda_final * 100) if venda_final > 0 else 0.0
-            
-                idx_selecionado = 0
-                for i, opt in enumerate(opcoes_cartao):
-                    if abs(dict_taxas[opt] - perc_previo) < 0.01:
-                        idx_selecionado = i
-                        break
-                    
-                opcao_escolhida = f_col3.selectbox("PARCELAMENTO CARTÃO", opcoes_cartao, index=idx_selecionado, key=f"taxa_man_{prefix_key}")
-                taxa_cartao_pct = dict_taxas[opcao_escolhida]
-                valor_cartao_taxa = venda_final * (taxa_cartao_pct / 100)
-                f_col3.caption(f"Taxa ({taxa_cartao_pct}%): - {utils.to_br_currency(valor_cartao_taxa)}")
+
+                # -----------------------------------------------------------
+                # Pagamentos recebidos — antes era UM percentual de cartão pra
+                # venda inteira. Na prática o cliente costuma dividir (ex.:
+                # metade PIX, metade cartão) e pagar em etapas (entrada na
+                # assinatura, resto na entrega) — um percentual único cobrava
+                # taxa de cartão em cima de dinheiro que nunca passou no
+                # cartão, e não sobrava registro de quanto já tinha entrado
+                # de entrada. Cada linha aqui é um recebimento de verdade —
+                # forma + valor (+ data/obs opcionais, ex. "Entrada"). A taxa
+                # de cartão final é a soma só das linhas cuja forma tem taxa
+                # (PIX/Dinheiro ficam em 0, igual antes).
+                # -----------------------------------------------------------
+                session_pag_key = f"pagamentos_{prefix_key}"
+                if session_pag_key not in st.session_state:
+                    pagamentos_salvos = projeto_selecionado.get('pagamentos_recebidos')
+                    if isinstance(pagamentos_salvos, list) and pagamentos_salvos:
+                        linhas_pag = [{
+                            "Forma": p.get('forma') if p.get('forma') in dict_taxas else opcoes_cartao[0],
+                            "Valor (R$)": safe_float(p.get('valor')),
+                            "Data": p.get('data'),
+                            "Obs": p.get('obs') or "",
+                        } for p in pagamentos_salvos]
+                    elif custo_c_salvo > 0 or venda_final > 0:
+                        # Migra o registro antigo (uma taxa só, pra venda inteira)
+                        # pra uma primeira linha, em vez de simplesmente sumir.
+                        _forma_antiga = opcoes_cartao[0]
+                        for _opt in opcoes_cartao:
+                            if abs(dict_taxas[_opt] - perc_previo) < 0.01:
+                                _forma_antiga = _opt
+                                break
+                        linhas_pag = [{"Forma": _forma_antiga, "Valor (R$)": venda_final, "Data": None, "Obs": ""}]
+                    else:
+                        linhas_pag = [{"Forma": opcoes_cartao[0], "Valor (R$)": 0.0, "Data": None, "Obs": ""}]
+                    st.session_state[session_pag_key] = pd.DataFrame(linhas_pag, columns=["Forma", "Valor (R$)", "Data", "Obs"])
+
+                st.markdown("**💳 Pagamentos Recebidos**")
+                st.caption("Uma linha por recebimento — se o cliente pagou parte em PIX e parte no cartão, ou pagou entrada e o resto depois, lance cada um separado. Assim a taxa de cartão é cobrada só em cima do que realmente foi pago com cartão, e fica registrado quanto já entrou (útil pra lembrar o valor da entrada lá na frente).")
+                config_pag = {
+                    "Forma": st.column_config.SelectboxColumn("Forma de Pagamento", options=opcoes_cartao, width="medium", required=True),
+                    "Valor (R$)": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f", min_value=0.0, width="small"),
+                    "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY", width="small"),
+                    "Obs": st.column_config.TextColumn("Obs (ex: Entrada, Parcela final)", width="medium"),
+                }
+                df_pagamentos_ed = st.data_editor(
+                    st.session_state[session_pag_key], column_config=config_pag, num_rows="dynamic",
+                    hide_index=True, use_container_width=True, key=f"edit_pag_{prefix_key}",
+                )
+                st.session_state[session_pag_key] = df_pagamentos_ed
+
+                valor_cartao_taxa = 0.0
+                total_recebido = 0.0
+                lista_pagamentos_salvar = []
+                for _, _linha_pag in df_pagamentos_ed.iterrows():
+                    _forma_pag = str(_linha_pag.get('Forma') or '').strip()
+                    _valor_pag = safe_float(_linha_pag.get('Valor (R$)'))
+                    if not _forma_pag and _valor_pag == 0:
+                        continue
+                    total_recebido += _valor_pag
+                    valor_cartao_taxa += _valor_pag * (dict_taxas.get(_forma_pag, 0.0) / 100)
+                    _data_pag = _linha_pag.get('Data')
+                    lista_pagamentos_salvar.append({
+                        "forma": _forma_pag,
+                        "valor": _valor_pag,
+                        "data": _data_pag.strftime('%Y-%m-%d') if pd.notna(_data_pag) and hasattr(_data_pag, 'strftime') else None,
+                        "obs": str(_linha_pag.get('Obs') or ''),
+                    })
+
+                falta_receber = venda_final - total_recebido
+                c_rec1, c_rec2, c_rec3 = st.columns(3)
+                c_rec1.metric("💰 Total já recebido", utils.to_br_currency(total_recebido))
+                c_rec2.metric("⏳ Falta receber", utils.to_br_currency(falta_receber))
+                c_rec3.metric("💳 Taxa de cartão (proporcional)", utils.to_br_currency(valor_cartao_taxa))
 
                 st.markdown("---")
                 f_col4, f_col5, f_col6 = st.columns(3)
@@ -1144,19 +1206,31 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     "pago_instalador": novo_pago_instalador,
                     "data_pagamento_instalador": nova_data_pag_inst.strftime('%Y-%m-%d') if nova_data_pag_inst else None,
                     "data_inicio_garantia": nova_data_garantia.strftime('%Y-%m-%d') if nova_data_garantia else None,
-                    "custo_comissao": valor_comissao, 
+                    "custo_comissao": valor_comissao,
                     "custo_impostos": valor_nf,
-                    "custo_cartao": valor_cartao_taxa, 
+                    "custo_cartao": valor_cartao_taxa,
                     "valor_venda_total": venda_final,
-                    "lucro_estimado": lucro_final, 
+                    "lucro_estimado": lucro_final,
                     "notas_internas": notas,
                     "nf_entrada": nova_nf_entrada,
                     "vencimento_boleto": novo_venc_boleto.strftime('%Y-%m-%d') if novo_venc_boleto else None,
-                    "pago_avista_fornecedor": pago_avista
+                    "pago_avista_fornecedor": pago_avista,
+                    "pagamentos_recebidos": lista_pagamentos_salvar,
                 }
                 try:
                     _status_antes = str(projeto_selecionado.get('status_projeto') or '')
-                    supabase.table('servicos_andamento').update(dados).eq('id', id_projeto).execute()
+                    try:
+                        supabase.table('servicos_andamento').update(dados).eq('id', id_projeto).execute()
+                    except Exception:
+                        # Coluna "pagamentos_recebidos" ainda não existe nesse
+                        # Supabase (sql_pagamentos_recebidos.sql não rodado) —
+                        # grava o resto sem ela em vez de perder o salvamento
+                        # inteiro; os valores continuam corretos (custo_cartao
+                        # já veio somado dos pagamentos), só a lista detalhada
+                        # de quem pagou o quê não persiste até a migração rodar.
+                        supabase.table('servicos_andamento').update(
+                            {k: v for k, v in dados.items() if k != "pagamentos_recebidos"}
+                        ).eq('id', id_projeto).execute()
 
                     if novo_status != _status_antes:
                         movimentacoes.registrar(
@@ -1180,6 +1254,8 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                         del st.session_state[f"last_status_{prefix_key}"]
                     if f"data_edit_{prefix_key}" in st.session_state:
                         del st.session_state[f"data_edit_{prefix_key}"]
+                    if f"pagamentos_{prefix_key}" in st.session_state:
+                        del st.session_state[f"pagamentos_{prefix_key}"]
 
                     st.success("✅ Atualizado com sucesso!")
                     st.rerun()

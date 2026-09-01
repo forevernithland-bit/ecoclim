@@ -25,6 +25,7 @@ import tela_airnb
 import tela_documentos
 import tela_relatorios
 import estoque_materiais
+import lembretes_erp
 
 # =============================================================================
 # 3. FUNÇÕES AUXILIARES PARA LEMBRETES NA PÁGINA INICIAL
@@ -47,6 +48,120 @@ def add_months_app(dt, months):
     month = month % 12 + 1
     day = min(dt.day, [31, 29 if year % 4 == 0 and not year % 100 == 0 or year % 400 == 0 else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1])
     return dt.replace(year=year, month=month, day=day)
+
+
+# --- Lembretes pessoais (mesma tabela do app do celular e do Claude) ---------
+# Abre pelo ícone ⏰ ao lado da logo. Não é item de menu de propósito.
+# O conteúdo é um @st.fragment: os cliques (marcar, adiar, adicionar) fazem
+# rerun só do fragmento — o diálogo continua aberto.
+@st.dialog("⏰ Lembretes", width="large")
+def _dialog_lembretes():
+    _painel_lembretes_erp()
+
+
+@st.fragment
+def _painel_lembretes_erp():
+    import datetime as _dt
+    L = lembretes_erp
+
+    opcoes = ["Tudo"] + [lbl for _, lbl in L.CATEGORIAS]
+    sel = st.radio("Filtrar", opcoes, horizontal=True,
+                   key="lem_erp_filtro", label_visibility="collapsed")
+    slug = None if sel == "Tudo" else L.slug_do_label(sel)
+
+    try:
+        linhas = L.listar(categoria=slug, incluir_feitos=True)
+    except Exception as e:
+        st.error(f"Não consegui ler os lembretes: {e}")
+        return
+    abertos = [x for x in linhas if not x.get("feito")]
+    feitos = [x for x in linhas if x.get("feito")][:10]
+
+    atrasados = [x for x in abertos if L.esta_atrasado(x)]
+    resto = [x for x in abertos if not L.esta_atrasado(x)]
+
+    if not abertos:
+        st.caption("Nada na lista aqui. 🎉")
+
+    for grupo, titulo in ((atrasados, "Atrasados"), (resto, None)):
+        if not grupo:
+            continue
+        if titulo:
+            st.markdown(f"**:red[{titulo}]**")
+        for lem in grupo:
+            c_chk, c_body, c_menu = st.columns([0.07, 0.80, 0.13])
+            with c_chk:
+                if st.checkbox("ok", key=f"lem_erp_chk_{lem['id']}",
+                               label_visibility="collapsed"):
+                    L.marcar_feito(lem, True)
+                    st.rerun(scope="fragment")
+            with c_body:
+                atras = L.esta_atrasado(lem)
+                chip = f":{'red' if atras else 'gray'}-background[{L.rotulo(lem.get('categoria'))}]"
+                prio = " ‼️" if (lem.get("prioridade") or 0) >= 1 else ""
+                q = L.quando_br(lem.get("lembrar_em"))
+                q_md = (f" · :red[{q}]" if atras else (f" · :gray[{q}]" if q else ""))
+                rep = f" · :gray[⟳ {lem['repetir']}]" if lem.get("repetir") else ""
+                st.markdown(f"{chip}  {lem['texto']}{prio}{q_md}{rep}")
+            with c_menu:
+                with st.popover("⋮", use_container_width=True):
+                    slugs = [s for s, _ in L.CATEGORIAS]
+                    nova = st.selectbox(
+                        "Categoria", slugs, index=slugs.index(lem.get("categoria") or "pessoal"),
+                        format_func=L.rotulo, key=f"lem_erp_cat_{lem['id']}")
+                    if nova != (lem.get("categoria") or "pessoal"):
+                        L.mudar_categoria(lem["id"], nova)
+                        st.rerun(scope="fragment")
+                    ad_d = st.date_input("Adiar para", value=None,
+                                         key=f"lem_erp_adi_d_{lem['id']}", format="DD/MM/YYYY")
+                    ad_t = st.time_input("Hora", value=_dt.time(9, 0),
+                                         key=f"lem_erp_adi_t_{lem['id']}")
+                    if st.button("Adiar", key=f"lem_erp_adi_b_{lem['id']}", use_container_width=True):
+                        if ad_d:
+                            L.adiar(lem["id"], L.montar_lembrar_em(ad_d, ad_t))
+                            st.rerun(scope="fragment")
+                    if st.button("🗑️ Excluir", key=f"lem_erp_del_{lem['id']}", use_container_width=True):
+                        L.excluir(lem["id"])
+                        st.rerun(scope="fragment")
+
+    st.divider()
+    with st.expander("➕ Adicionar lembrete", expanded=not abertos):
+        txt = st.text_input("O que precisa fazer?", key="lem_erp_novo_txt",
+                            placeholder="Ex: enviar orçamento cozinha industrial")
+        a1, a2 = st.columns(2)
+        cat = a1.selectbox("Categoria", [s for s, _ in L.CATEGORIAS],
+                           format_func=L.rotulo, index=3, key="lem_erp_novo_cat")
+        rep = a2.selectbox("Repetir", ["", "diario", "semanal", "uteis"],
+                           format_func=lambda x: {"": "Não repete", "diario": "Todo dia",
+                                                  "semanal": "Toda semana", "uteis": "Dias úteis"}[x],
+                           key="lem_erp_novo_rep")
+        usar_hora = st.checkbox("Definir data/hora de aviso", key="lem_erp_novo_usarhora")
+        d = t = None
+        if usar_hora:
+            h1, h2 = st.columns(2)
+            d = h1.date_input("Data", value="today", key="lem_erp_novo_data", format="DD/MM/YYYY")
+            t = h2.time_input("Hora", value=_dt.time(9, 0), key="lem_erp_novo_hora")
+        prio = st.checkbox("‼️ Importante", key="lem_erp_novo_prio")
+        if st.button("Adicionar", type="primary", use_container_width=True, key="lem_erp_novo_add"):
+            if not txt.strip():
+                st.warning("Escreva o texto do lembrete.")
+            else:
+                L.criar(txt, categoria=cat,
+                        lembrar_em=L.montar_lembrar_em(d, t) if usar_hora else None,
+                        repetir=rep or None, prioridade=1 if prio else 0)
+                for k in ("lem_erp_novo_txt", "lem_erp_novo_prio", "lem_erp_novo_usarhora"):
+                    st.session_state.pop(k, None)
+                st.rerun(scope="fragment")
+
+    if feitos:
+        with st.expander(f"✓ Já feitos ({len(feitos)})"):
+            for lem in feitos:
+                fc1, fc2 = st.columns([0.85, 0.15])
+                fc1.markdown(f":gray[~~{lem['texto']}~~] · :gray-background[{L.rotulo(lem.get('categoria'))}]")
+                if fc2.button("↩︎", key=f"lem_erp_reab_{lem['id']}", help="Reabrir"):
+                    L.marcar_feito(lem, False)
+                    st.rerun(scope="fragment")
+
 
 # =============================================================================
 # 4. CONEXÃO COM O BANCO DE DADOS
@@ -153,6 +268,38 @@ else:
         if os.path.exists("logo.png"):
             st.image("logo.png", use_container_width=True)
 
+        # --- Ícone de Lembretes: logo abaixo da logo, só Admin. Abre um
+        #     diálogo (não é item de menu, de propósito). ---
+        if perfil == "Admin":
+            try:
+                _lem_atras = lembretes_erp.contar_atrasados()
+            except Exception:
+                _lem_atras = 0
+            st.markdown("""
+            <style>
+              .st-key-abrir_lembretes_erp button {
+                border-radius:999px !important; border:none !important;
+                background:linear-gradient(135deg,var(--brand),var(--brand-dark)) !important;
+                color:#fff !important; font-size:1.05rem !important; font-weight:700 !important;
+                padding:5px 0 !important; min-height:0 !important;
+                box-shadow:0 4px 14px rgba(15,157,88,.35) !important;
+                transition:transform .15s ease, box-shadow .15s ease !important;
+              }
+              .st-key-abrir_lembretes_erp button:hover {
+                transform:translateY(-1px) !important;
+                box-shadow:0 7px 18px rgba(15,157,88,.5) !important;
+              }
+              .st-key-abrir_lembretes_erp button p { font-size:1.05rem !important; }
+            </style>
+            """, unsafe_allow_html=True)
+            _lc1, _lc2, _lc3 = st.columns([1, 1.4, 1])
+            with _lc2:
+                _lbl = "⏰" if not _lem_atras else f"⏰ {_lem_atras}"
+                if st.button(_lbl, key="abrir_lembretes_erp",
+                             use_container_width=True, help="Seus lembretes"):
+                    st.session_state["_abrir_lem_erp"] = True
+                    st.rerun()
+
         nome_logado = st.session_state.get('usuario_logado', 'Usuário')
         st.markdown(
             f"<div style='text-align:center; padding:8px 0 2px;'>"
@@ -202,6 +349,10 @@ else:
             if 'usuario_logado' in st.session_state: del st.session_state['usuario_logado']
             if 'perfil_logado' in st.session_state: del st.session_state['perfil_logado']
             st.rerun()
+
+    # Abre o diálogo de Lembretes fora do contexto da sidebar (mais seguro).
+    if st.session_state.pop("_abrir_lem_erp", False):
+        _dialog_lembretes()
 
     # =============================================================================
     # 8. ROTEADOR DE TELAS (CHAMA OS MÓDULOS)
