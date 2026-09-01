@@ -63,11 +63,30 @@ def obter_data_atual_br():
     tz_br = datetime.timezone(datetime.timedelta(hours=-3))
     return datetime.datetime.now(tz_br).date()
 
-hoje = datetime.date.today()
-ano_atual = hoje.year
 meses_pt = ['JANEIRO', 'FEVEREIRO', 'MARÇO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO']
-mes_hoje_idx = hoje.month
-mes_atual_nome = meses_pt[mes_hoje_idx - 1]
+
+# `hoje` / `ano_atual` / `mes_hoje_idx` / `mes_atual_nome` NÃO são variáveis
+# fixas — são calculadas TODA VEZ que alguém faz `utils.hoje` etc. (via
+# __getattr__ do módulo, PEP 562), sempre no fuso de Brasília. Antes eram
+# `hoje = datetime.date.today()` de nível de módulo: como o Python só executa
+# o corpo do módulo uma vez por processo, e o Streamlit Cloud pode manter o
+# mesmo processo rodando por dias sem reiniciar, o "hoje" ficava congelado no
+# dia em que o servidor tinha subido pela última vez — foi exatamente o motivo
+# do Destaque/Limite de Gasto continuar em "AGOSTO" depois que o mês virou
+# (2026-09-01). Ler a hora de cada acesso resolve para sempre, sem precisar
+# reiniciar o app nem mexer nos ~14 lugares que já usam `utils.hoje`/
+# `utils.ano_atual`/`utils.mes_hoje_idx`/`utils.mes_atual_nome`.
+def __getattr__(nome):
+    if nome in ("hoje", "ano_atual", "mes_hoje_idx", "mes_atual_nome"):
+        _hoje = obter_data_atual_br()
+        if nome == "hoje":
+            return _hoje
+        if nome == "ano_atual":
+            return _hoje.year
+        if nome == "mes_hoje_idx":
+            return _hoje.month
+        return meses_pt[_hoje.month - 1]  # mes_atual_nome
+    raise AttributeError(f"module {__name__!r} has no attribute {nome!r}")
 
 def init_connection():
     from supabase import create_client
