@@ -19,14 +19,42 @@ TIPOS_INSTALACAO = [
     # (tipo canônico, termos em minúsculo)
     ("acoplado",    ["acoplado"]),
     ("modular",     ["modular", "modul", "módul", "vácuo", "vacuo"]),
+    # "piscina" vem ANTES de "tradicional" de propósito: o item "COLETOR POOL
+    # / M²" (equipamentos de Aquecedor de Piscina) também bate no termo
+    # genérico "coletor" da linha de baixo, e sem essa prioridade a Parte 1
+    # ficaria sugerindo "Aquecedor Solar Tradicional" por cima da capa de
+    # piscina que o próprio pré-preenchimento acabou de selecionar.
+    ("piscina",     ["piscina", "pool"]),
     ("tradicional", ["coletor", "tradicional", "placa"]),
 ]
 
 CAPA_POR_TIPO = {
     "acoplado":    "Aquecedor Solar a Vácuo Acoplado",
     "modular":     "Aquecedor Solar Modular",
+    "piscina":     "Aquecedor de Piscina - Tradicional",
     "tradicional": "Aquecedor Solar Tradicional",
 }
+
+# Equipamentos padrão do "Aquecedor de Piscina - Tradicional" (cadastrados em
+# Configurações → Edição do Catálogo), pré-preenchidos em Equipamentos assim
+# que esse modelo é escolhido como Capa — pedido do Breno em 2026-09-02.
+# MOTO BOMBA fica de fora de propósito ("pode variar" — cada piscina pede um
+# CV diferente, então ele prefere sempre escolher manualmente).
+# Margem 43% pedida especificamente pra esse pacote: a Venda de cada linha é
+# recalculada aqui (Custo × 1.43) na hora do preenchimento, independente da
+# margem cadastrada no catálogo para o item — o Controlador Digital, por
+# exemplo, é compartilhado com outras instalações e continua com 33% no
+# cadastro geral.
+ITENS_PISCINA_TRADICIONAL = [
+    "COLETOR POOL / M²",
+    "VÁLVULA VENTOSA - 3/4 DUPLO EFEITO",
+    "VÁLVULA RETENÇÃO 1\"",
+    "CONTROLADOR DIGITAL TEMPERATURA MMZ 220VCA",
+    "POÇO SENSOR",
+    "KITS FECHAMENTO",
+    "CAPA (M²)",
+]
+MARGEM_PISCINA_TRADICIONAL = 0.43
 
 # Unidade da medida que compõe o nome do serviço, por tipo, e de qual produto
 # a medida deve ser lida:
@@ -147,6 +175,12 @@ def sugerir_servico_por_produtos(df, db_servicos):
     tipo = detectar_tipo_instalacao(df)
     if not tipo:
         return None
+    if tipo == "piscina":
+        # Sem automação de serviço pra piscina: não segue o padrão "litros do
+        # Boiler" dos outros tipos, e o valor de instalação varia demais
+        # (tamanho da piscina) pra ter um serviço fixo no catálogo. O Breno
+        # preenche esse campo manualmente.
+        return None
     medida, unidade = _medida_do_tipo(df, tipo)
     if medida is None:
         return {"tipo": tipo, "medida": None, "unidade": unidade,
@@ -160,6 +194,32 @@ def sugerir_servico_por_produtos(df, db_servicos):
 def _assinatura_produtos(df):
     """Assinatura dos produtos selecionados, para detectar mudanças na seleção."""
     return tuple(_nomes_produtos(df))
+
+
+def _preencher_equipamentos_piscina(cat_produtos):
+    """Monta as linhas de Equipamentos do Aquecedor de Piscina - Tradicional
+    (ver ITENS_PISCINA_TRADICIONAL), com Custo lido do catálogo e Venda
+    recalculada a MARGEM_PISCINA_TRADICIONAL (43%)."""
+    linhas = []
+    for nome in ITENS_PISCINA_TRADICIONAL:
+        match = cat_produtos[cat_produtos['Item'].astype(str).str.strip() == nome]
+        if not match.empty:
+            custo = match.get('Custo (R$)', pd.Series([0.0])).values[0]
+            custo = float(custo) if pd.notna(custo) else 0.0
+            desc = match['Descrição'].values[0]
+            desc = str(desc) if pd.notna(desc) and str(desc).lower() != 'nan' else ""
+        else:
+            custo, desc = 0.0, ""
+        venda = round(custo * (1 + MARGEM_PISCINA_TRADICIONAL), 2)
+        linhas.append({
+            "Produto da Base": nome, "Produto Manual": "", "Descrição": desc,
+            "Quantidade": 1, "Custo (R$)": custo, "Venda (R$)": venda,
+            "Custo Total": custo, "Venda Total": venda,
+        })
+    while len(linhas) < 5:
+        linhas.append({"Produto da Base": "", "Produto Manual": "", "Descrição": "", "Quantidade": 0,
+                        "Custo (R$)": 0.0, "Venda (R$)": 0.0, "Custo Total": 0.0, "Venda Total": 0.0})
+    return pd.DataFrame(linhas)
 
 
 # ---------------------------------------------------------------------------
@@ -660,6 +720,23 @@ def renderizar(lista_nomes_produtos, limpar_func):
             "Aquecedor de Piscina - Trocador de Calor",
             "Sistema de Pressurização"
         ], key="input_modelo_capa")
+
+        # Pré-preenchimento automático de Equipamentos ao escolher "Aquecedor
+        # de Piscina - Tradicional" (pedido do Breno, 2026-09-02). Só dispara
+        # numa troca de fato e só se a lista de Equipamentos ainda estiver
+        # vazia — nunca sobrescreve um orçamento que já está sendo montado.
+        if 'capa_anterior_piscina' not in st.session_state:
+            st.session_state.capa_anterior_piscina = modelo_capa
+        elif modelo_capa != st.session_state.capa_anterior_piscina:
+            st.session_state.capa_anterior_piscina = modelo_capa
+            if modelo_capa == "Aquecedor de Piscina - Tradicional":
+                df_atual_equip = st.session_state.get('df_orc')
+                if df_atual_equip is None or not _nomes_produtos(df_atual_equip):
+                    st.session_state.df_orc = _preencher_equipamentos_piscina(cat_produtos)
+                    st.session_state.df_orc_prev = st.session_state.df_orc.copy()
+                    if "editor_orc_base" in st.session_state:
+                        del st.session_state["editor_orc_base"]
+                    deve_rerun = True
 
     with st.container(border=True):
         st.subheader("⚙️ 1. Equipamentos")
