@@ -73,6 +73,19 @@ export async function puxarTodosOsServicos() {
   return data || [];
 }
 
+// Lista de instaladores cadastrados — usada pro admin poder escolher/trocar
+// o responsável por uma visita da Agenda direto pelo celular (antes só dava
+// pra fazer isso no ERP desktop). Mesma tabela que o ERP já lê.
+export async function puxarInstaladores() {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from("config_instaladores")
+    .select("nome")
+    .order("nome");
+  if (error) throw error;
+  return (data || []).map((r) => r.nome).filter(Boolean);
+}
+
 // Edição/exclusão direta (admin) de um serviço/instalação.
 export async function atualizarServico(id, patch) {
   const supabase = getSupabase();

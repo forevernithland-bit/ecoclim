@@ -913,7 +913,12 @@ def renderizar():
         else:
             fc1, fc2, fc3 = st.columns(3)
             with fc1:
-                _filtro_inst = st.selectbox("Instalador", ["Todos"] + lista_instaladores, key="filtro_agenda_inst")
+                _opcoes_filtro_inst = ["Todos"] + lista_instaladores
+                # Pré-selecionado no Valdimar — é o instalador que o Breno
+                # confere com mais frequência; ele troca pra "Todos" ou pro
+                # Sérgio quando precisar, o selectbox lembra a escolha na sessão.
+                _idx_filtro_inst = _opcoes_filtro_inst.index("Valdimar") if "Valdimar" in _opcoes_filtro_inst else 0
+                _filtro_inst = st.selectbox("Instalador", _opcoes_filtro_inst, index=_idx_filtro_inst, key="filtro_agenda_inst")
             with fc2:
                 _filtro_status = st.selectbox("Status", ["Todos", "Agendada", "Realizada", "Cancelada"], key="filtro_agenda_status")
             with fc3:
