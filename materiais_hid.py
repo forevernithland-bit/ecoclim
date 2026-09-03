@@ -190,6 +190,19 @@ def renderizar():
                 },
                 key=f"editor_nova_lista_hid_{len(st.session_state[_itens_nova_lista_key])}",
             )
+            # Soma ao vivo — lê o dataframe JÁ editado, então acompanha qualquer
+            # alteração de qtd ou de Venda Unit. (desconto pontual) a cada
+            # interação, sem precisar salvar antes. Pedido do Breno (2026-09-03).
+            _qtd_soma_h = pd.to_numeric(df_nova_edit.get('qtd'), errors='coerce').fillna(0)
+            _venda_soma_h = pd.to_numeric(df_nova_edit.get('venda_unitario'), errors='coerce').fillna(0)
+            _custo_soma_h = pd.to_numeric(df_nova_edit.get('custo_unitario'), errors='coerce').fillna(0)
+            _total_venda_soma_h = float((_qtd_soma_h * _venda_soma_h).sum())
+            _total_custo_soma_h = float((_qtd_soma_h * _custo_soma_h).sum())
+            st.markdown(
+                f"**Total de Venda: {utils.to_br_currency(_total_venda_soma_h)}**"
+                f"  ·  Custo: {utils.to_br_currency(_total_custo_soma_h)}"
+                f"  ·  Lucro: {utils.to_br_currency(_total_venda_soma_h - _total_custo_soma_h)}"
+            )
             if st.button("💾 Salvar lista de materiais", type="primary", key="btn_save_nova_lista_hid"):
                 _itens_final = (
                     df_nova_edit.drop(columns=['custo_unitario'], errors='ignore')

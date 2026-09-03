@@ -1230,6 +1230,19 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                         },
                         key=f"editor_novo_mat_{prefix_key}_{len(st.session_state[_novos_itens_key])}",
                     )
+                    # Soma ao vivo — lê o dataframe JÁ editado, então acompanha
+                    # qualquer alteração de qtd ou de Venda Unit. (desconto pontual)
+                    # a cada interação, sem precisar salvar antes. Pedido do Breno (2026-09-03).
+                    _qtd_soma = pd.to_numeric(df_novo_editado.get('qtd'), errors='coerce').fillna(0)
+                    _venda_soma = pd.to_numeric(df_novo_editado.get('venda_unitario'), errors='coerce').fillna(0)
+                    _custo_soma = pd.to_numeric(df_novo_editado.get('custo_unitario'), errors='coerce').fillna(0)
+                    _total_venda_soma = float((_qtd_soma * _venda_soma).sum())
+                    _total_custo_soma = float((_qtd_soma * _custo_soma).sum())
+                    st.markdown(
+                        f"**Total de Venda: {utils.to_br_currency(_total_venda_soma)}**"
+                        f"  ·  Custo: {utils.to_br_currency(_total_custo_soma)}"
+                        f"  ·  Lucro: {utils.to_br_currency(_total_venda_soma - _total_custo_soma)}"
+                    )
                     if st.button("💾 Salvar nova lista de materiais", key=f"btn_save_novo_mat_{prefix_key}"):
                         _itens_final = (
                             df_novo_editado.drop(columns=['custo_unitario'], errors='ignore')
