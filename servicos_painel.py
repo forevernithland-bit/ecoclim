@@ -1216,9 +1216,17 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                         lambda n: float((_precos_por_item_mat.get(n) or {}).get('venda') or 0))
                     df_novo_editado = st.data_editor(
                         df_novo, num_rows="dynamic", use_container_width=True,
+                        column_order=[c for c in ['item', 'qtd', 'unidade', 'categoria', 'custo_unitario', 'venda_unitario'] if c in df_novo.columns],
                         column_config={
-                            "custo_unitario": st.column_config.NumberColumn("Custo Unit.", format="R$ %.2f", disabled=True),
-                            "venda_unitario": st.column_config.NumberColumn("Venda Unit. (editável — desconto pontual)", format="R$ %.2f"),
+                            "item": st.column_config.TextColumn("Item", width="large"),
+                            "qtd": st.column_config.NumberColumn("Qtd", width="small", min_value=0),
+                            "unidade": st.column_config.TextColumn("Un.", width="small"),
+                            "categoria": st.column_config.TextColumn("Categoria", width="small"),
+                            "custo_unitario": st.column_config.NumberColumn("Custo Unit.", format="R$ %.2f", width="small", disabled=True),
+                            "venda_unitario": st.column_config.NumberColumn(
+                                "Venda Unit.", format="R$ %.2f", width="small",
+                                help="Editável — mude aqui pra dar desconto pontual só nesta lista, sem afetar o preço cadastrado no catálogo.",
+                            ),
                         },
                         key=f"editor_novo_mat_{prefix_key}_{len(st.session_state[_novos_itens_key])}",
                     )

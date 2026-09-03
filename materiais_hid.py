@@ -176,9 +176,17 @@ def renderizar():
                 lambda n: float((_precos_por_item_hid.get(n) or {}).get('venda') or 0))
             df_nova_edit = st.data_editor(
                 df_nova, num_rows="dynamic", use_container_width=True,
+                column_order=[c for c in ['item', 'qtd', 'unidade', 'categoria', 'custo_unitario', 'venda_unitario'] if c in df_nova.columns],
                 column_config={
-                    "custo_unitario": st.column_config.NumberColumn("Custo Unit.", format="R$ %.2f", disabled=True),
-                    "venda_unitario": st.column_config.NumberColumn("Venda Unit. (editável — desconto pontual)", format="R$ %.2f"),
+                    "item": st.column_config.TextColumn("Item", width="large"),
+                    "qtd": st.column_config.NumberColumn("Qtd", width="small", min_value=0),
+                    "unidade": st.column_config.TextColumn("Un.", width="small"),
+                    "categoria": st.column_config.TextColumn("Categoria", width="small"),
+                    "custo_unitario": st.column_config.NumberColumn("Custo Unit.", format="R$ %.2f", width="small", disabled=True),
+                    "venda_unitario": st.column_config.NumberColumn(
+                        "Venda Unit.", format="R$ %.2f", width="small",
+                        help="Editável — mude aqui pra dar desconto pontual só nesta lista, sem afetar o preço cadastrado no catálogo.",
+                    ),
                 },
                 key=f"editor_nova_lista_hid_{len(st.session_state[_itens_nova_lista_key])}",
             )
