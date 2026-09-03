@@ -4,6 +4,27 @@ import io
 import utils
 import gestao_click
 
+# Margem padrão por palavra-chave no nome do item, aplicada automaticamente
+# sempre que um item entra pela importação de Excel (Configurações →
+# Produtos/Serviços/Terceiros → Importar Planilha). Sem isso, item novo entra
+# com margem 0% (Venda = Custo) até alguém editar na mão — decisão do Breno
+# (2026-09-02): Trocador de Calor já nasce com 24,5%, tanto os que já existem
+# no catálogo quanto qualquer um novo importado daqui pra frente.
+MARGEM_POR_PALAVRA_CHAVE = [
+    ("TROCADOR DE CALOR", 24.5),
+]
+
+
+def _margem_automatica_item(nome_item):
+    """Margem (%) padrão pro item pela palavra-chave no nome, ou None se
+    nenhuma regra bater (nesse caso quem chama decide, nunca inventa aqui)."""
+    nome_norm = str(nome_item or "").strip().upper()
+    for chave, margem in MARGEM_POR_PALAVRA_CHAVE:
+        if chave in nome_norm:
+            return margem
+    return None
+
+
 def renderizar():
     st.markdown("## ⚙️ Configurações e Catálogos")
 
@@ -43,9 +64,12 @@ def renderizar():
         elif "DESCRICAO" in df_excel.columns: df_final["Descrição"] = df_excel["DESCRICAO"].fillna("")
         else: df_final["Descrição"] = ""
         
-        df_final["Margem (%)"] = 0.0
-        df_final["Lucro (R$)"] = 0.0
-        df_final["Venda (R$)"] = df_final["Custo (R$)"]
+        # Margem 0% (Venda = Custo) é só o piso — item cujo nome bate com uma
+        # regra de MARGEM_POR_PALAVRA_CHAVE (ex.: Trocador de Calor) já entra
+        # com a margem certa, sem precisar editar linha por linha depois.
+        df_final["Margem (%)"] = df_final["Item"].apply(lambda n: _margem_automatica_item(n) or 0.0)
+        df_final["Venda (R$)"] = (df_final["Custo (R$)"] * (1 + df_final["Margem (%)"] / 100)).round(2)
+        df_final["Lucro (R$)"] = (df_final["Venda (R$)"] - df_final["Custo (R$)"]).round(2)
         return df_final
 
     # =========================================================================
