@@ -15,7 +15,7 @@ import { VERSAO_APP, observarAtualizacoes, verificarAtualizacao, aplicarAtualiza
 import {
   puxarCatalogoProdutos, puxarCatalogoServicos, puxarCatalogoOutros,
   puxarRascunhos, carregarRascunho, excluirRascunho, salvarOrcamento,
-  buscarSugestao, gerarPdfOrcamento, calcularCustos, puxarServicosEmpresa, puxarTodosOsServicos,
+  buscarSugestao, gerarPdfOrcamento, gerarPdfListaMateriais, calcularCustos, puxarServicosEmpresa, puxarTodosOsServicos,
   atualizarServico, excluirServico, puxarInstaladores,
 } from "./orcamentos.js";
 
@@ -407,7 +407,7 @@ async function viewDetalheAdmin(s) {
       }
       if (alvo === "materiais" && !materiaisCarregados) {
         materiaisCarregados = true;
-        renderizarListaMateriaisCliente(s.id, "materiais-lista-cliente-admin");
+        renderizarListaMateriaisCliente(s.id, "materiais-lista-cliente-admin", true);
       }
     });
   });
@@ -1765,12 +1765,14 @@ function gerarTextoListaMateriais(clienteNome, itens) {
   return [cabecalho, ...blocos].join("\n\n");
 }
 
-function botaoWhatsAppListaHTML(idx) {
+function botaoWhatsAppListaHTML(idx, comPdf) {
   return `
     <div style="display:flex; gap:8px; margin-top:6px;">
       <button type="button" class="botao botao--secundario botao--mini" data-copiar-lista="${idx}" style="flex:1;">📋 Copiar</button>
       <button type="button" class="botao botao--secundario botao--mini" data-whatsapp-lista="${idx}" style="flex:1;">📤 WhatsApp</button>
-    </div>`;
+      ${comPdf ? `<button type="button" class="botao botao--secundario botao--mini" data-pdf-lista="${idx}" style="flex:1;">📄 PDF</button>` : ""}
+    </div>
+    ${comPdf ? `<div id="pdf-lista-resultado-${idx}" style="margin-top:6px;"></div>` : ""}`;
 }
 
 function ligarBotoesWhatsAppLista(elId, listas) {
@@ -1799,11 +1801,45 @@ function ligarBotoesWhatsAppLista(elId, listas) {
       }
     });
   });
+  // PDF pro cliente (preço de venda, formato horizontal aprovado em revisão
+  // de marketing 2026-09-03) — mesma função do ERP (utils.gerar_pdf_lista_materiais),
+  // via API, nunca desalinha preço entre ERP e app.
+  el.querySelectorAll("[data-pdf-lista]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const idx = Number(btn.dataset.pdfLista);
+      const lista = listas[idx];
+      const destino = document.getElementById(`pdf-lista-resultado-${idx}`);
+      if (!lista || !destino) return;
+      const original = btn.textContent;
+      btn.disabled = true; btn.textContent = "Gerando...";
+      try {
+        const r = await gerarPdfListaMateriais({
+          nome_cliente: lista.cliente_nome || "Cliente",
+          telefone: "",
+          itens: (lista.itens || []).map((i) => ({ item: i.item, qtd: Number(i.qtd) || 1 })),
+        });
+        const blob = await (await fetch(`data:application/pdf;base64,${r.pdf_base64}`)).blob();
+        const url = URL.createObjectURL(blob);
+        const avisoSemPreco = (r.itens_sem_preco || []).length
+          ? `<p class="dica">⚠️ Sem preço cadastrado: ${r.itens_sem_preco.map(escapeHTML).join(", ")}</p>` : "";
+        destino.innerHTML = `
+          <p class="dica">Total: ${formatarBRL(r.valor_total)}</p>
+          ${avisoSemPreco}
+          <a href="${url}" download="${escapeAttr(r.nome_arquivo)}" class="botao botao--secundario" style="display:block; text-align:center;">📥 Baixar PDF</a>`;
+      } catch (e) {
+        destino.innerHTML = `<p class="dica">Não deu pra gerar o PDF agora — confira a internet e tente de novo.</p>`;
+      } finally {
+        btn.disabled = false; btn.textContent = original;
+      }
+    });
+  });
 }
 
 // Lista de materiais de UM cliente específico, mostrada dentro da tela de
 // detalhe da instalação — diferente da lista "avulsa" da aba Materiais.
-async function renderizarListaMateriaisCliente(servicoId, elId) {
+// `comPdf`: só o admin tem o botão "Gerar PDF" aqui (o instalador já tem
+// Copiar/WhatsApp na tela dele, que é onde ele monta a lista em campo).
+async function renderizarListaMateriaisCliente(servicoId, elId, comPdf = false) {
   const el = document.getElementById(elId);
   if (!el) return;
   const listas = await puxarListaDoServico(servicoId);
@@ -1817,7 +1853,7 @@ async function renderizarListaMateriaisCliente(servicoId, elId) {
     <div class="cartao" style="margin-bottom:8px;">
       <div class="cartao-sub">${(l.itens || []).length} item(ns)</div>
       <div class="cartao-sub">${(l.itens || []).map((i) => `${i.qtd}x ${escapeHTML(i.item)} (${escapeHTML(i.unidade || "un")})`).join(", ")}</div>
-      ${botaoWhatsAppListaHTML(idx)}
+      ${botaoWhatsAppListaHTML(idx, comPdf)}
     </div>
   `).join("");
   ligarBotoesWhatsAppLista(elId, listas);

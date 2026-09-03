@@ -27,6 +27,13 @@ export async function gerarPdfOrcamento(payload) {
   return chamarApi("/orcamento-personalizado/gerar-pdf", payload);
 }
 
+// PDF de lista de materiais (formato horizontal, aprovado em revisão de
+// marketing 2026-09-03) — usa a MESMA função utils.gerar_pdf_lista_materiais
+// que o botão "Gerar PDF" do ERP, então nunca desalinha preço entre os dois.
+export async function gerarPdfListaMateriais(payload) {
+  return chamarApi("/materiais/gerar-pdf", payload);
+}
+
 export async function calcularCustos(payload) {
   return chamarApi("/orcamento-personalizado/calculo-custos", payload);
 }

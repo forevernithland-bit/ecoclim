@@ -56,6 +56,28 @@ def renderizar():
                             _url_wa = "https://wa.me/?text=" + urllib.parse.quote(_texto_lm)
                             st.markdown(f"[📤 Abrir no WhatsApp]({_url_wa})")
 
+                        # PDF pro cliente, com preço de venda (formato horizontal
+                        # aprovado em revisão de marketing — 2026-09-03). Gerado na
+                        # hora do clique, não fica salvo: se a lista mudar, o PDF do
+                        # próximo clique já sai atualizado.
+                        if st.button("📄 Gerar PDF pro cliente", key=f"btn_pdf_lista_hid_{lm['id']}", use_container_width=True):
+                            try:
+                                _pdf_buf, _total_pdf, _sem_preco = utils.gerar_pdf_lista_materiais(
+                                    supabase, lm.get('cliente_nome') or "Cliente", "", _itens_lm,
+                                )
+                                st.session_state[f"pdf_lista_hid_{lm['id']}"] = _pdf_buf.getvalue()
+                                if _sem_preco:
+                                    st.warning(f"⚠️ {len(_sem_preco)} item(ns) sem preço de venda cadastrado, entraram como R$ 0,00: {', '.join(_sem_preco)}")
+                                st.success(f"PDF gerado — total {utils.to_br_currency(_total_pdf)}")
+                            except Exception as e:
+                                st.error(f"Erro ao gerar PDF: {e}")
+                        if st.session_state.get(f"pdf_lista_hid_{lm['id']}"):
+                            st.download_button(
+                                "⬇️ Baixar PDF", data=st.session_state[f"pdf_lista_hid_{lm['id']}"],
+                                file_name=f"materiais_{(lm.get('cliente_nome') or 'cliente').replace(' ', '_')}.pdf",
+                                mime="application/pdf", key=f"dl_pdf_lista_hid_{lm['id']}", use_container_width=True,
+                            )
+
                     col_ed, col_ex = st.columns(2)
                     if col_ed.button("✏️ Editar", key=f"btn_edit_lista_hid_{lm['id']}", use_container_width=True):
                         st.session_state[_editando_lista_key] = lm['id'] if st.session_state.get(_editando_lista_key) != lm['id'] else None

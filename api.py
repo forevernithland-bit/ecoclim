@@ -575,6 +575,42 @@ async def orcamento_personalizado_calculo_custos(req: CalculoCustosRequest):
 
 
 # ==========================================
+# PDF DE LISTA DE MATERIAIS (usado pelo PWA — aba Materiais do cliente, admin)
+# ==========================================
+# Mesma lógica do botão "Gerar PDF" do ERP (materiais_hid.py): uma função só
+# (utils.gerar_pdf_lista_materiais) resolve o preço de venda no Supabase e
+# monta o PDF, pra nunca desalinhar preço entre ERP e app.
+class ItemListaMateriais(BaseModel):
+    item: str
+    qtd: float = 1.0
+    venda_override: Optional[float] = None
+
+
+class GerarPdfMateriaisRequest(BaseModel):
+    nome_cliente: str
+    telefone: Optional[str] = ""
+    itens: List[ItemListaMateriais]
+    observacoes: Optional[str] = "Lista de materiais para instalação."
+
+
+@app.post("/materiais/gerar-pdf")
+async def materiais_gerar_pdf(req: GerarPdfMateriaisRequest):
+    try:
+        pdf_buffer, total, itens_sem_preco = utils.gerar_pdf_lista_materiais(
+            supabase, req.nome_cliente, req.telefone or "",
+            [it.model_dump() for it in req.itens], req.observacoes,
+        )
+        pdf_b64 = base64.b64encode(pdf_buffer.getvalue()).decode('utf-8')
+        nome_arquivo = f"materiais_{req.nome_cliente.replace(' ', '_')}.pdf"
+        return {
+            "sucesso": True, "pdf_base64": pdf_b64, "nome_arquivo": nome_arquivo,
+            "valor_total": total, "itens_sem_preco": itens_sem_preco,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==========================================
 # NOTIFICAÇÕES PUSH (app do instalador — Android e iPhone)
 # ==========================================
 # O app registra o aparelho aqui uma vez (quando o usuário autoriza) e depois

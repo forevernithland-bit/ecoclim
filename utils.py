@@ -655,7 +655,14 @@ def _melhor_match_catalogo(desc_tokens, catalogo_indexado, categoria_secao):
             score += 0.15
         if score > melhor_score + 1e-9:
             melhor, melhor_score, empatou = item, score, False
-        elif abs(score - melhor_score) < 1e-9 and melhor is not None and item is not melhor:
+        elif abs(score - melhor_score) < 1e-9 and melhor is not None and item.get("item") != melhor.get("item"):
+            # Empate só é ambiguidade de verdade quando são NOMES diferentes
+            # (ex.: "joelho 22mm" sem grau, empatando entre 45° e 90°). Duas
+            # linhas do MESMO item (fabricantes diferentes, ex.: "Joelho CPVC
+            # 22mm 45°" em Amanco e Krona) empatam sempre — comparar por
+            # identidade do dict fazia isso ser tratado como ambíguo e
+            # descartava o item inteiro, exatamente pros itens que mais têm
+            # essa duplicação (ver [[erp-ecoclim-gestao-click-sync]]).
             empatou = True
     if melhor is None or melhor_score < 0.5 or empatou:
         return None
@@ -744,6 +751,222 @@ def gerar_texto_lista_materiais(cliente_nome, itens):
 
     cabecalho = f"*Lista de Materiais Cliente {cliente_nome}*" if cliente_nome else "*Lista de Materiais*"
     return "\n\n".join([cabecalho] + blocos)
+
+def _construir_pdf_material_horizontal(nome_cliente, telefone, itens_pdf, total, obs):
+    """PDF de lista de materiais em formato PAISAGEM — pedido do Breno
+    (2026-09-03) pra ficar parecido com uma nota de fornecedor (tipo a da
+    Capelini), mais larga e direta que o orçamento de equipamentos. Usado
+    SÓ pra material hidráulico avulso; o `gerar_pdf_orcamento` (equipamentos,
+    em pé) continua exatamente como está — não mexer nele por causa disto.
+
+    `itens_pdf`: lista de dicts {item, qtd, venda_un, venda_tot}.
+    """
+    from reportlab.lib.pagesizes import landscape
+
+    GRAFITE = colors.HexColor("#2b3440")
+    GRAFITE_DEEP = colors.HexColor("#171c24")
+    GOLD = colors.HexColor("#E4A100")
+    GREEN = colors.HexColor("#7FB01E")
+    INK = colors.HexColor("#1e2530")
+    MUTED = colors.HexColor("#6a7180")
+    HAIR = colors.HexColor("#e6e8ec")
+    PANEL = colors.HexColor("#f6f7f9")
+    ZEBRA = colors.HexColor("#fafbfc")
+
+    numero = f"MAT-{datetime.datetime.now().strftime('%y%m%d-%H%M')}"
+    data_str = obter_data_atual_br().strftime('%d/%m/%Y')
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=landscape(A4),
+        leftMargin=1.6*cm, rightMargin=1.6*cm, topMargin=2.6*cm, bottomMargin=1.3*cm,
+        title=f"Lista de Materiais - {nome_cliente}",
+    )
+    LU = doc.width
+
+    styles = getSampleStyleSheet()
+    def _st(name, **kw):
+        return ParagraphStyle(name, parent=styles['Normal'], **kw)
+
+    s_cli_k = _st('mck', fontName='Helvetica', fontSize=8, leading=10, textColor=MUTED)
+    s_cli_v = _st('mcv', fontName='Helvetica-Bold', fontSize=11, leading=13, textColor=INK)
+    s_th    = _st('mth', fontName='Helvetica-Bold', fontSize=9, leading=11, textColor=colors.white)
+    s_thc   = _st('mthc', fontName='Helvetica-Bold', fontSize=9, leading=11, textColor=colors.white, alignment=TA_CENTER)
+    s_thr   = _st('mthr', fontName='Helvetica-Bold', fontSize=9, leading=11, textColor=colors.white, alignment=TA_RIGHT)
+    s_item  = _st('mit', fontName='Helvetica', fontSize=9.5, leading=12, textColor=INK)
+    s_num   = _st('mnu', fontName='Helvetica', fontSize=9.5, leading=12, textColor=INK, alignment=TA_CENTER)
+    s_numr  = _st('mnr', fontName='Helvetica', fontSize=9.5, leading=12, textColor=INK, alignment=TA_RIGHT)
+    s_sub   = _st('msu', fontName='Helvetica-Bold', fontSize=11, leading=14, textColor=GRAFITE_DEEP)
+    s_subr  = _st('msr', fontName='Helvetica-Bold', fontSize=13, leading=16, textColor=GRAFITE_DEEP, alignment=TA_RIGHT)
+    s_obs   = _st('mob', fontName='Helvetica', fontSize=8.5, leading=12, textColor=MUTED)
+
+    story = []
+
+    # ---------- Dados do cliente ----------
+    cli = Table([[
+        Paragraph(f"CLIENTE<br/><font size=11 color='#1e2530'><b>{_limpo_txt(nome_cliente) or '-'}</b></font>", s_cli_k),
+        Paragraph(f"TELEFONE<br/><font size=11 color='#1e2530'><b>{_limpo_txt(telefone) or 'Não informado'}</b></font>", s_cli_k),
+        Paragraph(f"DATA<br/><font size=11 color='#1e2530'><b>{data_str}</b></font>", s_cli_k),
+    ]], colWidths=[LU*0.5, LU*0.25, LU*0.25])
+    cli.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), PANEL),
+        ('BOX', (0, 0), (-1, -1), 0.6, HAIR),
+        ('LINEAFTER', (0, 0), (0, -1), 0.6, HAIR),
+        ('LINEAFTER', (1, 0), (1, -1), 0.6, HAIR),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 12), ('RIGHTPADDING', (0, 0), (-1, -1), 12),
+        ('TOPPADDING', (0, 0), (-1, -1), 8), ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+    ]))
+    story.append(cli)
+    story.append(Spacer(1, 0.25*cm))
+
+    # ---------- Tabela de itens ----------
+    # Nº de linha + UND são convenção de nota de fornecedor (Capelini etc.) —
+    # ajuda a localizar o item na conversa/WhatsApp ("o item 4 tá certo?") e
+    # deixa claro a unidade de venda, sem imitar campo fiscal (NCM/CST/CFOP
+    # ficam de fora de propósito: isto não é uma nota fiscal).
+    cab = [Paragraph("Nº", s_thc), Paragraph("MATERIAL", s_th), Paragraph("UND", s_thc),
+           Paragraph("QTD", s_thc), Paragraph("VALOR UNIT.", s_thr), Paragraph("VALOR TOTAL", s_thr)]
+    col_w = [LU*0.05, LU*0.44, LU*0.09, LU*0.10, LU*0.16, LU*0.16]
+    linhas = [cab]
+    for i, it in enumerate(itens_pdf, start=1):
+        linhas.append([
+            Paragraph(str(i), s_num),
+            Paragraph(_limpo_txt(it['item']) or "Item", s_item),
+            Paragraph(_limpo_txt(it.get('unidade')) or "un", s_num),
+            Paragraph(f"{it['qtd']:g}", s_num),
+            Paragraph(to_br_currency(it['venda_un']), s_numr),
+            Paragraph(to_br_currency(it['venda_tot']), s_numr),
+        ])
+    if len(linhas) == 1:
+        linhas.append(["", Paragraph("Nenhum material nesta lista.", s_item), "", "", "", ""])
+
+    n_last = len(linhas)
+    tbl = Table(linhas, colWidths=col_w, repeatRows=1)
+    tbl.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), GRAFITE),
+        ('LINEBELOW', (0, 0), (-1, -1), 0.5, HAIR),
+        ('BOX', (0, 0), (-1, -1), 0.6, HAIR),
+        ('INNERGRID', (0, 0), (-1, -1), 0.4, HAIR),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 10), ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+        # Linhas mais compactas que o padrão do orçamento de propósito: uma
+        # lista de material costuma ter bem mais itens que um orçamento de
+        # equipamentos, e a revisão de marketing (2026-09-03) pegou a segunda
+        # página quase toda em branco com o espaçamento antigo (6/6) — isso
+        # também aproxima do visual "nota fiscal" pedido como referência.
+        ('TOPPADDING', (0, 0), (-1, -1), 2.8), ('BOTTOMPADDING', (0, 0), (-1, -1), 2.8),
+        ('ROWBACKGROUNDS', (0, 1), (-1, n_last - 1), [colors.white, ZEBRA]),
+    ]))
+    story.append(tbl)
+    story.append(Spacer(1, 0.2*cm))
+
+    # ---------- Total + observações ----------
+    n_itens_reais = len([it for it in itens_pdf if _limpo_txt(it.get('item'))])
+    obs_completa = " · ".join(filter(None, [
+        obs or "", f"{n_itens_reais} ite{'ns' if n_itens_reais != 1 else 'm'}",
+        "Lista válida por 7 dias",
+    ]))
+    rodape = Table([[
+        Paragraph(obs_completa, s_obs),
+        Paragraph(f"TOTAL &nbsp;&nbsp; <font size=16>{to_br_currency(total)}</font>", s_subr),
+    ]], colWidths=[LU*0.62, LU*0.38])
+    rodape.setStyle(TableStyle([
+        ('BACKGROUND', (1, 0), (1, 0), colors.HexColor("#fbf1d6")),
+        ('BOX', (1, 0), (1, 0), 0.6, HAIR),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 10), ('RIGHTPADDING', (0, 0), (-1, -1), 14),
+        ('TOPPADDING', (0, 0), (-1, -1), 10), ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+    ]))
+    story.append(rodape)
+
+    def _moldura(canv, _doc):
+        # Coordenadas recalculadas pra caber com folga dentro de
+        # topMargin=2.6cm / bottomMargin=1.3cm (ver comentário na revisão de
+        # marketing 2026-09-03 sobre a 2ª página quase em branco).
+        w, h = landscape(A4)
+        try:
+            canv.drawImage("logo.png", 1.6*cm, h - 2.2*cm, width=3.6*cm, height=1.42*cm, preserveAspectRatio=True, mask='auto')
+        except Exception:
+            canv.setFillColor(GRAFITE); canv.setFont("Helvetica-Bold", 16); canv.drawString(1.6*cm, h - 1.75*cm, "ECOCLIM")
+        canv.setFillColor(GRAFITE); canv.setFont("Helvetica-Bold", 13)
+        canv.drawRightString(w - 1.6*cm, h - 1.25*cm, "LISTA DE MATERIAIS")
+        canv.setFillColor(MUTED); canv.setFont("Helvetica", 8.5)
+        canv.drawRightString(w - 1.6*cm, h - 1.7*cm, f"Nº {numero}")
+        rw = w - 3.2*cm; ry = h - 2.4*cm
+        canv.setFillColor(GRAFITE); canv.rect(1.6*cm, ry, rw*0.55, 0.09*cm, fill=1, stroke=0)
+        canv.setFillColor(GREEN);  canv.rect(1.6*cm + rw*0.55, ry, rw*0.15, 0.09*cm, fill=1, stroke=0)
+        canv.setFillColor(GOLD);   canv.rect(1.6*cm + rw*0.70, ry, rw*0.30, 0.09*cm, fill=1, stroke=0)
+        canv.setStrokeColor(HAIR); canv.setLineWidth(0.5); canv.line(1.6*cm, 1.05*cm, w - 1.6*cm, 1.05*cm)
+        canv.setFillColor(MUTED); canv.setFont("Helvetica", 7.5)
+        canv.drawString(1.6*cm, 0.7*cm, "Ecoclim · Aquecimento Solar · (31) 99867-7808 · comercial@ecoclim.com.br")
+        canv.drawRightString(w - 1.6*cm, 0.7*cm, f"Página {_doc.page}")
+
+    doc.build(story, onFirstPage=_moldura, onLaterPages=_moldura)
+    buffer.seek(0)
+    return buffer
+
+
+def _limpo_txt(txt):
+    s = str(txt or "").strip()
+    return s if s.lower() != 'nan' else ""
+
+
+def gerar_pdf_lista_materiais(supabase, nome_cliente, telefone, itens, observacoes=""):
+    """PDF de material hidráulico pro cliente — preço de VENDA, não de custo,
+    em formato PAISAGEM (ver `_construir_pdf_material_horizontal`).
+
+    `itens`: lista de {item, qtd, venda_override?}. `venda_override` é pra
+    promoção pontual num item (ex.: um valor combinado só pra este cliente)
+    SEM alterar o preço cadastrado no catálogo — quem não vier com
+    `venda_override` usa o preço de `materiais_padrao` normalmente. Nome tem
+    que bater com o catálogo; o que não bater entra com Venda R$ 0,00 e some
+    da lista de `itens_sem_preco` devolvida, pra quem chamou avisar antes de
+    mandar pro cliente. Item com mais de um fabricante cadastrado (ex.:
+    "Joelho CPVC 22mm 45°" em Amanco e Krona) usa sempre o de MENOR venda —
+    ver [[erp-ecoclim-gestao-click-sync]] pro porquê da duplicação existir.
+
+    Usado tanto pelo botão "Gerar PDF" do ERP (materiais_hid.py) quanto pelo
+    endpoint /materiais/gerar-pdf da API (chamado pelo PWA) — uma função só,
+    pra nunca desalinhar preço entre os dois.
+
+    Retorna (pdf_buffer, total, itens_sem_preco).
+    """
+    res = supabase.table('materiais_padrao').select('item,venda,unidade').execute()
+    melhor_venda, unidade_do_item = {}, {}
+    for row in (res.data or []):
+        nome = str(row.get('item', '')).strip()
+        venda = float(row.get('venda') or 0)
+        unidade_do_item.setdefault(nome, str(row.get('unidade') or 'un').strip() or 'un')
+        if venda <= 0:
+            continue
+        atual = melhor_venda.get(nome)
+        if atual is None or venda < atual:
+            melhor_venda[nome] = venda
+            unidade_do_item[nome] = str(row.get('unidade') or 'un').strip() or 'un'
+
+    itens_pdf, itens_sem_preco = [], []
+    total = 0.0
+    for it in (itens or []):
+        nome = str(it.get('item', '')).strip()
+        qtd = safe_float(it.get('qtd', 1)) or 1.0
+        override = it.get('venda_override')
+        venda_un = float(override) if override is not None else melhor_venda.get(nome, 0.0)
+        if venda_un <= 0:
+            itens_sem_preco.append(nome)
+        venda_tot = round(qtd * venda_un, 2)
+        total += venda_tot
+        itens_pdf.append({
+            "item": nome, "qtd": qtd, "venda_un": venda_un, "venda_tot": venda_tot,
+            "unidade": unidade_do_item.get(nome, "un"),
+        })
+    total = round(total, 2)
+
+    pdf_buffer = _construir_pdf_material_horizontal(
+        nome_cliente, telefone, itens_pdf, total,
+        observacoes or "Lista de materiais para instalação.",
+    )
+    return pdf_buffer, total, itens_sem_preco
 
 def load_taxas():
     supabase = get_supabase_client()
