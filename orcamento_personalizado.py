@@ -248,7 +248,9 @@ def gerar_descricao_arquivo(df):
     suf_tipo = {"acoplado": "acopl", "modular": "mod", "tradicional": "trad"}
 
     # 1) Piscina (coletores/placas p/ piscina) -> volume em litros + tipo do coletor
-    pisc = achar("piscina")
+    # "pool" incluído porque os itens do pacote de Aquecedor de Piscina -
+    # Tradicional (COLETOR POOL / M² etc.) usam esse termo, não "piscina".
+    pisc = achar("piscina", "pool")
     if pisc:
         n = _extrair_numero(pisc[0], r'(\d+)\s*(?:litros?|lts?|l)\b') or _extrair_numero(pisc[0], r'(\d+)')
         tipo = detectar_tipo_instalacao(df) or "tradicional"
@@ -262,8 +264,11 @@ def gerar_descricao_arquivo(df):
         return f"{n}_btu" if n else "btu"
 
     # 3) Aquecedor residencial (acoplado > modular > tradicional)
+    # tipo == "piscina" nunca deveria chegar aqui (cai no branch 1 acima),
+    # mas o .get() com fallback evita um KeyError caso apareça outro tipo
+    # sem sufixo cadastrado em suf_tipo no futuro.
     tipo = detectar_tipo_instalacao(df)
-    if tipo:
+    if tipo and tipo in suf_tipo:
         medida, _un = _medida_do_tipo(df, tipo)
         if tipo == "acoplado":
             return f"{medida}t_acopl" if medida else "acopl"
