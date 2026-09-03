@@ -164,12 +164,30 @@ def renderizar():
             # Streamlit mantém o estado antigo da tabela (mesma chave fixa
             # entre reruns) e os itens adicionados depois da primeira vez
             # não apareciam pra salvar de verdade.
+            # Custo é só de referência (nunca editável, nunca sobrescreve o
+            # catálogo). Venda o admin PODE editar aqui — pra dar desconto pontual
+            # pra um cliente — e o valor mexido é salvo JUNTO com a lista como
+            # `venda_override` por item; o preço cadastrado em materiais_padrao
+            # nunca é tocado. Pedido do Breno (2026-09-03).
+            _precos_por_item_hid = {c['item']: c for c in catalogo_mat}
+            df_nova['custo_unitario'] = df_nova['item'].map(
+                lambda n: float((_precos_por_item_hid.get(n) or {}).get('custo') or 0))
+            df_nova['venda_unitario'] = df_nova['item'].map(
+                lambda n: float((_precos_por_item_hid.get(n) or {}).get('venda') or 0))
             df_nova_edit = st.data_editor(
                 df_nova, num_rows="dynamic", use_container_width=True,
+                column_config={
+                    "custo_unitario": st.column_config.NumberColumn("Custo Unit.", format="R$ %.2f", disabled=True),
+                    "venda_unitario": st.column_config.NumberColumn("Venda Unit. (editável — desconto pontual)", format="R$ %.2f"),
+                },
                 key=f"editor_nova_lista_hid_{len(st.session_state[_itens_nova_lista_key])}",
             )
             if st.button("💾 Salvar lista de materiais", type="primary", key="btn_save_nova_lista_hid"):
-                _itens_final = df_nova_edit.dropna(subset=['item']).to_dict('records')
+                _itens_final = (
+                    df_nova_edit.drop(columns=['custo_unitario'], errors='ignore')
+                    .rename(columns={'venda_unitario': 'venda_override'})
+                    .dropna(subset=['item']).to_dict('records')
+                )
                 if not _itens_final:
                     st.warning("Adicione pelo menos um item.")
                 else:

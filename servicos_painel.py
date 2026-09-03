@@ -1008,8 +1008,15 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                             # do que a operação de baixa de estoque vai usar de fato.
                             df_lm['custo_unitario'] = df_lm['item'].map(
                                 lambda n: float((_mapa_materiais_precos.get(n) or {}).get('custo') or 0))
-                            df_lm['venda_unitario'] = df_lm['item'].map(
-                                lambda n: float((_mapa_materiais_precos.get(n) or {}).get('venda') or 0))
+                            # `venda_override` (desconto pontual dado na hora de montar
+                            # a lista) tem prioridade sobre o preço do catálogo.
+                            if 'venda_override' in df_lm.columns:
+                                df_lm['venda_unitario'] = df_lm.apply(
+                                    lambda r: float(r['venda_override']) if pd.notna(r.get('venda_override')) else float((_mapa_materiais_precos.get(r['item']) or {}).get('venda') or 0),
+                                    axis=1)
+                            else:
+                                df_lm['venda_unitario'] = df_lm['item'].map(
+                                    lambda n: float((_mapa_materiais_precos.get(n) or {}).get('venda') or 0))
                             _cols_presentes = [c for c in _cols_lm + ['custo_unitario', 'venda_unitario', 'obs'] if c in df_lm.columns]
                             st.dataframe(
                                 df_lm[_cols_presentes] if _cols_presentes else df_lm, use_container_width=True, hide_index=True,
@@ -1079,7 +1086,12 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                                         _linhas_preview.append({"item": it.get('item'), "qtd": _qtd, "custo_unitario": 0.0, "venda_unitario": 0.0, "estoque_insuficiente": "sem preço no catálogo"})
                                         continue
                                     _custo_un = float(_mat.get('custo') or 0)
-                                    _venda_un = float(_mat.get('venda') or 0)
+                                    # `venda_override` (desconto pontual dado na hora de
+                                    # montar a lista) vale por cima do preço do catálogo
+                                    # — sem isso, o cliente via o desconto no PDF mas
+                                    # era cobrado o preço cheio na hora de adquirir.
+                                    _override_venda = it.get('venda_override')
+                                    _venda_un = float(_override_venda) if _override_venda is not None else float(_mat.get('venda') or 0)
                                     _estoque_at = float(_mat.get('estoque_atual') or 0)
                                     _insuficiente = _estoque_at < _qtd
                                     _linhas_preview.append({
@@ -1192,12 +1204,30 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
 
                 if st.session_state[_novos_itens_key]:
                     df_novo = pd.DataFrame(st.session_state[_novos_itens_key])
+                    # Custo é só de referência (nunca editável, nunca sobrescreve o
+                    # catálogo). Venda o admin PODE editar aqui — pra dar desconto
+                    # pontual pra um cliente — e o valor mexido é salvo JUNTO com a
+                    # lista como `venda_override` por item; o preço cadastrado em
+                    # materiais_padrao nunca é tocado. Pedido do Breno (2026-09-03).
+                    _precos_por_item_mat = {c['item']: c for c in catalogo_mat}
+                    df_novo['custo_unitario'] = df_novo['item'].map(
+                        lambda n: float((_precos_por_item_mat.get(n) or {}).get('custo') or 0))
+                    df_novo['venda_unitario'] = df_novo['item'].map(
+                        lambda n: float((_precos_por_item_mat.get(n) or {}).get('venda') or 0))
                     df_novo_editado = st.data_editor(
                         df_novo, num_rows="dynamic", use_container_width=True,
+                        column_config={
+                            "custo_unitario": st.column_config.NumberColumn("Custo Unit.", format="R$ %.2f", disabled=True),
+                            "venda_unitario": st.column_config.NumberColumn("Venda Unit. (editável — desconto pontual)", format="R$ %.2f"),
+                        },
                         key=f"editor_novo_mat_{prefix_key}_{len(st.session_state[_novos_itens_key])}",
                     )
                     if st.button("💾 Salvar nova lista de materiais", key=f"btn_save_novo_mat_{prefix_key}"):
-                        _itens_final = df_novo_editado.dropna(subset=['item']).to_dict('records')
+                        _itens_final = (
+                            df_novo_editado.drop(columns=['custo_unitario'], errors='ignore')
+                            .rename(columns={'venda_unitario': 'venda_override'})
+                            .dropna(subset=['item']).to_dict('records')
+                        )
                         if not _itens_final:
                             st.warning("Adicione pelo menos um item.")
                         else:
