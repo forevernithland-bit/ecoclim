@@ -181,8 +181,16 @@ def montar_itens_material(supabase, catalogo_mat, opcoes_catalogo, chave_itens):
 
     st.markdown("###### 📋 Colar lista do WhatsApp")
     st.caption("Cole aqui o texto que o instalador manda no WhatsApp. O sistema tenta achar cada item no catálogo e já preenche a quantidade — o que não reconhecer, pergunta pra você escolher.")
+    # Chave do campo de texto muda a cada "Interpretar lista" bem-sucedido —
+    # o Streamlit não deixa limpar o valor de um widget que já foi desenhado
+    # nesta mesma passada (StreamlitWidgetAlreadyInstantiatedError); trocando
+    # a key, a PRÓXIMA renderização já nasce com o campo vazio, sem tocar no
+    # widget antigo.
+    _contador_texto_key = f"texto_whats_contador_{chave_itens}"
+    if _contador_texto_key not in st.session_state:
+        st.session_state[_contador_texto_key] = 0
     texto_whats = st.text_area(
-        "Cole aqui a lista", key=f"texto_whats_{chave_itens}", height=140,
+        "Cole aqui a lista", key=f"texto_whats_{chave_itens}_{st.session_state[_contador_texto_key]}", height=140,
         placeholder="Material Água Quente - CPVC\n2 joelhos cpvc 22mm 90°\n3 conectores 22x3/4\n...",
     )
     if st.button("🔍 Interpretar lista", key=f"btn_interpretar_whats_{chave_itens}"):
@@ -199,8 +207,8 @@ def montar_itens_material(supabase, catalogo_mat, opcoes_catalogo, chave_itens):
         st.session_state[chave_itens].extend(_novos)
         st.session_state[chave_pendentes] = _nao_reconhecidos
         # Limpa o texto colado depois de processar — outro clique acidental no
-        # botão não tem mais texto pra reprocessar.
-        st.session_state[f"texto_whats_{chave_itens}"] = ""
+        # botão não tem mais texto pra reprocessar (troca a key, ver acima).
+        st.session_state[_contador_texto_key] += 1
         if _novos:
             st.success(f"{len(_novos)} item(ns) reconhecido(s) e adicionado(s) à lista abaixo.")
         if _repetidos:
