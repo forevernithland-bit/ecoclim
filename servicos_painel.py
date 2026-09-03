@@ -1000,8 +1000,24 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                         _cols_lm = ['item', 'qtd', 'unidade']
                         if _itens_lm:
                             df_lm = pd.DataFrame(_itens_lm)
-                            _cols_presentes = [c for c in _cols_lm + ['obs'] if c in df_lm.columns]
-                            st.dataframe(df_lm[_cols_presentes] if _cols_presentes else df_lm, use_container_width=True, hide_index=True)
+                            # Custo/Venda aparecem pro admin conferir e, se precisar,
+                            # ir ajustar o preço no catálogo (Materiais Hidráulicos)
+                            # antes de gerar o PDF ou adquirir — pedido do Breno
+                            # (2026-09-03). Mesma fonte que "Adquirir materiais" já usa
+                            # (_mapa_materiais_precos), pra nunca mostrar valor diferente
+                            # do que a operação de baixa de estoque vai usar de fato.
+                            df_lm['custo_unitario'] = df_lm['item'].map(
+                                lambda n: float((_mapa_materiais_precos.get(n) or {}).get('custo') or 0))
+                            df_lm['venda_unitario'] = df_lm['item'].map(
+                                lambda n: float((_mapa_materiais_precos.get(n) or {}).get('venda') or 0))
+                            _cols_presentes = [c for c in _cols_lm + ['custo_unitario', 'venda_unitario', 'obs'] if c in df_lm.columns]
+                            st.dataframe(
+                                df_lm[_cols_presentes] if _cols_presentes else df_lm, use_container_width=True, hide_index=True,
+                                column_config={
+                                    "custo_unitario": st.column_config.NumberColumn("Custo Unit.", format="R$ %.2f"),
+                                    "venda_unitario": st.column_config.NumberColumn("Venda Unit.", format="R$ %.2f"),
+                                },
+                            )
 
                             # PDF pro cliente ANTES de "Adquirir materiais" — mostra o
                             # orçamento pra aprovação, sem mexer em estoque nenhum
