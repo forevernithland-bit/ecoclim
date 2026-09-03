@@ -1002,6 +1002,29 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                             df_lm = pd.DataFrame(_itens_lm)
                             _cols_presentes = [c for c in _cols_lm + ['obs'] if c in df_lm.columns]
                             st.dataframe(df_lm[_cols_presentes] if _cols_presentes else df_lm, use_container_width=True, hide_index=True)
+
+                            # PDF pro cliente ANTES de "Adquirir materiais" — mostra o
+                            # orçamento pra aprovação, sem mexer em estoque nenhum
+                            # (mesmo formato/preço do botão em Materiais Hidráulicos).
+                            _pdf_key_mat = f"pdf_lista_mat_{lm['id']}_{prefix_key}"
+                            if st.button("📄 Gerar PDF pro cliente", key=f"btn_pdf_mat_{lm['id']}_{prefix_key}", use_container_width=True):
+                                try:
+                                    _pdf_buf, _total_pdf, _sem_preco = utils.gerar_pdf_lista_materiais(
+                                        supabase, projeto_selecionado.get('nome_cliente') or "Cliente",
+                                        projeto_selecionado.get('telefone_cliente') or "", _itens_lm,
+                                    )
+                                    st.session_state[_pdf_key_mat] = _pdf_buf.getvalue()
+                                    if _sem_preco:
+                                        st.warning(f"⚠️ {len(_sem_preco)} item(ns) sem preço de venda cadastrado, entraram como R$ 0,00: {', '.join(_sem_preco)}")
+                                    st.success(f"PDF gerado — total {utils.to_br_currency(_total_pdf)}")
+                                except Exception as e:
+                                    st.error(f"Erro ao gerar PDF: {e}")
+                            if st.session_state.get(_pdf_key_mat):
+                                st.download_button(
+                                    "⬇️ Baixar PDF", data=st.session_state[_pdf_key_mat],
+                                    file_name=f"materiais_{(projeto_selecionado.get('nome_cliente') or 'cliente').replace(' ', '_')}.pdf",
+                                    mime="application/pdf", key=f"dl_pdf_mat_{lm['id']}_{prefix_key}", use_container_width=True,
+                                )
                         else:
                             st.caption("Lista sem itens.")
 
