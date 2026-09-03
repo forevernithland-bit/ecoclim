@@ -187,10 +187,24 @@ def montar_itens_material(supabase, catalogo_mat, opcoes_catalogo, chave_itens):
     )
     if st.button("🔍 Interpretar lista", key=f"btn_interpretar_whats_{chave_itens}"):
         _reconhecidos, _nao_reconhecidos = utils.interpretar_lista_whatsapp(texto_whats, catalogo_mat)
-        st.session_state[chave_itens].extend(_reconhecidos)
+        # Evita duplicar: se a pessoa clicar de novo (ou o texto continuar colado
+        # e o botão for tocado outra vez), item que já está na lista atual não
+        # entra de novo. Sem isso, cada clique repetido somava tudo de novo em
+        # cima — 3-4 cliques deixavam o total 3-4x maior sem ninguém perceber
+        # (2026-09-03). Se precisar de mais quantidade do mesmo item, dá pra
+        # editar a célula "Qtd" direto na tabela abaixo.
+        _nomes_ja_na_lista = {str(it.get('item', '')).strip() for it in st.session_state[chave_itens]}
+        _novos = [r for r in _reconhecidos if r['item'] not in _nomes_ja_na_lista]
+        _repetidos = len(_reconhecidos) - len(_novos)
+        st.session_state[chave_itens].extend(_novos)
         st.session_state[chave_pendentes] = _nao_reconhecidos
-        if _reconhecidos:
-            st.success(f"{len(_reconhecidos)} item(ns) reconhecido(s) e adicionado(s) à lista abaixo.")
+        # Limpa o texto colado depois de processar — outro clique acidental no
+        # botão não tem mais texto pra reprocessar.
+        st.session_state[f"texto_whats_{chave_itens}"] = ""
+        if _novos:
+            st.success(f"{len(_novos)} item(ns) reconhecido(s) e adicionado(s) à lista abaixo.")
+        if _repetidos:
+            st.info(f"{_repetidos} item(ns) já estavam na lista — não duplicados.")
         if _nao_reconhecidos:
             st.warning(f"{len(_nao_reconhecidos)} item(ns) eu não reconheci — escolha abaixo o que cada um é.")
         if not _reconhecidos and not _nao_reconhecidos:
@@ -1238,10 +1252,16 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     _custo_soma = pd.to_numeric(df_novo_editado.get('custo_unitario'), errors='coerce').fillna(0)
                     _total_venda_soma = float((_qtd_soma * _venda_soma).sum())
                     _total_custo_soma = float((_qtd_soma * _custo_soma).sum())
+                    # unsafe_allow_html=True de propósito: st.markdown trata "$"
+                    # como abertura de fórmula matemática (LaTeX), e "R$" tem
+                    # exatamente esse caractere — com texto puro, três valores em
+                    # R$ na mesma linha bagunçavam tudo (fórmula "grudando" nos
+                    # valores errados). HTML puro não sofre disso.
                     st.markdown(
-                        f"**Total de Venda: {utils.to_br_currency(_total_venda_soma)}**"
-                        f"  ·  Custo: {utils.to_br_currency(_total_custo_soma)}"
-                        f"  ·  Lucro: {utils.to_br_currency(_total_venda_soma - _total_custo_soma)}"
+                        f"<b>Total de Venda: {utils.to_br_currency(_total_venda_soma)}</b>"
+                        f" &nbsp;·&nbsp; Custo: {utils.to_br_currency(_total_custo_soma)}"
+                        f" &nbsp;·&nbsp; Lucro: {utils.to_br_currency(_total_venda_soma - _total_custo_soma)}",
+                        unsafe_allow_html=True,
                     )
                     if st.button("💾 Salvar nova lista de materiais", key=f"btn_save_novo_mat_{prefix_key}"):
                         _itens_final = (

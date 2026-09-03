@@ -198,10 +198,15 @@ def renderizar():
             _custo_soma_h = pd.to_numeric(df_nova_edit.get('custo_unitario'), errors='coerce').fillna(0)
             _total_venda_soma_h = float((_qtd_soma_h * _venda_soma_h).sum())
             _total_custo_soma_h = float((_qtd_soma_h * _custo_soma_h).sum())
+            # unsafe_allow_html=True de propósito: st.markdown trata "$" como
+            # abertura de fórmula matemática (LaTeX), e "R$" tem exatamente esse
+            # caractere — com texto puro, três valores em R$ na mesma linha
+            # bagunçavam tudo. HTML puro não sofre disso.
             st.markdown(
-                f"**Total de Venda: {utils.to_br_currency(_total_venda_soma_h)}**"
-                f"  ·  Custo: {utils.to_br_currency(_total_custo_soma_h)}"
-                f"  ·  Lucro: {utils.to_br_currency(_total_venda_soma_h - _total_custo_soma_h)}"
+                f"<b>Total de Venda: {utils.to_br_currency(_total_venda_soma_h)}</b>"
+                f" &nbsp;·&nbsp; Custo: {utils.to_br_currency(_total_custo_soma_h)}"
+                f" &nbsp;·&nbsp; Lucro: {utils.to_br_currency(_total_venda_soma_h - _total_custo_soma_h)}",
+                unsafe_allow_html=True,
             )
             if st.button("💾 Salvar lista de materiais", type="primary", key="btn_save_nova_lista_hid"):
                 _itens_final = (
