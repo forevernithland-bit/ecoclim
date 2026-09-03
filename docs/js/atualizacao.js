@@ -6,7 +6,7 @@
  * app percebe que existe versão nova e oferece um botão pra aplicar.
  */
 
-export const VERSAO_APP = "2026.08.30-1"; // suba junto com o CACHE do sw.js
+export const VERSAO_APP = "2026.09.03-1"; // suba junto com o CACHE do sw.js
 
 let aoDetectar = null;
 
