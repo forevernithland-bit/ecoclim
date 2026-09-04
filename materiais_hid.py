@@ -198,16 +198,15 @@ def renderizar():
             _custo_soma_h = pd.to_numeric(df_nova_edit.get('custo_unitario'), errors='coerce').fillna(0)
             _total_venda_soma_h = float((_qtd_soma_h * _venda_soma_h).sum())
             _total_custo_soma_h = float((_qtd_soma_h * _custo_soma_h).sum())
-            # unsafe_allow_html=True de propósito: st.markdown trata "$" como
-            # abertura de fórmula matemática (LaTeX), e "R$" tem exatamente esse
-            # caractere — com texto puro, três valores em R$ na mesma linha
-            # bagunçavam tudo. HTML puro não sofre disso.
-            st.markdown(
-                f"<b>Total de Venda: {utils.to_br_currency(_total_venda_soma_h)}</b>"
-                f" &nbsp;·&nbsp; Custo: {utils.to_br_currency(_total_custo_soma_h)}"
-                f" &nbsp;·&nbsp; Lucro: {utils.to_br_currency(_total_venda_soma_h - _total_custo_soma_h)}",
-                unsafe_allow_html=True,
-            )
+            # st.metric (não st.markdown): o Streamlit trata "$" como abertura de
+            # fórmula matemática (LaTeX) em QUALQUER string de markdown, mesmo com
+            # unsafe_allow_html=True (isso só libera tag HTML, não desliga a
+            # detecção de fórmula) — com três valores em "R$" saía embaralhado.
+            # st.metric não roda essa interpretação sobre o valor.
+            _col_custo_h, _col_venda_h, _col_lucro_h = st.columns(3)
+            _col_custo_h.metric("Custo", utils.to_br_currency(_total_custo_soma_h))
+            _col_venda_h.metric("Venda", utils.to_br_currency(_total_venda_soma_h))
+            _col_lucro_h.metric("Lucro", utils.to_br_currency(_total_venda_soma_h - _total_custo_soma_h))
             if st.button("💾 Salvar lista de materiais", type="primary", key="btn_save_nova_lista_hid"):
                 _itens_final = (
                     df_nova_edit.drop(columns=['custo_unitario'], errors='ignore')

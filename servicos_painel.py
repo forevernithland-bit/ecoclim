@@ -1260,17 +1260,16 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     _custo_soma = pd.to_numeric(df_novo_editado.get('custo_unitario'), errors='coerce').fillna(0)
                     _total_venda_soma = float((_qtd_soma * _venda_soma).sum())
                     _total_custo_soma = float((_qtd_soma * _custo_soma).sum())
-                    # unsafe_allow_html=True de propósito: st.markdown trata "$"
-                    # como abertura de fórmula matemática (LaTeX), e "R$" tem
-                    # exatamente esse caractere — com texto puro, três valores em
-                    # R$ na mesma linha bagunçavam tudo (fórmula "grudando" nos
-                    # valores errados). HTML puro não sofre disso.
-                    st.markdown(
-                        f"<b>Total de Venda: {utils.to_br_currency(_total_venda_soma)}</b>"
-                        f" &nbsp;·&nbsp; Custo: {utils.to_br_currency(_total_custo_soma)}"
-                        f" &nbsp;·&nbsp; Lucro: {utils.to_br_currency(_total_venda_soma - _total_custo_soma)}",
-                        unsafe_allow_html=True,
-                    )
+                    # st.metric (não st.markdown): o Streamlit trata "$" como
+                    # abertura de fórmula matemática (LaTeX) em QUALQUER string de
+                    # markdown, mesmo com unsafe_allow_html=True (isso só libera
+                    # tag HTML, não desliga a detecção de fórmula) — com três
+                    # valores em "R$" na mesma chamada, saía tudo embaralhado.
+                    # st.metric não roda essa interpretação sobre o valor.
+                    _col_custo, _col_venda, _col_lucro = st.columns(3)
+                    _col_custo.metric("Custo", utils.to_br_currency(_total_custo_soma))
+                    _col_venda.metric("Venda", utils.to_br_currency(_total_venda_soma))
+                    _col_lucro.metric("Lucro", utils.to_br_currency(_total_venda_soma - _total_custo_soma))
                     if st.button("💾 Salvar nova lista de materiais", key=f"btn_save_novo_mat_{prefix_key}"):
                         _itens_final = (
                             df_novo_editado.drop(columns=['custo_unitario'], errors='ignore')
