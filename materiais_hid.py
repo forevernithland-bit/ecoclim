@@ -48,7 +48,36 @@ def renderizar():
                     if _itens_lm:
                         _df = pd.DataFrame(_itens_lm)
                         _cols = [c for c in ['item', 'qtd', 'unidade'] if c in _df.columns]
-                        st.dataframe(_df[_cols] if _cols else _df, use_container_width=True, hide_index=True)
+                        # Custo/Venda de referência (mesma regra: `venda_override`
+                        # por item, se tiver desconto pontual salvo, tem prioridade
+                        # sobre o preço do catálogo). Pedido do Breno (2026-09-03).
+                        _precos_lista_avulsa = {c['item']: c for c in catalogo_mat}
+                        _df['custo_unitario'] = _df['item'].map(
+                            lambda n: float((_precos_lista_avulsa.get(n) or {}).get('custo') or 0))
+                        if 'venda_override' in _df.columns:
+                            _df['venda_unitario'] = _df.apply(
+                                lambda r: float(r['venda_override']) if pd.notna(r.get('venda_override')) else float((_precos_lista_avulsa.get(r['item']) or {}).get('venda') or 0),
+                                axis=1)
+                        else:
+                            _df['venda_unitario'] = _df['item'].map(
+                                lambda n: float((_precos_lista_avulsa.get(n) or {}).get('venda') or 0))
+                        _cols_com_preco = _cols + ['custo_unitario', 'venda_unitario']
+                        st.dataframe(
+                            _df[_cols_com_preco], use_container_width=True, hide_index=True,
+                            column_config={
+                                "custo_unitario": st.column_config.NumberColumn("Custo Unit.", format="R$ %.2f"),
+                                "venda_unitario": st.column_config.NumberColumn("Venda Unit.", format="R$ %.2f"),
+                            },
+                        )
+                        # st.metric, não st.markdown — "R$" repetido na mesma string
+                        # de markdown embaralha (ver aprendizado 2026-09-03).
+                        _qtd_avulsa = pd.to_numeric(_df.get('qtd'), errors='coerce').fillna(0)
+                        _total_venda_avulsa = float((_qtd_avulsa * _df['venda_unitario']).sum())
+                        _total_custo_avulsa = float((_qtd_avulsa * _df['custo_unitario']).sum())
+                        _col_c_av, _col_v_av, _col_l_av = st.columns(3)
+                        _col_c_av.metric("Custo", utils.to_br_currency(_total_custo_avulsa))
+                        _col_v_av.metric("Venda", utils.to_br_currency(_total_venda_avulsa))
+                        _col_l_av.metric("Lucro", utils.to_br_currency(_total_venda_avulsa - _total_custo_avulsa))
 
                         with st.expander("📋 Ver texto formatado (copiar, print ou WhatsApp)"):
                             _texto_lm = utils.gerar_texto_lista_materiais(lm.get('cliente_nome'), _itens_lm)

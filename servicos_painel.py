@@ -1047,6 +1047,15 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                                     "venda_unitario": st.column_config.NumberColumn("Venda Unit.", format="R$ %.2f"),
                                 },
                             )
+                            # st.metric, não st.markdown — "R$" repetido na mesma
+                            # string de markdown embaralha (ver aprendizado 2026-09-03).
+                            _qtd_lm = pd.to_numeric(df_lm.get('qtd'), errors='coerce').fillna(0)
+                            _total_venda_lm = float((_qtd_lm * df_lm['venda_unitario']).sum())
+                            _total_custo_lm = float((_qtd_lm * df_lm['custo_unitario']).sum())
+                            _col_custo_lm, _col_venda_lm, _col_lucro_lm = st.columns(3)
+                            _col_custo_lm.metric("Custo", utils.to_br_currency(_total_custo_lm))
+                            _col_venda_lm.metric("Venda", utils.to_br_currency(_total_venda_lm))
+                            _col_lucro_lm.metric("Lucro", utils.to_br_currency(_total_venda_lm - _total_custo_lm))
 
                             # PDF pro cliente ANTES de "Adquirir materiais" — mostra o
                             # orçamento pra aprovação, sem mexer em estoque nenhum
