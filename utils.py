@@ -657,39 +657,42 @@ def _mapear_categoria_titulo(titulo_normalizado):
     return None
 
 def _melhor_match_catalogo(desc_tokens, catalogo_indexado, categoria_secao):
-    """Retorna (confiavel, palpite).
+    """Retorna (confiavel, candidatos).
 
     `confiavel` é o item pra usar direto, sem perguntar nada (score >= 0.5 e
-    sem empate genuíno entre nomes diferentes) — comportamento de sempre.
+    um nome só no topo) — comportamento de sempre.
 
-    `palpite` é o melhor candidato ENCONTRADO mesmo quando não dá pra confiar
-    sozinho (score baixo, ou empate entre dois itens de nomes diferentes,
-    tipo "Tê Cobre 22mm" x "Tê CPVC 22mm" pra um "t 22mm" sem contexto) — é
-    None só quando NENHUM item do catálogo compartilha sequer uma palavra-chave
-    com o texto. Serve pra pré-selecionar um palpite na tela em vez de deixar
-    o admin procurar do zero no catálogo inteiro (pedido do Breno, 2026-09-04)."""
-    melhor, melhor_score, empatou = None, 0.0, False
+    `candidatos` é a lista de itens (nomes distintos) empatados no MELHOR
+    score encontrado — 1 item quando há um palpite único (mesmo sem
+    confiança pra usar sozinho), 2+ quando é ambiguidade de verdade (ex.:
+    "t 22mm" empata entre "Tê Cobre 22mm" e "Tê CPVC 22mm" sem mais contexto
+    pra decidir), e lista vazia só quando NENHUM item do catálogo compartilha
+    sequer uma palavra-chave com o texto. Duas linhas do MESMO item
+    (fabricantes diferentes, ex.: "Joelho CPVC 22mm 45°" em Amanco e Krona)
+    contam como 1 candidato só — ver [[erp-ecoclim-gestao-click-sync]] pro
+    porquê da duplicação existir. Serve pra apresentar os candidatos na tela
+    (um palpite pré-selecionado, ou os empatados pra escolher) em vez de
+    deixar o admin procurar do zero no catálogo inteiro toda vez (pedido do
+    Breno, 2026-09-04)."""
+    melhor_score = 0.0
+    melhor_por_nome = {}  # nome do item -> (score, dict do item) — melhor score visto pra esse nome
     for item, cat_tokens, categoria_item in catalogo_indexado:
         if not cat_tokens or not (desc_tokens & cat_tokens):
             continue
         score = len(desc_tokens & cat_tokens) / len(cat_tokens)
         if categoria_secao and categoria_item == categoria_secao:
             score += 0.15
-        if score > melhor_score + 1e-9:
-            melhor, melhor_score, empatou = item, score, False
-        elif abs(score - melhor_score) < 1e-9 and melhor is not None and item.get("item") != melhor.get("item"):
-            # Empate só é ambiguidade de verdade quando são NOMES diferentes
-            # (ex.: "joelho 22mm" sem grau, empatando entre 45° e 90°). Duas
-            # linhas do MESMO item (fabricantes diferentes, ex.: "Joelho CPVC
-            # 22mm 45°" em Amanco e Krona) empatam sempre — comparar por
-            # identidade do dict fazia isso ser tratado como ambíguo e
-            # descartava o item inteiro, exatamente pros itens que mais têm
-            # essa duplicação (ver [[erp-ecoclim-gestao-click-sync]]).
-            empatou = True
-    if melhor is None:
-        return None, None
-    confiavel = melhor if (melhor_score >= 0.5 and not empatou) else None
-    return confiavel, melhor
+        nome = item.get("item")
+        atual = melhor_por_nome.get(nome)
+        if atual is None or score > atual[0] + 1e-9:
+            melhor_por_nome[nome] = (score, item)
+        if score > melhor_score:
+            melhor_score = score
+    if not melhor_por_nome:
+        return None, []
+    candidatos = [it for (sc, it) in melhor_por_nome.values() if abs(sc - melhor_score) < 1e-9]
+    confiavel = candidatos[0] if (len(candidatos) == 1 and melhor_score >= 0.5) else None
+    return confiavel, candidatos
 
 def interpretar_lista_whatsapp(texto, catalogo):
     """Retorna (reconhecidos, nao_reconhecidos). `reconhecidos` já vem pronto
@@ -717,7 +720,7 @@ def interpretar_lista_whatsapp(texto, catalogo):
         descricao = m.group(2).strip()
         if not descricao:
             continue
-        item_encontrado, palpite = _melhor_match_catalogo(_tokens_material(descricao), catalogo_indexado, categoria_atual)
+        item_encontrado, candidatos = _melhor_match_catalogo(_tokens_material(descricao), catalogo_indexado, categoria_atual)
         if item_encontrado:
             reconhecidos.append({
                 "item": item_encontrado["item"], "qtd": qtd,
@@ -726,7 +729,9 @@ def interpretar_lista_whatsapp(texto, catalogo):
         else:
             nao_reconhecidos.append({
                 "texto_original": descricao, "qtd": qtd,
-                "palpite": palpite["item"] if palpite else None,
+                # 0 candidatos = nada parecido no catálogo; 1 = palpite único;
+                # 2+ = ambiguidade de verdade (ex.: "t 22mm" -> Tê Cobre x Tê CPVC).
+                "palpites": [c["item"] for c in candidatos],
             })
     return reconhecidos, nao_reconhecidos
 

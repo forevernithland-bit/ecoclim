@@ -228,34 +228,48 @@ def montar_itens_material(supabase, catalogo_mat, opcoes_catalogo, chave_itens):
         for _lbl, _c in opcoes_catalogo.items():
             _label_por_item.setdefault(_c['item'], _lbl)
         _pendentes_restantes = []
+        def _adicionar_confirmado(chave_itens, item_nome, qtd, unidade, categoria):
+            st.session_state[chave_itens].append({"item": item_nome, "qtd": qtd, "unidade": unidade, "categoria": categoria})
+
         for _i, _p in enumerate(st.session_state[chave_pendentes]):
             with st.container(border=True):
                 st.caption(f"Texto original: \"{_p['qtd']} {_p['texto_original']}\"")
-                # Se o sistema achou ALGUM candidato parecido (mesmo sem confiança
-                # total pra aceitar sozinho), pré-seleciona ele — o admin só
-                # confirma com um clique em vez de vasculhar o catálogo inteiro.
-                # Só avisa "não encontrei nada" quando não há candidato nenhum.
+                # `palpites`: 0 = nada parecido no catálogo; 1 = palpite único,
+                # pré-seleciona no dropdown pra confirmar com um clique; 2+ =
+                # ambiguidade DE VERDADE (ex.: "t 22mm" empata entre "Tê Cobre
+                # 22mm" e "Tê CPVC 22mm") — mostra um botão por candidato pra
+                # escolher direto, sem precisar procurar no catálogo inteiro.
                 # Pedido do Breno (2026-09-04).
-                _palpite = _p.get('palpite')
-                _label_palpite = _label_por_item.get(_palpite) if _palpite else None
-                if _label_palpite:
-                    st.info(f"🤔 Acho que é **{_palpite}** — confirma ou escolhe outro abaixo:")
-                    _idx_inicial = _opcoes_pendente.index(_label_palpite)
+                _palpites = _p.get('palpites') or ([_p['palpite']] if _p.get('palpite') else [])  # compat com listas antigas em sessão
+                _confirmado = False
+                if len(_palpites) > 1:
+                    st.info("🤔 Pode ser um destes — qual é?")
+                    _cols_palpites = st.columns(len(_palpites))
+                    for _pc, _nome_c in zip(_cols_palpites, _palpites):
+                        _c = opcoes_catalogo.get(_label_por_item.get(_nome_c))
+                        if _pc.button(f"✅ {_nome_c}", key=f"whats_pend_palpite_{chave_itens}_{_i}_{_nome_c}", use_container_width=True) and _c:
+                            _adicionar_confirmado(chave_itens, _c['item'], _p['qtd'], _c.get('unidade', 'un'), _c.get('categoria'))
+                            _confirmado = True
+                    _idx_inicial = 0
+                    st.caption("Nenhum desses? Escolha no catálogo abaixo:")
+                elif len(_palpites) == 1:
+                    st.info(f"🤔 Acho que é **{_palpites[0]}** — confirma ou escolhe outro abaixo:")
+                    _idx_inicial = _opcoes_pendente.index(_label_por_item[_palpites[0]])
                 else:
                     st.warning("❌ Não encontrei nada parecido no catálogo pra este item.")
                     _idx_inicial = 0
-                _escolha = st.selectbox("O que é este item?", _opcoes_pendente, index=_idx_inicial, key=f"whats_pend_sel_{chave_itens}_{_i}")
-                _col_ok, _col_manual = st.columns(2)
-                _confirmado = False
-                if _col_ok.button("✅ Usar este", key=f"whats_pend_ok_{chave_itens}_{_i}", disabled=(_escolha == "-- escolher no catálogo --")):
-                    _c = opcoes_catalogo[_escolha]
-                    st.session_state[chave_itens].append({"item": _c['item'], "qtd": _p['qtd'], "unidade": _c.get('unidade', 'un'), "categoria": _c.get('categoria')})
-                    _confirmado = True
-                if _col_manual.button("📝 Manter como veio", key=f"whats_pend_manual_{chave_itens}_{_i}"):
-                    st.session_state[chave_itens].append({"item": _p['texto_original'], "qtd": _p['qtd'], "unidade": "un", "categoria": None})
-                    utils.sugerir_novo_material(supabase, _p['texto_original'])
-                    st.toast(f"\"{_p['texto_original']}\" não está no catálogo — adicionado mesmo assim, e já registrado pro Breno avaliar incluir.", icon="⚠️")
-                    _confirmado = True
+                if not _confirmado:
+                    _escolha = st.selectbox("O que é este item?", _opcoes_pendente, index=_idx_inicial, key=f"whats_pend_sel_{chave_itens}_{_i}")
+                    _col_ok, _col_manual = st.columns(2)
+                    if _col_ok.button("✅ Usar este", key=f"whats_pend_ok_{chave_itens}_{_i}", disabled=(_escolha == "-- escolher no catálogo --")):
+                        _c = opcoes_catalogo[_escolha]
+                        _adicionar_confirmado(chave_itens, _c['item'], _p['qtd'], _c.get('unidade', 'un'), _c.get('categoria'))
+                        _confirmado = True
+                    if _col_manual.button("📝 Manter como veio", key=f"whats_pend_manual_{chave_itens}_{_i}"):
+                        _adicionar_confirmado(chave_itens, _p['texto_original'], _p['qtd'], "un", None)
+                        utils.sugerir_novo_material(supabase, _p['texto_original'])
+                        st.toast(f"\"{_p['texto_original']}\" não está no catálogo — adicionado mesmo assim, e já registrado pro Breno avaliar incluir.", icon="⚠️")
+                        _confirmado = True
                 if not _confirmado:
                     _pendentes_restantes.append(_p)
         if len(_pendentes_restantes) != len(st.session_state[chave_pendentes]):
