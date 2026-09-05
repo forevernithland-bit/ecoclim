@@ -220,13 +220,31 @@ def montar_itens_material(supabase, catalogo_mat, opcoes_catalogo, chave_itens):
         st.rerun()
 
     if st.session_state[chave_pendentes]:
-        st.markdown("**❓ Não reconheci estes itens — escolha manualmente:**")
+        st.markdown("**❓ Alguns itens precisam de confirmação:**")
         _opcoes_pendente = ["-- escolher no catálogo --"] + list(opcoes_catalogo.keys())
+        # Mapa item -> label da opção, pra pré-selecionar o palpite no dropdown
+        # (a 1ª opção com aquele item, se houver mais de um fabricante).
+        _label_por_item = {}
+        for _lbl, _c in opcoes_catalogo.items():
+            _label_por_item.setdefault(_c['item'], _lbl)
         _pendentes_restantes = []
         for _i, _p in enumerate(st.session_state[chave_pendentes]):
             with st.container(border=True):
                 st.caption(f"Texto original: \"{_p['qtd']} {_p['texto_original']}\"")
-                _escolha = st.selectbox("O que é este item?", _opcoes_pendente, key=f"whats_pend_sel_{chave_itens}_{_i}")
+                # Se o sistema achou ALGUM candidato parecido (mesmo sem confiança
+                # total pra aceitar sozinho), pré-seleciona ele — o admin só
+                # confirma com um clique em vez de vasculhar o catálogo inteiro.
+                # Só avisa "não encontrei nada" quando não há candidato nenhum.
+                # Pedido do Breno (2026-09-04).
+                _palpite = _p.get('palpite')
+                _label_palpite = _label_por_item.get(_palpite) if _palpite else None
+                if _label_palpite:
+                    st.info(f"🤔 Acho que é **{_palpite}** — confirma ou escolhe outro abaixo:")
+                    _idx_inicial = _opcoes_pendente.index(_label_palpite)
+                else:
+                    st.warning("❌ Não encontrei nada parecido no catálogo pra este item.")
+                    _idx_inicial = 0
+                _escolha = st.selectbox("O que é este item?", _opcoes_pendente, index=_idx_inicial, key=f"whats_pend_sel_{chave_itens}_{_i}")
                 _col_ok, _col_manual = st.columns(2)
                 _confirmado = False
                 if _col_ok.button("✅ Usar este", key=f"whats_pend_ok_{chave_itens}_{_i}", disabled=(_escolha == "-- escolher no catálogo --")):

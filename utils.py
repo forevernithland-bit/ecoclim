@@ -613,6 +613,17 @@ _SINONIMOS_MATERIAL = {
     "reducoes": "reducao", "reducao": "reducao",
     "caixinha": "caixa", "caixinhas": "caixa",
     "plugs": "plug", "esferas": "esfera", "gavetas": "gaveta",
+    # Gírias/abreviações que o instalador usa de verdade no WhatsApp — sem
+    # elas, um item que já está no catálogo (ex.: "Tubo CPVC 22mm") empatava
+    # com vários outros e caía em "não reconheci" à toa (2026-09-04).
+    "cano": "tubo", "canos": "tubo",
+    "cotovelo": "joelho", "cotovelos": "joelho", "cotovelinho": "joelho",
+    "reg": "registro",
+    "valv": "valvula",
+    "uni": "uniao",
+    "cx": "caixa",
+    "vd": "veda",
+    "trans": "transicao",
 }
 _STOPWORDS_MATERIAL = {"de", "da", "do", "das", "dos", "e", "com", "um", "uma", "pra", "para"}
 
@@ -646,6 +657,17 @@ def _mapear_categoria_titulo(titulo_normalizado):
     return None
 
 def _melhor_match_catalogo(desc_tokens, catalogo_indexado, categoria_secao):
+    """Retorna (confiavel, palpite).
+
+    `confiavel` é o item pra usar direto, sem perguntar nada (score >= 0.5 e
+    sem empate genuíno entre nomes diferentes) — comportamento de sempre.
+
+    `palpite` é o melhor candidato ENCONTRADO mesmo quando não dá pra confiar
+    sozinho (score baixo, ou empate entre dois itens de nomes diferentes,
+    tipo "Tê Cobre 22mm" x "Tê CPVC 22mm" pra um "t 22mm" sem contexto) — é
+    None só quando NENHUM item do catálogo compartilha sequer uma palavra-chave
+    com o texto. Serve pra pré-selecionar um palpite na tela em vez de deixar
+    o admin procurar do zero no catálogo inteiro (pedido do Breno, 2026-09-04)."""
     melhor, melhor_score, empatou = None, 0.0, False
     for item, cat_tokens, categoria_item in catalogo_indexado:
         if not cat_tokens or not (desc_tokens & cat_tokens):
@@ -664,9 +686,10 @@ def _melhor_match_catalogo(desc_tokens, catalogo_indexado, categoria_secao):
             # descartava o item inteiro, exatamente pros itens que mais têm
             # essa duplicação (ver [[erp-ecoclim-gestao-click-sync]]).
             empatou = True
-    if melhor is None or melhor_score < 0.5 or empatou:
-        return None
-    return melhor
+    if melhor is None:
+        return None, None
+    confiavel = melhor if (melhor_score >= 0.5 and not empatou) else None
+    return confiavel, melhor
 
 def interpretar_lista_whatsapp(texto, catalogo):
     """Retorna (reconhecidos, nao_reconhecidos). `reconhecidos` já vem pronto
@@ -694,14 +717,17 @@ def interpretar_lista_whatsapp(texto, catalogo):
         descricao = m.group(2).strip()
         if not descricao:
             continue
-        item_encontrado = _melhor_match_catalogo(_tokens_material(descricao), catalogo_indexado, categoria_atual)
+        item_encontrado, palpite = _melhor_match_catalogo(_tokens_material(descricao), catalogo_indexado, categoria_atual)
         if item_encontrado:
             reconhecidos.append({
                 "item": item_encontrado["item"], "qtd": qtd,
                 "unidade": item_encontrado.get("unidade", "un"), "categoria": item_encontrado.get("categoria"),
             })
         else:
-            nao_reconhecidos.append({"texto_original": descricao, "qtd": qtd})
+            nao_reconhecidos.append({
+                "texto_original": descricao, "qtd": qtd,
+                "palpite": palpite["item"] if palpite else None,
+            })
     return reconhecidos, nao_reconhecidos
 
 def sugerir_novo_material(supabase, item, instalador=None, cliente_nome=None, servico_id=None):
