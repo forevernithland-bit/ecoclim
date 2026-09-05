@@ -1311,6 +1311,39 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     _col_custo.metric("Custo", utils.to_br_currency(_total_custo_soma))
                     _col_venda.metric("Venda", utils.to_br_currency(_total_venda_soma))
                     _col_lucro.metric("Lucro", utils.to_br_currency(_total_venda_soma - _total_custo_soma))
+
+                    # PDF pro cliente ANTES de salvar — usa o que já está na
+                    # tela (com qualquer desconto pontual editado na Venda
+                    # Unit.), formato horizontal combinado (revisão de
+                    # marketing 2026-09-03). Pedido do Breno (2026-09-05).
+                    _pdf_key_novo_mat = f"pdf_novo_mat_{prefix_key}"
+                    if st.button("📄 Gerar PDF pro cliente", key=f"btn_pdf_novo_mat_{prefix_key}", use_container_width=True):
+                        _itens_pdf_novo = (
+                            df_novo_editado.drop(columns=['custo_unitario'], errors='ignore')
+                            .rename(columns={'venda_unitario': 'venda_override'})
+                            .dropna(subset=['item']).to_dict('records')
+                        )
+                        if not _itens_pdf_novo:
+                            st.warning("Adicione pelo menos um item.")
+                        else:
+                            try:
+                                _pdf_buf_novo, _total_pdf_novo, _sem_preco_novo = utils.gerar_pdf_lista_materiais(
+                                    supabase, projeto_selecionado.get('nome_cliente') or "Cliente",
+                                    projeto_selecionado.get('telefone_cliente') or "", _itens_pdf_novo,
+                                )
+                                st.session_state[_pdf_key_novo_mat] = _pdf_buf_novo.getvalue()
+                                if _sem_preco_novo:
+                                    st.warning(f"⚠️ {len(_sem_preco_novo)} item(ns) sem preço de venda: {', '.join(_sem_preco_novo)}")
+                                st.success(f"PDF gerado — total {utils.to_br_currency(_total_pdf_novo)}")
+                            except Exception as e:
+                                st.error(f"Erro ao gerar PDF: {e}")
+                    if st.session_state.get(_pdf_key_novo_mat):
+                        st.download_button(
+                            "⬇️ Baixar PDF", data=st.session_state[_pdf_key_novo_mat],
+                            file_name=f"materiais_{(projeto_selecionado.get('nome_cliente') or 'cliente').replace(' ', '_')}.pdf",
+                            mime="application/pdf", key=f"dl_pdf_novo_mat_{prefix_key}", use_container_width=True,
+                        )
+
                     if st.button("💾 Salvar nova lista de materiais", key=f"btn_save_novo_mat_{prefix_key}"):
                         _itens_final = (
                             df_novo_editado.drop(columns=['custo_unitario'], errors='ignore')

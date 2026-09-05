@@ -236,6 +236,37 @@ def renderizar():
             _col_custo_h.metric("Custo", utils.to_br_currency(_total_custo_soma_h))
             _col_venda_h.metric("Venda", utils.to_br_currency(_total_venda_soma_h))
             _col_lucro_h.metric("Lucro", utils.to_br_currency(_total_venda_soma_h - _total_custo_soma_h))
+
+            # PDF pro cliente ANTES de salvar — usa o que já está na tela (com
+            # qualquer desconto pontual editado na Venda Unit.), formato
+            # horizontal combinado (revisão de marketing 2026-09-03). Pedido
+            # do Breno (2026-09-05).
+            if st.button("📄 Gerar PDF pro cliente", key="btn_pdf_nova_lista_hid", use_container_width=True):
+                _itens_pdf_hid = (
+                    df_nova_edit.drop(columns=['custo_unitario'], errors='ignore')
+                    .rename(columns={'venda_unitario': 'venda_override'})
+                    .dropna(subset=['item']).to_dict('records')
+                )
+                if not _itens_pdf_hid:
+                    st.warning("Adicione pelo menos um item.")
+                else:
+                    try:
+                        _pdf_buf_hid, _total_pdf_hid, _sem_preco_hid = utils.gerar_pdf_lista_materiais(
+                            supabase, nome_nova_lista.strip() or "Cliente", "", _itens_pdf_hid,
+                        )
+                        st.session_state["pdf_nova_lista_hid"] = _pdf_buf_hid.getvalue()
+                        if _sem_preco_hid:
+                            st.warning(f"⚠️ {len(_sem_preco_hid)} item(ns) sem preço de venda: {', '.join(_sem_preco_hid)}")
+                        st.success(f"PDF gerado — total {utils.to_br_currency(_total_pdf_hid)}")
+                    except Exception as e:
+                        st.error(f"Erro ao gerar PDF: {e}")
+            if st.session_state.get("pdf_nova_lista_hid"):
+                st.download_button(
+                    "⬇️ Baixar PDF", data=st.session_state["pdf_nova_lista_hid"],
+                    file_name=f"materiais_{(nome_nova_lista.strip() or 'cliente').replace(' ', '_')}.pdf",
+                    mime="application/pdf", key="dl_pdf_nova_lista_hid", use_container_width=True,
+                )
+
             if st.button("💾 Salvar lista de materiais", type="primary", key="btn_save_nova_lista_hid"):
                 _itens_final = (
                     df_nova_edit.drop(columns=['custo_unitario'], errors='ignore')
