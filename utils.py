@@ -58,6 +58,40 @@ def safe_float(val):
     except Exception:
         return 0.0
 
+
+def pagamentos_instaladores_do_servico(servico):
+    """Lista de {instalador, valor, pago, data_pagamento} de quem recebe
+    pela mão de obra de UM serviço — pedido do Breno (2026-09-09): tem caso
+    em que a instalação é dividida entre dois instaladores (ex.: R$1200 pro
+    Valdimar, R$450 pro Sérgio), e antes só existia um valor + um "pago"
+    pra todo o serviço, sem dar pra saber quanto cabe a cada um.
+
+    Serviço sem a coluna nova `pagamentos_instaladores` preenchida (todo
+    histórico antes de 2026-09-09, e qualquer serviço de instalador único
+    daqui pra frente) cai no fallback: monta uma lista de 1 item a partir
+    dos campos antigos (instalador/custo_terceirizados/pago_instalador/
+    data_pagamento_instalador) — continua funcionando exatamente como
+    sempre funcionou, sem precisar migrar nenhum dado existente.
+
+    Todo lugar que soma/mostra "quanto cabe a cada instalador" tem que
+    passar por AQUI — nunca ler `custo_terceirizados`/`pago_instalador`
+    direto quando o que importa é o instalador certo, senão volta a
+    misturar o valor de um serviço dividido como se fosse de uma pessoa só.
+    """
+    splits = servico.get('pagamentos_instaladores')
+    if isinstance(splits, list) and splits:
+        return splits
+    valor_legado = safe_float(servico.get('custo_terceirizados'))
+    if valor_legado <= 0:
+        return []
+    return [{
+        "instalador": servico.get('instalador') or "",
+        "valor": valor_legado,
+        "pago": bool(servico.get('pago_instalador', False)),
+        "data_pagamento": servico.get('data_pagamento_instalador'),
+    }]
+
+
 def obter_data_atual_br():
     """Retorna a data atual forçando o fuso horário de Brasília (GMT-3) de forma dinâmica."""
     tz_br = datetime.timezone(datetime.timedelta(hours=-3))

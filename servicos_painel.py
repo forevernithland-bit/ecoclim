@@ -498,7 +498,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                 c_rec3.metric("💳 Taxa de cartão (proporcional)", utils.to_br_currency(valor_cartao_taxa))
 
                 st.markdown("---")
-                f_col4, f_col5, f_col6 = st.columns(3)
+                f_col4, f_col5 = st.columns(2)
             
                 perc_comissao_salvo = (safe_float(projeto_selecionado.get('custo_comissao')) / venda_final * 100) if venda_final > 0 else 0.0
                 comissao_pct = f_col4.number_input("Comissão (%)", value=float(perc_comissao_salvo), format="%.1f", step=None, key=f"com_{prefix_key}")
@@ -507,36 +507,93 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
 
                 d_ct_fallback = projeto_selecionado.get('dados_contrato')
                 if not isinstance(d_ct_fallback, dict): d_ct_fallback = {}
-            
-                val_mo_salvo = safe_float(projeto_selecionado.get('custo_terceirizados'))
-                if val_mo_salvo == 0.0 and safe_float(d_ct_fallback.get('val_servico')) > 0:
-                    val_mo_salvo = safe_float(d_ct_fallback.get('val_servico'))
-                
+
                 val_ext_salvo = safe_float(projeto_selecionado.get('custo_adicional_materiais'))
                 if val_ext_salvo == 0.0 and safe_float(d_ct_fallback.get('val_outros')) > 0:
                     val_ext_salvo = safe_float(d_ct_fallback.get('val_outros'))
 
                 custo_ext = f_col5.number_input("Materiais Extras (R$)", value=val_ext_salvo, format="%.2f", step=None, key=f"mat_{prefix_key}")
-                f_col5.caption("&nbsp;", unsafe_allow_html=True) 
+                f_col5.caption("&nbsp;", unsafe_allow_html=True)
 
-                custo_mo = f_col6.number_input("Mão de Obra / Terceiros (R$)", value=val_mo_salvo, format="%.2f", step=None, key=f"mao_{prefix_key}")
-                f_col6.caption("&nbsp;", unsafe_allow_html=True)
+                # Mão de Obra / Terceiros — uma linha por instalador que
+                # recebe por este serviço. Antes era um valor + um "pago" só
+                # pro serviço inteiro; quando a instalação é dividida entre
+                # dois instaladores (ex.: R$1200 pro Valdimar, R$450 pro
+                # Sérgio) isso não dava pra representar. Pedido do Breno
+                # (2026-09-09). Serviço antigo (ou de instalador único) cai
+                # no fallback de utils.pagamentos_instaladores_do_servico —
+                # continua funcionando exatamente como sempre funcionou.
+                st.markdown("**👷 Mão de Obra / Terceiros — por instalador**")
+                st.caption("Uma linha por instalador que recebe por este serviço. Se for só um, deixa uma linha. Se dividir entre dois, acrescenta outra — cada um marca \"Pago\" e a data por conta própria.")
 
-                # Financeiro do instalador — "Mão de Obra / Terceiros" acima É o
-                # "Valor Instalação" que o app do instalador mostra. Aqui só
-                # marca se já foi pago a ele (alimenta a aba Financeiro do PWA).
-                f_pago1, f_pago2 = st.columns([1, 2])
-                pago_instalador_salvo = bool(projeto_selecionado.get('pago_instalador', False))
-                novo_pago_instalador = f_pago1.checkbox("💰 Pago ao instalador", value=pago_instalador_salvo, key=f"pago_inst_{prefix_key}")
-                data_pag_inst_banco = projeto_selecionado.get('data_pagamento_instalador')
-                data_pag_inst_inicial = datetime.date.today()
-                if pd.notna(data_pag_inst_banco) and str(data_pag_inst_banco).lower() not in ('none', 'nan', 'nat', ''):
-                    try: data_pag_inst_inicial = pd.to_datetime(data_pag_inst_banco).date()
-                    except Exception: pass
-                if novo_pago_instalador:
-                    nova_data_pag_inst = f_pago2.date_input("Data do pagamento", value=data_pag_inst_inicial, format="DD/MM/YYYY", key=f"data_pago_inst_{prefix_key}")
-                else:
-                    nova_data_pag_inst = None
+                _session_mo_key = f"pagamentos_inst_{prefix_key}"
+                if _session_mo_key not in st.session_state:
+                    _val_mo_legado = safe_float(projeto_selecionado.get('custo_terceirizados'))
+                    if _val_mo_legado == 0.0 and safe_float(d_ct_fallback.get('val_servico')) > 0:
+                        _val_mo_legado = safe_float(d_ct_fallback.get('val_servico'))
+                    _splits_salvos = utils.pagamentos_instaladores_do_servico({**projeto_selecionado, 'custo_terceirizados': _val_mo_legado})
+                    if not _splits_salvos:
+                        _splits_salvos = [{"instalador": projeto_selecionado.get('instalador') or "", "valor": 0.0, "pago": False, "data_pagamento": None}]
+                    _linhas_mo = []
+                    for _s in _splits_salvos:
+                        _data_s = _s.get('data_pagamento')
+                        try: _data_s = pd.to_datetime(_data_s).date() if _data_s else None
+                        except Exception: _data_s = None
+                        _linhas_mo.append({
+                            "Instalador": _s.get('instalador') or "", "Valor (R$)": safe_float(_s.get('valor')),
+                            "Pago?": bool(_s.get('pago')), "Data Pagamento": _data_s,
+                        })
+                    st.session_state[_session_mo_key] = pd.DataFrame(_linhas_mo, columns=["Instalador", "Valor (R$)", "Pago?", "Data Pagamento"])
+
+                _config_mo = {
+                    # "" tem que estar nas opções: pagamentos_instaladores_do_servico
+                    # sintetiza uma linha com instalador="" quando o serviço ainda não
+                    # tem "Instalador Responsável" definido (ex.: orçamento recém-virado
+                    # "Em Andamento", antes de o Breno escolher o instalador na primeira
+                    # vez) — sem isso o Streamlit quebra ao tentar renderizar essa célula
+                    # com um valor fora das opções permitidas. Mesmo padrão já usado no
+                    # selectbox de "Instalador Responsável" acima (opcoes_inst).
+                    "Instalador": st.column_config.SelectboxColumn("Instalador", options=[""] + lista_instaladores, required=True),
+                    "Valor (R$)": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f", min_value=0.0),
+                    "Pago?": st.column_config.CheckboxColumn("💰 Pago?"),
+                    "Data Pagamento": st.column_config.DateColumn("Data Pagamento", format="DD/MM/YYYY"),
+                }
+                df_mo_editado = st.data_editor(
+                    st.session_state[_session_mo_key], column_config=_config_mo, num_rows="dynamic",
+                    hide_index=True, use_container_width=True, key=f"edit_mo_{prefix_key}",
+                )
+                # Depois de uma edição, a coluna "Data Pagamento" pode voltar
+                # do data_editor com dtype STRING (ex.: célula digitada na
+                # hora), em vez de date/datetime — daí a PRÓXIMA renderização
+                # do mesmo data_editor quebra com StreamlitAPIException
+                # ("column type date... not compatible... STRING"), porque o
+                # DateColumn exige uma coluna date-compatível. Normaliza aqui
+                # antes de guardar em session_state, pra sempre ficar
+                # datetime64 (ou NaT), nunca string solta.
+                df_mo_editado['Data Pagamento'] = pd.to_datetime(df_mo_editado['Data Pagamento'], errors='coerce')
+                st.session_state[_session_mo_key] = df_mo_editado
+
+                custo_mo = pd.to_numeric(df_mo_editado['Valor (R$)'], errors='coerce').fillna(0).sum()
+                st.caption(f"Total Mão de Obra / Terceiros: **{utils.to_br_currency(custo_mo)}**")
+
+                lista_pagamentos_inst_salvar = []
+                for _, _r_mo in df_mo_editado.iterrows():
+                    _inst_mo = str(_r_mo.get('Instalador') or '').strip()
+                    _val_mo_linha = safe_float(_r_mo.get('Valor (R$)'))
+                    if not _inst_mo and _val_mo_linha == 0:
+                        continue
+                    _data_pg_mo = _r_mo.get('Data Pagamento')
+                    lista_pagamentos_inst_salvar.append({
+                        "instalador": _inst_mo, "valor": _val_mo_linha,
+                        "pago": bool(_r_mo.get('Pago?')),
+                        "data_pagamento": _data_pg_mo.strftime('%Y-%m-%d') if pd.notna(_data_pg_mo) and hasattr(_data_pg_mo, 'strftime') else None,
+                    })
+                # Campos antigos continuam preenchidos (soma/E-todos-pagos),
+                # pra tudo que ainda lê custo_terceirizados/pago_instalador
+                # direto (cronograma, relatórios) continuar batendo certo.
+                novo_pago_instalador = all(p['pago'] for p in lista_pagamentos_inst_salvar) if lista_pagamentos_inst_salvar else False
+                _datas_pagas_mo = [p['data_pagamento'] for p in lista_pagamentos_inst_salvar if p['pago'] and p['data_pagamento']]
+                nova_data_pag_inst = max(_datas_pagas_mo) if _datas_pagas_mo else None
 
                 abatimentos = valor_nf + valor_cartao_taxa + valor_comissao + custo_ext + custo_mo
                 lucro_equipamento_servico = venda_final - custo_total_produtos - abatimentos
@@ -1413,7 +1470,8 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     "custo_adicional_materiais": custo_ext, 
                     "custo_terceirizados": custo_mo,
                     "pago_instalador": novo_pago_instalador,
-                    "data_pagamento_instalador": nova_data_pag_inst.strftime('%Y-%m-%d') if nova_data_pag_inst else None,
+                    "data_pagamento_instalador": nova_data_pag_inst,
+                    "pagamentos_instaladores": lista_pagamentos_inst_salvar,
                     "data_inicio_garantia": nova_data_garantia.strftime('%Y-%m-%d') if nova_data_garantia else None,
                     "custo_comissao": valor_comissao,
                     "custo_impostos": valor_nf,

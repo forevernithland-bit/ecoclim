@@ -230,13 +230,30 @@ def renderizar_pagamento_instaladores(df_subset, supabase, key_suffix, titulo):
     """Tabela compacta de pagamento aos instaladores — marca vários de uma vez,
     sem precisar abrir o painel de detalhe de cada cliente. df_subset já deve
     vir filtrado pra quem faz sentido pagar agora (ex.: finalizados do mês,
-    ou concluídos pelo instalador mas ainda aguardando pagamento do cliente)."""
-    df_pag_base = df_subset[['id', 'nome_cliente', 'instalador', 'custo_terceirizados', 'pago_instalador', 'status_projeto']].copy()
-    df_pag_base['custo_terceirizados'] = pd.to_numeric(df_pag_base['custo_terceirizados'], errors='coerce').fillna(0)
-    df_pag_base = df_pag_base[df_pag_base['custo_terceirizados'] > 0].reset_index(drop=True)
-    df_pag_base['pago_instalador'] = df_pag_base['pago_instalador'].fillna(False).astype(bool)
-    if df_pag_base.empty:
+    ou concluídos pelo instalador mas ainda aguardando pagamento do cliente).
+
+    Um serviço pode estar dividido entre mais de um instalador (ex.: R$1200
+    pro Valdimar, R$450 pro Sérgio) — por isso cada serviço aqui é EXPLODIDO
+    em uma linha por instalador (utils.pagamentos_instaladores_do_servico),
+    em vez de uma linha só por serviço. `_split_idx` identifica qual pedaço
+    da divisão aquela linha representa, pra salvar de volta certinho —
+    pedido do Breno (2026-09-09)."""
+    linhas_explodidas = []
+    for _, _row_serv in df_subset.iterrows():
+        _splits = utils.pagamentos_instaladores_do_servico(_row_serv.to_dict())
+        for _idx_split, _s in enumerate(_splits):
+            _valor_split = utils.safe_float(_s.get('valor'))
+            if _valor_split <= 0:
+                continue
+            linhas_explodidas.append({
+                'id': _row_serv['id'], '_split_idx': _idx_split,
+                'nome_cliente': _row_serv['nome_cliente'], 'instalador': _s.get('instalador') or '',
+                'custo_terceirizados': _valor_split, 'pago_instalador': bool(_s.get('pago', False)),
+                'status_projeto': _row_serv['status_projeto'],
+            })
+    if not linhas_explodidas:
         return
+    df_pag_base = pd.DataFrame(linhas_explodidas)
 
     # Instalador já confirmou pronto, mas o cliente ainda não pagou a
     # empresa (Breno ainda não fechou como Concluído PIX/CARTÃO) — mostra
@@ -269,6 +286,7 @@ def renderizar_pagamento_instaladores(df_subset, supabase, key_suffix, titulo):
         })
         cfg_pag = {
             "id": None,
+            "_split_idx": None,
             "Cliente": st.column_config.TextColumn("Cliente", disabled=True),
             "Instalador": st.column_config.TextColumn("Instalador", disabled=True),
             "Valor Instalação": st.column_config.NumberColumn("Valor Instalação", format="R$ %.2f", disabled=True),
@@ -291,15 +309,54 @@ def renderizar_pagamento_instaladores(df_subset, supabase, key_suffix, titulo):
             hoje_str = datetime.date.today().strftime('%Y-%m-%d')
             alterados = 0
             instaladores_pagos_agora = set()
+            # Agrupa as mudanças por SERVIÇO (um serviço pode ter mais de uma
+            # linha aqui, uma por instalador da divisão) — regrava o array
+            # `pagamentos_instaladores` inteiro de cada serviço afetado, em
+            # vez de um campo solto, senão a divisão entre instaladores se
+            # perderia ao salvar.
+            mudancas_por_servico = {}
             for _, row in df_pag_ed.iterrows():
-                original = df_pag_base[df_pag_base['id'] == row['id']].iloc[0]
+                original = df_pag_base[(df_pag_base['id'] == row['id']) & (df_pag_base['_split_idx'] == row['_split_idx'])].iloc[0]
                 if bool(row['Pago?']) != bool(original['pago_instalador']):
-                    payload = {"pago_instalador": bool(row['Pago?'])}
-                    payload["data_pagamento_instalador"] = hoje_str if bool(row['Pago?']) else None
-                    supabase.table('servicos_andamento').update(payload).eq('id', int(row['id'])).execute()
-                    alterados += 1
+                    # Guarda também o nome do instalador que esta tela mostrava
+                    # nessa posição — serve de checagem antes de escrever, caso
+                    # o array tenha mudado de forma (outra aba/sessão editou a
+                    # divisão) entre o carregamento desta tabela e este clique.
+                    mudancas_por_servico.setdefault(int(row['id']), {})[int(row['_split_idx'])] = (bool(row['Pago?']), original['instalador'])
                     if bool(row['Pago?']):
                         instaladores_pagos_agora.add(original['instalador'])
+
+            avisos_desalinhamento = []
+            for servico_id, mudancas_splits in mudancas_por_servico.items():
+                res_full = supabase.table('servicos_andamento').select('*').eq('id', servico_id).execute()
+                if not res_full.data:
+                    continue
+                splits_atuais = utils.pagamentos_instaladores_do_servico(res_full.data[0])
+                aplicadas_neste_servico = 0
+                for idx_split, (novo_pago, instalador_esperado) in mudancas_splits.items():
+                    if idx_split >= len(splits_atuais):
+                        continue
+                    # A divisão mudou de forma desde que esta tabela carregou
+                    # (outra sessão salvou no meio tempo) — não aplica "no
+                    # escuro" na posição errada, senão marcaria como pago o
+                    # instalador errado. Avisa e pula só esse pedaço.
+                    if (splits_atuais[idx_split].get('instalador') or '') != (instalador_esperado or ''):
+                        avisos_desalinhamento.append(f"Serviço #{servico_id}: posição mudou (era \"{instalador_esperado}\", agora é \"{splits_atuais[idx_split].get('instalador')}\") — não alterado, recarregue e confira.")
+                        continue
+                    splits_atuais[idx_split]['pago'] = novo_pago
+                    splits_atuais[idx_split]['data_pagamento'] = hoje_str if novo_pago else None
+                    aplicadas_neste_servico += 1
+                if aplicadas_neste_servico == 0:
+                    continue
+                novo_pago_geral = all(s.get('pago') for s in splits_atuais) if splits_atuais else False
+                supabase.table('servicos_andamento').update({
+                    "pagamentos_instaladores": splits_atuais,
+                    "pago_instalador": novo_pago_geral,
+                    "data_pagamento_instalador": hoje_str if novo_pago_geral else None,
+                }).eq('id', servico_id).execute()
+                alterados += aplicadas_neste_servico
+            if avisos_desalinhamento:
+                st.warning("⚠️ Alguns pagamentos NÃO foram alterados porque a divisão mudou enquanto esta tela estava aberta:\n\n" + "\n".join(avisos_desalinhamento))
             if alterados:
                 st.success(f"✅ {alterados} pagamento(s) atualizado(s)!")
                 # Pergunta sobre baixa de adiantamento só de quem realmente
@@ -324,8 +381,19 @@ def _modal_adiantamento_instalador(supabase, lista_instaladores):
     instalador_sel = st.selectbox("Instalador", lista_instaladores, index=_idx_padrao, key="ad_instalador")
 
     try:
-        res_receber = supabase.table('servicos_andamento').select('custo_terceirizados').eq('instalador', instalador_sel).eq('pago_instalador', False).execute()
-        total_a_receber = sum(float(r.get('custo_terceirizados') or 0) for r in (res_receber.data or []))
+        # Não filtra por `instalador` (campo do responsável principal) — um
+        # serviço dividido entre dois instaladores pode ter instalador_sel
+        # só na divisão (pagamentos_instaladores), não nesse campo. Busca
+        # todos e soma só a fatia dele que ainda não foi paga.
+        res_receber = supabase.table('servicos_andamento').select(
+            'instalador,custo_terceirizados,pago_instalador,pagamentos_instaladores'
+        ).execute()
+        total_a_receber = sum(
+            utils.safe_float(s.get('valor'))
+            for r in (res_receber.data or [])
+            for s in utils.pagamentos_instaladores_do_servico(r)
+            if (s.get('instalador') or '').strip() == instalador_sel and not s.get('pago')
+        )
     except Exception:
         total_a_receber = 0.0
 
