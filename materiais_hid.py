@@ -69,10 +69,27 @@ def renderizar():
                                 "venda_unitario": st.column_config.NumberColumn("Venda Unit.", format="R$ %.2f"),
                             },
                         )
+                        # Mão de obra de instalação: opcional, some no total de
+                        # venda/lucro e entra como linha extra no PDF — não mexe
+                        # nos itens de material. Pedido do Breno (2026-09-05).
+                        _mao_obra_atual_hid = float(lm.get('mao_de_obra') or 0)
+                        _mao_obra_input_hid = st.number_input(
+                            "🔧 Mão de obra de instalação (R$, opcional)", min_value=0.0, step=50.0,
+                            value=_mao_obra_atual_hid, key=f"mao_obra_hid_{lm['id']}", format="%.2f",
+                        )
+                        if abs(_mao_obra_input_hid - _mao_obra_atual_hid) > 0.001:
+                            if st.button("💾 Salvar mão de obra", key=f"btn_save_mao_obra_hid_{lm['id']}"):
+                                try:
+                                    supabase.table('listas_materiais').update({"mao_de_obra": _mao_obra_input_hid}).eq('id', lm['id']).execute()
+                                    st.success("Mão de obra salva.")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Erro ao salvar — rodou a migração sql_mao_de_obra_lista.sql no Supabase? ({e})")
+
                         # st.metric, não st.markdown — "R$" repetido na mesma string
                         # de markdown embaralha (ver aprendizado 2026-09-03).
                         _qtd_avulsa = pd.to_numeric(_df.get('qtd'), errors='coerce').fillna(0)
-                        _total_venda_avulsa = float((_qtd_avulsa * _df['venda_unitario']).sum())
+                        _total_venda_avulsa = float((_qtd_avulsa * _df['venda_unitario']).sum()) + _mao_obra_input_hid
                         _total_custo_avulsa = float((_qtd_avulsa * _df['custo_unitario']).sum())
                         _col_c_av, _col_v_av, _col_l_av = st.columns(3)
                         _col_c_av.metric("Custo", utils.to_br_currency(_total_custo_avulsa))
@@ -93,6 +110,7 @@ def renderizar():
                             try:
                                 _pdf_buf, _total_pdf, _sem_preco = utils.gerar_pdf_lista_materiais(
                                     supabase, lm.get('cliente_nome') or "Cliente", "", _itens_lm,
+                                    mao_de_obra=_mao_obra_input_hid,
                                 )
                                 st.session_state[f"pdf_lista_hid_{lm['id']}"] = _pdf_buf.getvalue()
                                 if _sem_preco:

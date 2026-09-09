@@ -1079,10 +1079,27 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                                     "venda_unitario": st.column_config.NumberColumn("Venda Unit.", format="R$ %.2f"),
                                 },
                             )
+                            # Mão de obra de instalação: opcional, some no total de
+                            # venda/lucro e entra como linha extra no PDF — não mexe
+                            # nos itens de material. Pedido do Breno (2026-09-05).
+                            _mao_obra_atual_lm = float(lm.get('mao_de_obra') or 0)
+                            _mao_obra_input_lm = st.number_input(
+                                "🔧 Mão de obra de instalação (R$, opcional)", min_value=0.0, step=50.0,
+                                value=_mao_obra_atual_lm, key=f"mao_obra_lm_{lm['id']}_{prefix_key}", format="%.2f",
+                            )
+                            if abs(_mao_obra_input_lm - _mao_obra_atual_lm) > 0.001:
+                                if st.button("💾 Salvar mão de obra", key=f"btn_save_mao_obra_lm_{lm['id']}_{prefix_key}"):
+                                    try:
+                                        supabase.table('listas_materiais').update({"mao_de_obra": _mao_obra_input_lm}).eq('id', lm['id']).execute()
+                                        st.success("Mão de obra salva.")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Erro ao salvar — rodou a migração sql_mao_de_obra_lista.sql no Supabase? ({e})")
+
                             # st.metric, não st.markdown — "R$" repetido na mesma
                             # string de markdown embaralha (ver aprendizado 2026-09-03).
                             _qtd_lm = pd.to_numeric(df_lm.get('qtd'), errors='coerce').fillna(0)
-                            _total_venda_lm = float((_qtd_lm * df_lm['venda_unitario']).sum())
+                            _total_venda_lm = float((_qtd_lm * df_lm['venda_unitario']).sum()) + _mao_obra_input_lm
                             _total_custo_lm = float((_qtd_lm * df_lm['custo_unitario']).sum())
                             _col_custo_lm, _col_venda_lm, _col_lucro_lm = st.columns(3)
                             _col_custo_lm.metric("Custo", utils.to_br_currency(_total_custo_lm))
@@ -1098,6 +1115,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                                     _pdf_buf, _total_pdf, _sem_preco = utils.gerar_pdf_lista_materiais(
                                         supabase, projeto_selecionado.get('nome_cliente') or "Cliente",
                                         projeto_selecionado.get('telefone_cliente') or "", _itens_lm,
+                                        mao_de_obra=_mao_obra_input_lm,
                                     )
                                     st.session_state[_pdf_key_mat] = _pdf_buf.getvalue()
                                     if _sem_preco:

@@ -677,9 +677,20 @@ def _melhor_match_catalogo(desc_tokens, catalogo_indexado, categoria_secao):
     melhor_score = 0.0
     melhor_por_nome = {}  # nome do item -> (score, dict do item) — melhor score visto pra esse nome
     for item, cat_tokens, categoria_item in catalogo_indexado:
-        if not cat_tokens or not (desc_tokens & cat_tokens):
+        comuns = desc_tokens & cat_tokens
+        if not cat_tokens or not comuns:
             continue
-        score = len(desc_tokens & cat_tokens) / len(cat_tokens)
+        # Cobertura (quanto do NOME DO CATÁLOGO apareceu) sozinha empatava um
+        # nome completo ("Luva de Transição CPVC 28x1", digitado letra por
+        # letra) com um nome mais curto que é um SUBCONJUNTO dele ("Luva CPVC
+        # 28mm") — os dois cobrem 100% de si mesmos, então empatavam mesmo o
+        # texto batendo EXATO com um dos dois. Somar a precisão (quanto do
+        # texto digitado esse candidato explica) resolve: o nome mais
+        # específico, que explica MAIS do texto, vence de verdade. Mesma
+        # fórmula já usada em ecoclim_db.py::casar_item (2026-09-09).
+        cobertura = len(comuns) / len(cat_tokens)
+        precisao = len(comuns) / len(desc_tokens) if desc_tokens else 0.0
+        score = 0.7 * cobertura + 0.3 * precisao
         if categoria_secao and categoria_item == categoria_secao:
             score += 0.15
         nome = item.get("item")
@@ -943,7 +954,7 @@ def _limpo_txt(txt):
     return s if s.lower() != 'nan' else ""
 
 
-def gerar_pdf_lista_materiais(supabase, nome_cliente, telefone, itens, observacoes=""):
+def gerar_pdf_lista_materiais(supabase, nome_cliente, telefone, itens, observacoes="", mao_de_obra=0.0):
     """PDF de material hidráulico pro cliente — preço de VENDA, não de custo,
     em formato PAISAGEM (ver `_construir_pdf_material_horizontal`).
 
@@ -956,6 +967,10 @@ def gerar_pdf_lista_materiais(supabase, nome_cliente, telefone, itens, observaco
     mandar pro cliente. Item com mais de um fabricante cadastrado (ex.:
     "Joelho CPVC 22mm 45°" em Amanco e Krona) usa sempre o de MENOR venda —
     ver [[erp-ecoclim-gestao-click-sync]] pro porquê da duplicação existir.
+
+    `mao_de_obra`: valor opcional de instalação, somado como mais uma linha
+    do PDF ("Mão de Obra de Instalação") e no total — pedido do Breno
+    (2026-09-05), pra listas de material avulsas que também levam serviço.
 
     Usado tanto pelo botão "Gerar PDF" do ERP (materiais_hid.py) quanto pelo
     endpoint /materiais/gerar-pdf da API (chamado pelo PWA) — uma função só,
@@ -991,6 +1006,13 @@ def gerar_pdf_lista_materiais(supabase, nome_cliente, telefone, itens, observaco
             "item": nome, "qtd": qtd, "venda_un": venda_un, "venda_tot": venda_tot,
             "unidade": unidade_do_item.get(nome, "un"),
         })
+    mao_de_obra = float(mao_de_obra or 0)
+    if mao_de_obra > 0:
+        itens_pdf.append({
+            "item": "Mão de Obra de Instalação", "qtd": 1, "unidade": "serv",
+            "venda_un": mao_de_obra, "venda_tot": mao_de_obra,
+        })
+        total += mao_de_obra
     total = round(total, 2)
 
     pdf_buffer = _construir_pdf_material_horizontal(
