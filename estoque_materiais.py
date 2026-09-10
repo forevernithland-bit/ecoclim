@@ -267,8 +267,14 @@ def _aba_compras(supabase, catalogo):
         df_compra = pd.DataFrame(st.session_state[_itens_compra_key])
         df_compra_edit = st.data_editor(
             df_compra, num_rows="dynamic", use_container_width=True,
-            key=f"editor_compra_materiais_{len(st.session_state[_itens_compra_key])}",
+            # Chave FIXA. Antes carregava `len(lista)`: cada "➕ Adicionar" mudava
+            # a chave, o Streamlit trocava a tabela por uma nova e as quantidades
+            # e custos já digitados voltavam ao padrão (qtd=1 e custo antigo) —
+            # numa tela que mexe em custo, preço de venda e estoque. Quem faz o
+            # item novo aparecer agora é a devolução das edições logo abaixo.
+            key="editor_compra_materiais",
         )
+        st.session_state[_itens_compra_key] = df_compra_edit.to_dict('records')
         observacao = st.text_area("Observação (opcional)", key="compra_observacao")
         if st.button("💾 Registrar Compra", type="primary", key="btn_registrar_compra"):
             itens_final = df_compra_edit.dropna(subset=['item']).to_dict('records')

@@ -36,7 +36,15 @@ def parse_br_currency(val):
 # =============================================================================
 # MOTORES DE BANCO DE DADOS BLINDADOS (ESPECÍFICOS POR ANO E ANTI-NAN)
 # =============================================================================
+@st.cache_data(ttl=30, show_spinner=False)
 def carregar_dados_fin(nome_tabela, lista_contas, ano):
+    """Em cache por 30s porque a MESMA tabela era lida várias vezes dentro do
+    mesmo desenho da tela (patrimônio do ano, do ano anterior, entradas...) —
+    eram 13 consultas por clique, o que fazia o Financeiro ser a tela mais
+    lenta do sistema. Todo ponto que grava (`salvar_dados_fin` e a importação
+    por Excel) limpa este cache na hora, então não se vê número velho depois
+    de gravar. Nenhuma conta muda: é a mesma leitura, só sem repetir.
+    """
     supabase = st.session_state.supabase
     try:
         res = supabase.table(nome_tabela).select("*").eq("ano", ano).execute()
@@ -95,6 +103,12 @@ def salvar_dados_fin(nome_tabela, df, ano):
             supabase.table(nome_tabela).insert(dados_finais).execute()
     except Exception as e:
         st.error(f"Erro ao salvar tabela {nome_tabela}: {e}")
+    finally:
+        # Os números mudaram no banco: derruba o cache de leitura pra tela já
+        # mostrar o valor gravado (ver carregar_dados_fin) e refazer o Excel
+        # de exportação com os dados novos.
+        carregar_dados_fin.clear()
+        exportar_base_completa_excel.clear()
 
 # =============================================================================
 # APORTES DE CAPITAL — lista de lançamentos (vários por mês) na fin_aportes_itens
@@ -496,7 +510,18 @@ def aplicar_fallback_legado(serie_calculada, serie_legado, ano):
 # =============================================================================
 # MOTORES DE EXPORTAÇÃO E IMPORTAÇÃO GLOBAL BLINDADA CONTRA NAN
 # =============================================================================
+@st.cache_data(ttl=120, show_spinner=False)
 def exportar_base_completa_excel():
+    """Monta o Excel com a base inteira pro botão "Exportar toda a base".
+
+    Em cache (2 min) porque o botão de download precisa do arquivo PRONTO já
+    na hora de desenhar a tela — ou seja, o Excel inteiro era gerado (duas
+    consultas + montagem do arquivo) a CADA clique em qualquer lugar do
+    Financeiro, mesmo sem ninguém exportar nada. O botão continua igualzinho
+    na tela e baixando na hora; só não se refaz o arquivo à toa.
+    `salvar_dados_fin` e a importação limpam este cache, então o arquivo
+    exportado nunca sai desatualizado depois de gravar.
+    """
     supabase = st.session_state.supabase
     try:
         res_p = supabase.table('fin_patrimonio').select("*").order("ano", desc=False).execute()
@@ -590,9 +615,13 @@ def importar_base_completa_excel(file_buffer):
                 
         processar_aba(df_p_xls, 'fin_patrimonio')
         processar_aba(df_e_xls, 'fin_entradas')
+        carregar_dados_fin.clear()  # base substituída: força reler tudo do banco
+        exportar_base_completa_excel.clear()
         return True
     except Exception as e:
         st.error(f"Erro crítico durante a importação do Excel: {e}")
+        carregar_dados_fin.clear()  # pode ter apagado antes de falhar — não confiar no cache
+        exportar_base_completa_excel.clear()
         return False
 
 # =============================================================================
@@ -626,7 +655,7 @@ def renderizar():
         st.session_state.salvar_fin_clicado = False
         
     with st.sidebar:
-        ano_selecionado = st.selectbox("Ano Fiscal", options=[2025, 2026, 2027, 2028], index=1)
+        ano_selecionado = st.selectbox("Ano Fiscal", options=[2025, 2026, 2027, 2028], index=1, key="fin_ano_fiscal")
         
         st.write("---")
         if st.button("💾 SALVAR DADOS AGORA", type="primary", use_container_width=True, key="btn_salvar_lateral"):
@@ -650,7 +679,7 @@ def renderizar():
         # -------------------------------------------------------------
         
         pref_ini, pref_fim = carregar_periodo_visivel()
-        m_ini, m_fim = st.select_slider("Período Visível:", options=utils.meses_pt, value=(pref_ini, pref_fim))
+        m_ini, m_fim = st.select_slider("Período Visível:", options=utils.meses_pt, value=(pref_ini, pref_fim), key="fin_periodo_visivel")
         
         if (m_ini, m_fim) != (pref_ini, pref_fim):
             salvar_periodo_visivel(m_ini, m_fim)
@@ -732,6 +761,14 @@ def renderizar():
         df_p_trabalho = st.session_state.db_df_p.copy()
         for c in colunas_visiveis:
             if c != "MESES": df_p_trabalho[c] = df_p_ed[c].apply(parse_br_currency)
+        # Devolve o que foi digitado pro estado da tela — mesma coisa que a
+        # tabela de Recebimentos já faz logo abaixo. Sem isto, os valores de
+        # Patrimônio viviam só dentro da tabela: bastava mexer no "Período
+        # Visível" (que muda as colunas e portanto troca a tabela) pra tudo que
+        # ainda não tinha sido GRAVADO desaparecer. Correção de 2026-09-10.
+        # Não altera cálculo nenhum: é exatamente o mesmo df que as contas
+        # abaixo já usam.
+        st.session_state.db_df_p = df_p_trabalho
 
         st.markdown("##### 💵 Aportes de Capital (Investimentos)")
         with st.expander("Registrar depósitos (pode haver vários no mesmo mês)", expanded=False):
@@ -749,6 +786,12 @@ def renderizar():
             df_ap_itens_ed = st.data_editor(
                 st.session_state.db_df_ap_itens, column_config=cfg_ap, num_rows="dynamic",
                 hide_index=True, use_container_width=True, key=f"ed_ap_itens_{ano_selecionado}")
+            # Devolve os lançamentos pro estado da tela — sem isto, um depósito
+            # digitado e ainda não gravado vivia só dentro da tabela e sumia se
+            # a tela se redesenhasse (trocar de ano, mexer no período, etc).
+            # Mesmo padrão do Patrimônio e dos Recebimentos. Não muda cálculo:
+            # `agregar_aportes` logo abaixo continua lendo o mesmo df editado.
+            st.session_state.db_df_ap_itens = df_ap_itens_ed
             if not df_ap_itens_ed.empty:
                 _vals = pd.to_numeric(df_ap_itens_ed.get("Valor"), errors="coerce").fillna(0)
                 _orig = df_ap_itens_ed.get("Origem")

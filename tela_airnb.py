@@ -73,7 +73,7 @@ def renderizar():
                 for m in meses_atuais: cfg[m] = st.column_config.NumberColumn(m, format="R$ %.2f")
 
                 st.write("**📥 Entradas**")
-                df_ent_ed = st.data_editor(st.session_state.df_airnb_ent[['MESES'] + meses_atuais], column_config=cfg, hide_index=True, use_container_width=True, height=120, key="airnb_ent_ed_tela")
+                df_ent_ed = st.data_editor(st.session_state.df_airnb_ent[['MESES'] + meses_atuais], column_config=cfg, hide_index=True, use_container_width=True, height=120, key=f"airnb_ent_ed_tela_{ano_selecionado}")
                 
                 # Totais de Entrada formatados abaixo da tabela
                 st.markdown("<div style='margin-top: -10px; margin-bottom: 15px;'>", unsafe_allow_html=True)
@@ -83,7 +83,7 @@ def renderizar():
                 st.markdown("</div>", unsafe_allow_html=True)
 
                 st.write("**📤 Saídas (Custos)**")
-                df_sai_ed = st.data_editor(st.session_state.df_airnb_sai[['MESES'] + meses_atuais], column_config=cfg, hide_index=True, use_container_width=True, height=290, key="airnb_sai_ed_tela")
+                df_sai_ed = st.data_editor(st.session_state.df_airnb_sai[['MESES'] + meses_atuais], column_config=cfg, hide_index=True, use_container_width=True, height=290, key=f"airnb_sai_ed_tela_{ano_selecionado}")
                 
                 # Totais de Custos formatados abaixo da tabela
                 st.markdown("<div style='margin-top: -10px; margin-bottom: 5px;'>", unsafe_allow_html=True)

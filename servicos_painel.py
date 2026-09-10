@@ -122,7 +122,23 @@ def selecionar_itens_produtos(df_produtos, session_key, itens_iniciais=None):
         key=f"edit_{session_key}",
     )
 
-    precisa_atualizar = False
+    # `produto_trocado`: SÓ a escolha de um produto no selectbox obriga a
+    # redesenhar a tela — é quando o sistema precisa trazer custo e venda do
+    # catálogo, dados que o usuário não digitou e que ainda não estão na tela.
+    #
+    # Recalcular Custo Total / Venda Total NÃO entra aqui de propósito: são
+    # valores derivados (qtd × preço) e antes disparavam um redesenho a cada
+    # célula alterada — pior, o redesenho vinha com `del` da chave do editor,
+    # o que DESTRUÍA a tabela e apagava tudo que estava sendo preenchido.
+    # Era a causa nº 1 do "digitei e o sistema apagou" relatado pelo Breno
+    # (2026-09-10), e atingia toda tela que usa esta função (Em Andamento,
+    # Orçamentos, Finalizados e o "Mover Cliente" da Agenda).
+    # Agora os totais são só recalculados em memória: o df devolvido logo
+    # abaixo já sai com os valores certos, os totais agregados (custo_total /
+    # venda_total / lucro_total) continuam idênticos, e a coluna Total da
+    # linha se acerta na próxima interação. Mesma correção já validada em
+    # orcamento_personalizado.py:798-808 e orcamento_rapido.py:103-106.
+    produto_trocado = False
     for idx in df_itens_editavel.index:
         item_atual = str(df_itens_editavel.loc[idx, 'Item']).strip() if 'Item' in df_itens_editavel.columns and pd.notna(df_itens_editavel.loc[idx, 'Item']) else ""
         item_ant = ""
@@ -138,7 +154,7 @@ def selecionar_itens_produtos(df_produtos, session_key, itens_iniciais=None):
                     qtd_atual = df_itens_editavel.loc[idx, 'Qtd'] if 'Qtd' in df_itens_editavel.columns else 0
                     if pd.isna(qtd_atual) or safe_float(qtd_atual) <= 0:
                         df_itens_editavel.loc[idx, 'Qtd'] = 1
-                    precisa_atualizar = True
+                    produto_trocado = True
 
         qtd_calc = safe_float(df_itens_editavel.loc[idx, 'Qtd']) if 'Qtd' in df_itens_editavel.columns else 0.0
         c_un_calc = safe_float(df_itens_editavel.loc[idx, 'Custo Un.']) if 'Custo Un.' in df_itens_editavel.columns else 0.0
@@ -150,15 +166,20 @@ def selecionar_itens_produtos(df_produtos, session_key, itens_iniciais=None):
         c_tot_atual = safe_float(df_itens_editavel.loc[idx, 'Custo Total']) if 'Custo Total' in df_itens_editavel.columns else 0.0
         v_tot_atual = safe_float(df_itens_editavel.loc[idx, 'Venda Total']) if 'Venda Total' in df_itens_editavel.columns else 0.0
 
+        # Só recalcula em memória — sem marcar redesenho (ver comentário acima).
         if abs(tot_c - c_tot_atual) > 0.01 or abs(tot_v - v_tot_atual) > 0.01:
             df_itens_editavel.loc[idx, 'Custo Total'] = tot_c
             df_itens_editavel.loc[idx, 'Venda Total'] = tot_v
-            precisa_atualizar = True
 
-    if precisa_atualizar:
-        st.session_state[session_key] = df_itens_editavel
-        if f"edit_{session_key}" in st.session_state:
-            del st.session_state[f"edit_{session_key}"]
+    # Guarda o estado a cada passagem (sem redesenhar): é o que permite comparar
+    # o produto na próxima vez e o que os botões de salvar leem depois.
+    st.session_state[session_key] = df_itens_editavel
+
+    if produto_trocado:
+        # Aqui o redesenho é necessário e esperado — o preço acabou de vir do
+        # catálogo e precisa aparecer na tela. A chave do editor é preservada
+        # de propósito: apagá-la descartaria o que o usuário digitou nas outras
+        # células antes de escolher o produto.
         st.rerun()
 
     df_itens_final = df_itens_editavel
@@ -344,7 +365,19 @@ def montar_itens_material(supabase, catalogo_mat, opcoes_catalogo, chave_itens, 
                 except Exception:
                     pass  # não trava a confirmação do item por causa disso
 
+        _ocorrencias_pend = {}
         for _i, _p in enumerate(st.session_state[chave_pendentes]):
+            # Identidade do pendente pelo CONTEÚDO, não pela posição na fila.
+            # Antes as chaves dos campos usavam o número da posição: ao
+            # confirmar o 1º item, ele saía da fila, o 2º virava posição 1 e
+            # HERDAVA a escolha de catálogo que tinha sido feita pro 1º — dava
+            # pra acabar incluindo o material errado na lista sem perceber.
+            # O sufixo `_ocN` desempata dois pendentes de texto/qtd idênticos,
+            # senão as chaves colidiriam e a seção quebrava. Correção de 2026-09-10.
+            _base_pend = abs(hash((str(_p.get('texto_original', '')), str(_p.get('qtd', '')))))
+            _n_oc = _ocorrencias_pend.get(_base_pend, 0)
+            _ocorrencias_pend[_base_pend] = _n_oc + 1
+            _id_pend = f"{_base_pend}_{_n_oc}"
             with st.container(border=True):
                 st.caption(f"Texto original: \"{_p['qtd']} {_p['texto_original']}\"")
                 # `palpites`: 0 = nada parecido no catálogo; 1 = palpite único,
@@ -360,7 +393,7 @@ def montar_itens_material(supabase, catalogo_mat, opcoes_catalogo, chave_itens, 
                     _cols_palpites = st.columns(len(_palpites))
                     for _pc, _nome_c in zip(_cols_palpites, _palpites):
                         _c = opcoes_catalogo.get(_label_por_item.get(_nome_c))
-                        if _pc.button(f"✅ {_nome_c}", key=f"whats_pend_palpite_{chave_itens}_{_i}_{_nome_c}", use_container_width=True) and _c:
+                        if _pc.button(f"✅ {_nome_c}", key=f"whats_pend_palpite_{chave_itens}_{_id_pend}_{_nome_c}", use_container_width=True) and _c:
                             _adicionar_confirmado(chave_itens, _c['item'], _p['qtd'], _c.get('unidade', 'un'), _c.get('categoria'), _p.get('_fornecedor_meta'))
                             _confirmado = True
                     _idx_inicial = 0
@@ -372,13 +405,13 @@ def montar_itens_material(supabase, catalogo_mat, opcoes_catalogo, chave_itens, 
                     st.warning("❌ Não encontrei nada parecido no catálogo pra este item.")
                     _idx_inicial = 0
                 if not _confirmado:
-                    _escolha = st.selectbox("O que é este item?", _opcoes_pendente, index=_idx_inicial, key=f"whats_pend_sel_{chave_itens}_{_i}")
+                    _escolha = st.selectbox("O que é este item?", _opcoes_pendente, index=_idx_inicial, key=f"whats_pend_sel_{chave_itens}_{_id_pend}")
                     _col_ok, _col_manual = st.columns(2)
-                    if _col_ok.button("✅ Usar este", key=f"whats_pend_ok_{chave_itens}_{_i}", disabled=(_escolha == "-- escolher no catálogo --")):
+                    if _col_ok.button("✅ Usar este", key=f"whats_pend_ok_{chave_itens}_{_id_pend}", disabled=(_escolha == "-- escolher no catálogo --")):
                         _c = opcoes_catalogo[_escolha]
                         _adicionar_confirmado(chave_itens, _c['item'], _p['qtd'], _c.get('unidade', 'un'), _c.get('categoria'), _p.get('_fornecedor_meta'))
                         _confirmado = True
-                    if _col_manual.button("📝 Manter como veio", key=f"whats_pend_manual_{chave_itens}_{_i}"):
+                    if _col_manual.button("📝 Manter como veio", key=f"whats_pend_manual_{chave_itens}_{_id_pend}"):
                         _adicionar_confirmado(chave_itens, _p['texto_original'], _p['qtd'], "un", None)
                         utils.sugerir_novo_material(supabase, _p['texto_original'])
                         st.toast(f"\"{_p['texto_original']}\" não está no catálogo — adicionado mesmo assim, e já registrado pro Breno avaliar incluir.", icon="⚠️")
@@ -1470,9 +1503,26 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     _overrides_import_mat = st.session_state.get(f"venda_override_import_{_novos_itens_key}", {})
                     df_novo['custo_unitario'] = df_novo['item'].map(
                         lambda n: float((_precos_por_item_mat.get(n) or {}).get('custo') or 0))
-                    df_novo['venda_unitario'] = df_novo['item'].map(
-                        lambda n: float(_overrides_import_mat[n]) if n in _overrides_import_mat
-                        else float((_precos_por_item_mat.get(n) or {}).get('venda') or 0))
+
+                    def _venda_da_linha(_linha):
+                        """Preço de venda que a tabela deve mostrar, na ordem de
+                        prioridade: (1) o que o usuário JÁ editou nesta lista —
+                        preservado porque as edições voltam pro session_state
+                        logo abaixo; (2) o preço que veio num PDF importado;
+                        (3) o preço do catálogo. Sem o passo (1), o desconto
+                        pontual digitado era sobrescrito pelo catálogo no
+                        redesenho seguinte (bug relatado pelo Breno 2026-09-10)."""
+                        _ja_editado = _linha.get('venda_unitario')
+                        if pd.notna(_ja_editado):
+                            return float(_ja_editado)
+                        _nome = _linha.get('item')
+                        if _nome in _overrides_import_mat:
+                            return float(_overrides_import_mat[_nome])
+                        return float((_precos_por_item_mat.get(_nome) or {}).get('venda') or 0)
+
+                    if 'venda_unitario' not in df_novo.columns:
+                        df_novo['venda_unitario'] = None
+                    df_novo['venda_unitario'] = df_novo.apply(_venda_da_linha, axis=1)
                     df_novo_editado = st.data_editor(
                         df_novo, num_rows="dynamic", use_container_width=True,
                         column_order=[c for c in ['item', 'qtd', 'unidade', 'categoria', 'custo_unitario', 'venda_unitario'] if c in df_novo.columns],
@@ -1487,8 +1537,23 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                                 help="Editável — mude aqui pra dar desconto pontual só nesta lista, sem afetar o preço cadastrado no catálogo.",
                             ),
                         },
-                        key=f"editor_novo_mat_{prefix_key}_{len(st.session_state[_novos_itens_key])}",
+                        # Chave FIXA. Antes ela carregava `len(lista)`: bastava
+                        # entrar um item por fora (colar do WhatsApp, catálogo,
+                        # importar PDF) pra chave mudar, o Streamlit tratar
+                        # como uma tabela nova e JOGAR FORA tudo que já tinha
+                        # sido digitado (quantidades e descontos). Agora a
+                        # chave é estável e quem faz os itens novos aparecerem
+                        # é a devolução das edições logo abaixo — que também é
+                        # o que preserva o que o usuário digitou.
+                        key=f"editor_novo_mat_{prefix_key}",
                     )
+                    # Devolve o que foi editado pra lista-fonte: é isto que faz
+                    # a quantidade e o desconto sobreviverem ao próximo
+                    # redesenho, e o que permite a chave acima ser fixa.
+                    # `custo_unitario` fica de fora de propósito — é derivado do
+                    # catálogo e nunca editável.
+                    _cols_fonte = [c for c in ['item', 'qtd', 'unidade', 'categoria', 'venda_unitario'] if c in df_novo_editado.columns]
+                    st.session_state[_novos_itens_key] = df_novo_editado[_cols_fonte].to_dict('records')
                     # Soma ao vivo — lê o dataframe JÁ editado, então acompanha
                     # qualquer alteração de qtd ou de Venda Unit. (desconto pontual)
                     # a cada interação, sem precisar salvar antes. Pedido do Breno (2026-09-03).

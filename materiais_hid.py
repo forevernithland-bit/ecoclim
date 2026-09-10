@@ -204,13 +204,6 @@ def renderizar():
 
         if st.session_state[_itens_nova_lista_key]:
             df_nova = pd.DataFrame(st.session_state[_itens_nova_lista_key])
-            # A chave inclui a quantidade de itens de propósito: sempre que
-            # um item entra por fora (colar WhatsApp, catálogo, modelo), a
-            # lista muda de tamanho e a chave muda junto — isso força o
-            # editor a recarregar do zero com os itens novos. Sem isso, o
-            # Streamlit mantém o estado antigo da tabela (mesma chave fixa
-            # entre reruns) e os itens adicionados depois da primeira vez
-            # não apareciam pra salvar de verdade.
             # Custo é só de referência (nunca editável, nunca sobrescreve o
             # catálogo). Venda o admin PODE editar aqui — pra dar desconto pontual
             # pra um cliente — e o valor mexido é salvo JUNTO com a lista como
@@ -219,8 +212,21 @@ def renderizar():
             _precos_por_item_hid = {c['item']: c for c in catalogo_mat}
             df_nova['custo_unitario'] = df_nova['item'].map(
                 lambda n: float((_precos_por_item_hid.get(n) or {}).get('custo') or 0))
-            df_nova['venda_unitario'] = df_nova['item'].map(
-                lambda n: float((_precos_por_item_hid.get(n) or {}).get('venda') or 0))
+
+            def _venda_da_linha_hid(_linha):
+                """Venda que a tabela mostra: primeiro o que o usuário JÁ
+                editou nesta lista (preservado pela devolução ao session_state
+                logo abaixo), senão o preço do catálogo. Sem esse cuidado, o
+                desconto pontual digitado era sobrescrito pelo catálogo no
+                redesenho seguinte (bug relatado pelo Breno 2026-09-10)."""
+                _ja_editado = _linha.get('venda_unitario')
+                if pd.notna(_ja_editado):
+                    return float(_ja_editado)
+                return float((_precos_por_item_hid.get(_linha.get('item')) or {}).get('venda') or 0)
+
+            if 'venda_unitario' not in df_nova.columns:
+                df_nova['venda_unitario'] = None
+            df_nova['venda_unitario'] = df_nova.apply(_venda_da_linha_hid, axis=1)
             df_nova_edit = st.data_editor(
                 df_nova, num_rows="dynamic", use_container_width=True,
                 column_order=[c for c in ['item', 'qtd', 'unidade', 'categoria', 'custo_unitario', 'venda_unitario'] if c in df_nova.columns],
@@ -235,8 +241,18 @@ def renderizar():
                         help="Editável — mude aqui pra dar desconto pontual só nesta lista, sem afetar o preço cadastrado no catálogo.",
                     ),
                 },
-                key=f"editor_nova_lista_hid_{len(st.session_state[_itens_nova_lista_key])}",
+                # Chave FIXA — antes carregava `len(lista)` pra forçar a tabela
+                # a recarregar quando entrava item por fora, mas o efeito
+                # colateral era jogar fora tudo que já tinha sido digitado
+                # (quantidades e descontos). Quem faz os itens novos aparecerem
+                # agora é a devolução das edições logo abaixo.
+                key="editor_nova_lista_hid",
             )
+            # Devolve o editado pra lista-fonte: é o que preserva quantidade e
+            # desconto quando entra um item novo. `custo_unitario` fica de fora
+            # de propósito (é derivado do catálogo, nunca editável).
+            _cols_fonte_hid = [c for c in ['item', 'qtd', 'unidade', 'categoria', 'venda_unitario'] if c in df_nova_edit.columns]
+            st.session_state[_itens_nova_lista_key] = df_nova_edit[_cols_fonte_hid].to_dict('records')
             # Soma ao vivo — lê o dataframe JÁ editado, então acompanha qualquer
             # alteração de qtd ou de Venda Unit. (desconto pontual) a cada
             # interação, sem precisar salvar antes. Pedido do Breno (2026-09-03).
@@ -381,8 +397,12 @@ def renderizar():
             df_novo_modelo = pd.DataFrame(st.session_state[_itens_novo_modelo_key])
             df_novo_modelo_edit = st.data_editor(
                 df_novo_modelo, num_rows="dynamic", use_container_width=True,
-                key=f"editor_novo_modelo_mat_{len(st.session_state[_itens_novo_modelo_key])}",
+                # Chave fixa + devolução das edições logo abaixo (mesma correção
+                # do editor de lista de cliente): com `len()` na chave, entrar um
+                # item novo apagava o que já tinha sido digitado.
+                key="editor_novo_modelo_mat",
             )
+            st.session_state[_itens_novo_modelo_key] = df_novo_modelo_edit.to_dict('records')
             if st.button("💾 Salvar lista padrão", type="primary", key="btn_save_novo_modelo_mat"):
                 _itens_final_modelo = df_novo_modelo_edit.dropna(subset=['item']).to_dict('records')
                 if not nome_novo_modelo.strip():

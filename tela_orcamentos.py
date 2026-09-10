@@ -55,6 +55,10 @@ def limpar_tela_orcamento():
         # Automações do Orçamento Personalizado (Partes 1, 2 e 3)
         'input_modelo_capa', 'sel_servico_base', 'auto_equip_assinatura',
         'servico_auto_aviso', 'calc_custos_dados',
+        # Campos que passaram a ter key em 2026-09-10 (antes o LIMPAR não
+        # alcançava nenhum deles, e a escolha de um cliente vazava pro
+        # próximo orçamento).
+        'sel_outros_base', 'sel_rascunho_orc', 'chk_detalhar_pdf', 'tg_mostrar_lucro',
     ]
     # Campos do modal de Cálculo de Custos (Parte 3)
     chaves += [k for k in list(st.session_state.keys()) if str(k).startswith('cc_')]

@@ -10,8 +10,8 @@ def modal_cronograma(df_servicos, lista_instaladores):
     
     with st.container(border=True):
         c1, c2 = st.columns([1, 1.5])
-        filtro_inst = c1.selectbox("👷 Filtro por Instalador", ["TODOS"] + lista_instaladores)
-        filtro_tempo = c2.radio("🗓️ Visão de Tempo", ["Todas as Datas", "Esta Semana", "Este Mês"], horizontal=True)
+        filtro_inst = c1.selectbox("👷 Filtro por Instalador", ["TODOS"] + lista_instaladores, key="cron_filtro_inst")
+        filtro_tempo = c2.radio("🗓️ Visão de Tempo", ["Todas as Datas", "Esta Semana", "Este Mês"], horizontal=True, key="cron_filtro_tempo")
     
     df_cron = df_servicos[df_servicos['status_projeto'] == 'Em Andamento'].copy()
     

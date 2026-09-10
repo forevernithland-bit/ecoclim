@@ -42,22 +42,28 @@ def _carregar(supabase):
 
 def _form_novo(supabase):
     with st.expander("➕ Registrar novo empréstimo", expanded=False):
-        with st.form("form_novo_emprestimo"):
+        # clear_on_submit: sem isso o formulário continuava preenchido depois de
+        # registrar, e um segundo clique lançava o MESMO empréstimo de novo.
+        # As keys abaixo dão identidade estável a cada campo — sem elas, o campo
+        # era identificado pelos próprios parâmetros (inclusive o `value=`), e o
+        # "1º vencimento" escolhido à mão era descartado toda vez que a "Data do
+        # empréstimo" mudava. Correção de 2026-09-10.
+        with st.form("form_novo_emprestimo", clear_on_submit=True):
             c1, c2, c3 = st.columns([2, 1.5, 1.2])
-            pessoa = c1.text_input("Para quem emprestei", placeholder="Nome do amigo")
-            telefone = c2.text_input("WhatsApp (opcional)", placeholder="(31) 99999-9999",
+            pessoa = c1.text_input("Para quem emprestei", placeholder="Nome do amigo", key="emp_pessoa")
+            telefone = c2.text_input("WhatsApp (opcional)", placeholder="(31) 99999-9999", key="emp_telefone",
                                      help="Preenchendo aqui, aparece um botão pra cobrar direto no WhatsApp.")
-            valor_total = c3.number_input("Valor emprestado (R$)", min_value=0.0, format="%.2f")
+            valor_total = c3.number_input("Valor emprestado (R$)", min_value=0.0, format="%.2f", key="emp_valor")
 
             c4, c5, c6 = st.columns([1.2, 1, 1.2])
-            data_emp = c4.date_input("Data do empréstimo", value=datetime.date.today(), format="DD/MM/YYYY")
-            parcelas = c5.number_input("Parcelas", min_value=1, max_value=60, value=1, step=1)
+            data_emp = c4.date_input("Data do empréstimo", value=datetime.date.today(), format="DD/MM/YYYY", key="emp_data")
+            parcelas = c5.number_input("Parcelas", min_value=1, max_value=60, value=1, step=1, key="emp_parcelas")
             # Padrão: primeira cobrança um mês depois. É o combinado mais comum
             # num empréstimo entre amigos, e fica editável pra quando não for.
             venc_sugerido = _somar_meses(data_emp, 1)
-            primeiro_venc = c6.date_input("1º vencimento", value=venc_sugerido, format="DD/MM/YYYY")
+            primeiro_venc = c6.date_input("1º vencimento", value=venc_sugerido, format="DD/MM/YYYY", key="emp_1venc")
 
-            observacao = st.text_input("Observação (opcional)", placeholder="Ex: pra consertar o carro, combinamos sem juros")
+            observacao = st.text_input("Observação (opcional)", placeholder="Ex: pra consertar o carro, combinamos sem juros", key="emp_obs")
 
             if parcelas > 1 and valor_total > 0:
                 st.caption(f"Vai gerar {parcelas} parcelas de "

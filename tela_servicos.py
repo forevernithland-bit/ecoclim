@@ -70,6 +70,123 @@ def barra_busca_servicos(df, key_prefix):
     return out.drop(columns=['_ts', '_nome']).reset_index(drop=True)
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def carregar_lista_instaladores():
+    """Nomes dos instaladores. Em cache porque a lista muda pouquíssimo (só
+    quando alguém é cadastrado em Configurações, que já limpa este cache) e
+    era relida do banco a cada clique na tela de Serviços."""
+    try:
+        res = st.session_state.supabase.table('config_instaladores').select('nome').order('nome').execute()
+        return [r['nome'] for r in (res.data or []) if str(r.get('nome', '')).strip() != ""]
+    except Exception:
+        return []
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _carregar_notificacoes_instalador():
+    """Os 4 avisos de "o instalador mexeu em algo e você ainda não viu".
+
+    Ficam em cache por 1 minuto porque são só CONTADORES de aviso: o Streamlit
+    re-executa a tela inteira a cada clique ou tecla, e sem cache estas quatro
+    consultas eram refeitas toda vez — sozinhas respondiam por quase metade do
+    tempo de resposta da tela de Serviços. Um aviso aparecer até 1 minuto
+    depois não muda nada na operação; travar a tela a cada tecla muda.
+    Quem marca um aviso como visto limpa este cache na hora (`.clear()` logo
+    após o update), então o número nunca fica "preso". Correção de 2026-09-10.
+    """
+    supabase = st.session_state.supabase
+    try:
+        notif_agenda = supabase.table('agenda_visitas').select('*').eq('visto_pelo_admin', False).execute().data or []
+    except Exception:
+        notif_agenda = []
+
+    try:
+        notif_concluidos = supabase.table('servicos_andamento').select('id, nome_cliente, instalador').eq('conclusao_vista_pelo_admin', False).execute().data or []
+    except Exception:
+        notif_concluidos = []
+
+    try:
+        midias_pendentes = supabase.table('servico_midias').select('*').eq('visto_pelo_admin', False).not_.is_('servico_id', 'null').execute().data or []
+    except Exception:
+        midias_pendentes = []
+    midias_por_servico = {}
+    for m in midias_pendentes:
+        midias_por_servico.setdefault(m['servico_id'], []).append(m)
+    notif_midia_clientes = []
+    if midias_por_servico:
+        try:
+            res_nomes = supabase.table('servicos_andamento').select('id, nome_cliente, instalador').in_('id', list(midias_por_servico.keys())).execute()
+            nomes_por_id = {r['id']: r for r in (res_nomes.data or [])}
+        except Exception:
+            nomes_por_id = {}
+        for sid, itens in midias_por_servico.items():
+            info = nomes_por_id.get(sid, {})
+            notif_midia_clientes.append({
+                "servico_id": sid, "nome_cliente": info.get('nome_cliente') or f"Serviço #{sid}",
+                "instalador": info.get('instalador', ''), "itens": itens,
+            })
+
+    try:
+        notif_materiais = supabase.table('materiais_sugeridos').select('*').eq('visto_pelo_admin', False).order('criado_em').execute().data or []
+    except Exception:
+        notif_materiais = []
+
+    return notif_agenda, notif_concluidos, notif_midia_clientes, notif_materiais
+
+
+def servico_selecionado_do_painel(df_filtrado, sel, key_prefix):
+    """Descobre QUAL serviço o painel de detalhe deve mostrar, ancorado no ID.
+
+    A seleção do `st.dataframe` é POSICIONAL ("a linha 3"), mas a lista é
+    re-filtrada e re-ordenada a cada letra digitada na busca — então "a linha
+    3" vira outro cliente sem ninguém clicar em nada. Antes isso trocava o
+    painel inteiro no meio da edição: o Breno perdia tudo que tinha digitado
+    naquele cliente e ainda corria o risco de salvar no cliente errado
+    (relato de 2026-09-10).
+
+    Aqui a escolha fica presa ao ID do serviço: enquanto ele mexe na busca ou
+    na ordenação, o painel continua no MESMO cliente que estava aberto. Só um
+    clique de verdade numa linha (com a busca parada) troca de cliente.
+
+    Retorna a linha (Series) do serviço, ou None se não há nada selecionado.
+    """
+    chave_id = f"painel_id_{key_prefix}"
+    chave_filtro = f"painel_filtro_{key_prefix}"
+
+    # Assinatura do filtro atual: se ela mudou desde o último desenho, a lista
+    # se mexeu embaixo da seleção e a posição não vale como escolha do usuário.
+    filtro_atual = (
+        str(st.session_state.get(f"busca_termo_{key_prefix}", "")),
+        str(st.session_state.get(f"busca_ord_{key_prefix}", "")),
+    )
+    # Na primeira passagem a chave ainda não existe — aí NÃO conta como
+    # "mudou", senão o primeiro clique numa linha não abriria o painel.
+    filtro_mudou = chave_filtro in st.session_state and st.session_state[chave_filtro] != filtro_atual
+    st.session_state[chave_filtro] = filtro_atual
+
+    linhas = list(sel.selection.rows) if getattr(sel, "selection", None) else []
+
+    if not filtro_mudou:
+        # Lista parada: o que está selecionado é escolha real de quem clicou.
+        if linhas and len(df_filtrado) > linhas[0]:
+            st.session_state[chave_id] = int(df_filtrado.iloc[linhas[0]]['id'])
+        elif not linhas:
+            st.session_state[chave_id] = None
+
+    id_ancorado = st.session_state.get(chave_id)
+    if id_ancorado is None:
+        return None
+
+    achado = df_filtrado[df_filtrado['id'] == id_ancorado]
+    if achado.empty:
+        # O cliente saiu do filtro (ex.: o Breno digitou outro nome na busca
+        # enquanto o painel dele estava aberto). Mantém o painel aberto assim
+        # mesmo — fechar no meio da digitação é justamente o que fazia ele
+        # perder o que tinha preenchido.
+        return None
+    return achado.iloc[0]
+
+
 @st.dialog("➕ Cadastrar Venda (Em Andamento)")
 def _modal_cadastrar_venda(supabase, lista_instaladores):
     st.caption("Cria um serviço já em andamento (sem passar por orçamento). Você pode detalhar depois clicando no cliente na lista.")
@@ -368,6 +485,13 @@ def renderizar_pagamento_instaladores(df_subset, supabase, key_suffix, titulo):
                 ]
                 if fila:
                     st.session_state[f"fila_baixa_{key_suffix}"] = fila
+                # Zera o estado da tabela antes de redesenhar. As marcações do
+                # data_editor são guardadas por POSIÇÃO de linha, e logo abaixo
+                # a lista é reordenada (pagos sobem pro topo) — sem limpar aqui,
+                # o "Pago?" que acabou de ser salvo reaparecia na linha que
+                # assumiu aquela posição, e um segundo clique em Salvar gravaria
+                # no INSTALADOR ERRADO. Correção de 2026-09-10.
+                st.session_state.pop(f"pag_editor_{key_suffix}", None)
                 st.rerun()
             else:
                 st.info("Nenhuma alteração pra salvar.")
@@ -684,45 +808,7 @@ def renderizar():
     # (dentro de Serviços em Andamento) e o total também some no aviso da
     # barra lateral, visível em qualquer tela do sistema (ver app.py).
     # ---------------------------------------------------------------
-    try:
-        res_agenda_notif = supabase.table('agenda_visitas').select('*').eq('visto_pelo_admin', False).execute()
-        notif_agenda = res_agenda_notif.data or []
-    except Exception:
-        notif_agenda = []
-
-    try:
-        res_concluidos_notif = supabase.table('servicos_andamento').select('id, nome_cliente, instalador').eq('conclusao_vista_pelo_admin', False).execute()
-        notif_concluidos = res_concluidos_notif.data or []
-    except Exception:
-        notif_concluidos = []
-
-    try:
-        res_midia_notif = supabase.table('servico_midias').select('*').eq('visto_pelo_admin', False).not_.is_('servico_id', 'null').execute()
-        midias_pendentes = res_midia_notif.data or []
-    except Exception:
-        midias_pendentes = []
-    midias_por_servico = {}
-    for m in midias_pendentes:
-        midias_por_servico.setdefault(m['servico_id'], []).append(m)
-    notif_midia_clientes = []
-    if midias_por_servico:
-        try:
-            res_nomes = supabase.table('servicos_andamento').select('id, nome_cliente, instalador').in_('id', list(midias_por_servico.keys())).execute()
-            nomes_por_id = {r['id']: r for r in (res_nomes.data or [])}
-        except Exception:
-            nomes_por_id = {}
-        for sid, itens in midias_por_servico.items():
-            info = nomes_por_id.get(sid, {})
-            notif_midia_clientes.append({
-                "servico_id": sid, "nome_cliente": info.get('nome_cliente') or f"Serviço #{sid}",
-                "instalador": info.get('instalador', ''), "itens": itens,
-            })
-
-    try:
-        res_materiais_notif = supabase.table('materiais_sugeridos').select('*').eq('visto_pelo_admin', False).order('criado_em').execute()
-        notif_materiais = res_materiais_notif.data or []
-    except Exception:
-        notif_materiais = []
+    notif_agenda, notif_concluidos, notif_midia_clientes, notif_materiais = _carregar_notificacoes_instalador()
 
     total_notif = len(notif_agenda) + len(notif_concluidos) + len(notif_midia_clientes) + len(notif_materiais)
 
@@ -749,6 +835,7 @@ def renderizar():
                 if st.button("✅ Marcar como visto", key=f"notif_agenda_{n['id']}"):
                     try:
                         supabase.table('agenda_visitas').update({"visto_pelo_admin": True}).eq('id', n['id']).execute()
+                        _carregar_notificacoes_instalador.clear()  # aviso lido: recontar na hora
                         st.rerun()
                     except Exception as e:
                         st.error(f"Erro: {e}")
@@ -759,6 +846,7 @@ def renderizar():
                 if st.button("✅ Marcar como visto", key=f"notif_concluido_{n['id']}"):
                     try:
                         supabase.table('servicos_andamento').update({"conclusao_vista_pelo_admin": True}).eq('id', n['id']).execute()
+                        _carregar_notificacoes_instalador.clear()
                         st.rerun()
                     except Exception as e:
                         st.error(f"Erro: {e}")
@@ -773,6 +861,7 @@ def renderizar():
                     try:
                         _ids = [m['id'] for m in n['itens']]
                         supabase.table('servico_midias').update({"visto_pelo_admin": True}).in_('id', _ids).execute()
+                        _carregar_notificacoes_instalador.clear()
                         st.rerun()
                     except Exception as e:
                         st.error(f"Erro: {e}")
@@ -785,6 +874,7 @@ def renderizar():
                 if st.button("✅ Marcar como visto", key=f"notif_material_{n['id']}"):
                     try:
                         supabase.table('materiais_sugeridos').update({"visto_pelo_admin": True}).eq('id', n['id']).execute()
+                        _carregar_notificacoes_instalador.clear()
                         st.rerun()
                     except Exception as e:
                         st.error(f"Erro: {e}")
@@ -801,11 +891,7 @@ def renderizar():
         st.info("Nenhum serviço ou orçamento encontrado.")
         return
 
-    try:
-        res_inst = supabase.table('config_instaladores').select('nome').order('nome').execute()
-        lista_instaladores = [r['nome'] for r in res_inst.data if str(r.get('nome', '')).strip() != ""]
-    except:
-        lista_instaladores = []
+    lista_instaladores = carregar_lista_instaladores()
 
     with col_btn:
         st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
@@ -895,8 +981,9 @@ def renderizar():
         total_lucro_atv = pd.to_numeric(df_atv['lucro_estimado'], errors='coerce').fillna(0).sum()
         st.markdown(f"<div style='text-align: right; font-size: 18px; font-weight: bold; margin-bottom: 20px;'><span style='color: #555; margin-right: 20px;'>Faturamento Bruto: {utils.to_br_currency(total_bruto_atv)}</span> <span style='color: #004488;'>Lucro Líquido Estimado: {utils.to_br_currency(total_lucro_atv)}</span></div>", unsafe_allow_html=True)
 
-        if sel.selection.rows and len(df_atv) > sel.selection.rows[0]:
-            servicos_painel.exibir_painel_detalhado(df_atv.iloc[sel.selection.rows[0]], supabase, df_taxas, df_produtos, f"atv_{df_atv.iloc[sel.selection.rows[0]]['id']}", lista_instaladores)
+        _serv_atv = servico_selecionado_do_painel(df_atv, sel, "atv")
+        if _serv_atv is not None:
+            servicos_painel.exibir_painel_detalhado(_serv_atv, supabase, df_taxas, df_produtos, f"atv_{_serv_atv['id']}", lista_instaladores)
     
     with aba2:
         df_orc = barra_busca_servicos(df_orc, "orc")
@@ -905,8 +992,9 @@ def renderizar():
         total_lucro_orc = pd.to_numeric(df_orc['lucro_estimado'], errors='coerce').fillna(0).sum()
         st.markdown(f"<div style='text-align: right; font-size: 18px; font-weight: bold; margin-bottom: 20px;'><span style='color: #555; margin-right: 20px;'>Faturamento Bruto: {utils.to_br_currency(total_bruto_orc)}</span> <span style='color: #004488;'>Lucro Líquido Estimado: {utils.to_br_currency(total_lucro_orc)}</span></div>", unsafe_allow_html=True)
         
-        if sel.selection.rows and len(df_orc) > sel.selection.rows[0]: 
-            servicos_painel.exibir_painel_detalhado(df_orc.iloc[sel.selection.rows[0]], supabase, df_taxas, df_produtos, f"orc_{df_orc.iloc[sel.selection.rows[0]]['id']}", lista_instaladores)
+        _serv_orc = servico_selecionado_do_painel(df_orc, sel, "orc")
+        if _serv_orc is not None:
+            servicos_painel.exibir_painel_detalhado(_serv_orc, supabase, df_taxas, df_produtos, f"orc_{_serv_orc['id']}", lista_instaladores)
 
     with aba3:
         st.caption("Histórico de serviços concluídos e faturados.")
@@ -959,8 +1047,10 @@ def renderizar():
             df_pagamento_mes = pd.concat([df_fin_mes, df_pronto_mes], ignore_index=True) if not df_pronto_mes.empty else df_fin_mes
             renderizar_pagamento_instaladores(df_pagamento_mes, supabase, f"{ano_sel}_{mes_sel_idx}", f"Pagamento aos Instaladores — {mes_sel}")
 
-            if sel_fin is not None and sel_fin.selection.rows and len(df_fin_mes) > sel_fin.selection.rows[0]:
-                servicos_painel.exibir_painel_detalhado(df_fin_mes.iloc[sel_fin.selection.rows[0]], supabase, df_taxas, df_produtos, f"fin_{df_fin_mes.iloc[sel_fin.selection.rows[0]]['id']}", lista_instaladores)
+            if sel_fin is not None:
+                _serv_fin = servico_selecionado_do_painel(df_fin_mes, sel_fin, f"fin_{ano_sel}_{mes_sel_idx}")
+                if _serv_fin is not None:
+                    servicos_painel.exibir_painel_detalhado(_serv_fin, supabase, df_taxas, df_produtos, f"fin_{_serv_fin['id']}", lista_instaladores)
 
     with aba4:
         st.caption("Todas as tarefas da Agenda dos instaladores — clique numa linha pra abrir, editar, reatribuir instalador, ver a resposta/mídia ou excluir.")

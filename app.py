@@ -359,7 +359,7 @@ else:
         st.markdown("<br>", unsafe_allow_html=True)
 
         index_atual = lista_paginas.index(st.session_state.menu_option) if st.session_state.menu_option in lista_paginas else 0
-        menu = st.radio("Navegação", lista_paginas, index=index_atual, label_visibility="collapsed")
+        menu = st.radio("Navegação", lista_paginas, index=index_atual, label_visibility="collapsed", key="menu_navegacao")
 
         if menu != st.session_state.menu_option:
             st.session_state.menu_option = menu

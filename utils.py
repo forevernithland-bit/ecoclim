@@ -481,11 +481,21 @@ def save_to_supabase(nome_tabela, df, ano):
 
 COLUNAS_EXTRAS_GESTAO_CLICK = {"ncm": "NCM", "codigo_externo": "Código Externo (GC)", "codigo_barra": "Código de Barra"}
 
+@st.cache_data(ttl=300, show_spinner=False)
 def load_catalog(nome_tabela):
     """Colunas extras (NCM, Código Externo/Barra do Gestão Click) só entram no
     DataFrame se a tabela realmente tiver essas colunas — catalogo_servicos e
     catalogo_outros não têm, só catalogo_produtos. Isso mantém load/save
-    genéricos pras 3 tabelas sem quebrar as que não usam Gestão Click."""
+    genéricos pras 3 tabelas sem quebrar as que não usam Gestão Click.
+
+    Fica em cache (5 min) porque o Streamlit re-executa a tela inteira a CADA
+    clique ou tecla, e sem cache cada uma dessas interações refazia a consulta
+    no Supabase (~100ms por chamada, várias por tela). Era o que deixava o
+    sistema pesado e — pior — dava tempo de a pessoa digitar enquanto a tela
+    ainda estava recarregando, que é quando o campo "apagava sozinho".
+    Catálogo é dado que muda raramente, e todo ponto que grava catálogo
+    (`save_catalog`) limpa este cache na hora, então nunca se vê preço velho.
+    """
     supabase = get_supabase_client()
     colunas_corretas = ["Item", "Descrição", "Custo (R$)", "Margem (%)", "Lucro (R$)", "Venda (R$)"]
     try:
@@ -533,6 +543,12 @@ def save_catalog(nome_tabela, df):
             resp = supabase.table(nome_tabela).insert(lista_dados).execute()
             return resp.data
     except Exception as e: st.error(f"Erro ao salvar catálogo: {e}")
+    finally:
+        # Catálogo mudou: derruba o cache de leitura pra próxima tela já ler o
+        # valor novo (ver load_catalog). Fica no `finally` de propósito — mesmo
+        # se o insert falhar no meio, o delete acima já aconteceu, então o que
+        # está em cache não vale mais.
+        load_catalog.clear()
     return []
 
 def contar_notificacoes_instalador(supabase):
@@ -1403,7 +1419,11 @@ def gerar_pdf_lista_materiais(supabase, nome_cliente, telefone, itens, observaco
     )
     return pdf_buffer, total, itens_sem_preco
 
+@st.cache_data(ttl=300, show_spinner=False)
 def load_taxas():
+    """Em cache (5 min) pelo mesmo motivo de `load_catalog`: é lida em toda
+    tela de Serviços/Orçamentos e, sem cache, repetia a consulta a cada clique.
+    `save_taxas` limpa o cache ao gravar."""
     supabase = get_supabase_client()
     try:
         res = supabase.table('catalogo_taxas').select("*").execute()
@@ -1415,8 +1435,11 @@ def load_taxas():
 def save_taxas(df):
     supabase = get_supabase_client()
     dados = [{"item": r['Item'], "taxa_percentual": float(r.get('Taxa (%)', 0.0))} for _, r in df.iterrows() if r.get('Item')]
-    supabase.table('catalogo_taxas').delete().neq("item", "___").execute()
-    if dados: supabase.table('catalogo_taxas').insert(dados).execute()
+    try:
+        supabase.table('catalogo_taxas').delete().neq("item", "___").execute()
+        if dados: supabase.table('catalogo_taxas').insert(dados).execute()
+    finally:
+        load_taxas.clear()  # taxa mudou: próxima leitura vem do banco
 
 def buscar_cep(cep):
     cep = str(cep).replace('-', '').replace('.', '').strip()

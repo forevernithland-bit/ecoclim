@@ -605,10 +605,21 @@ def renderizar(lista_nomes_produtos, limpar_func):
                 opcoes_rascunhos = {_rotulo_rascunho(r): r['id'] for r in rascunhos_filtrados}
                 if not opcoes_rascunhos:
                     st.caption("Nenhum rascunho encontrado com esse nome.")
-                rasc_selecionado = c_sel.selectbox("Selecione um rascunho (mais recentes primeiro):", list(opcoes_rascunhos.keys()), label_visibility="collapsed")
+                # key="sel_rascunho_orc": sem key, este campo era identificado
+                # pela própria lista de rascunhos — e a lista é refiltrada a
+                # cada letra digitada na busca acima. A seleção voltava pro
+                # primeiro da lista sem ninguém mexer, e o "Carregar"/"Excluir"
+                # logo ao lado agia no rascunho ERRADO. Correção de 2026-09-10.
+                rasc_selecionado = c_sel.selectbox("Selecione um rascunho (mais recentes primeiro):", list(opcoes_rascunhos.keys()), label_visibility="collapsed", key="sel_rascunho_orc")
 
                 if c_btn_load.button("📥 Carregar", use_container_width=True, disabled=not opcoes_rascunhos):
-                    id_r = opcoes_rascunhos[rasc_selecionado]
+                    # Com key, a escolha guardada pode não estar mais na lista
+                    # (a busca mudou entre um clique e outro) — nesse caso não
+                    # carrega nada em vez de estourar erro na tela.
+                    id_r = opcoes_rascunhos.get(rasc_selecionado)
+                    if id_r is None:
+                        st.warning("Esse rascunho saiu da lista — escolha de novo, por favor.")
+                        st.stop()
                     res_full = st.session_state.supabase.table('servicos_andamento').select('*').eq('id', id_r).execute()
                     if res_full.data:
                         r_data = res_full.data[0]
@@ -663,7 +674,13 @@ def renderizar(lista_nomes_produtos, limpar_func):
                         deve_rerun = True
 
                 if c_btn_del.button("🗑️ Excluir", use_container_width=True, disabled=not opcoes_rascunhos):
-                    id_r = opcoes_rascunhos[rasc_selecionado]
+                    # Idem: nunca excluir "no escuro" se a escolha guardada não
+                    # estiver mais na lista — apagar o rascunho errado não tem
+                    # volta.
+                    id_r = opcoes_rascunhos.get(rasc_selecionado)
+                    if id_r is None:
+                        st.warning("Esse rascunho saiu da lista — escolha de novo, por favor.")
+                        st.stop()
                     st.session_state.supabase.table('servicos_andamento').delete().eq('id', id_r).execute()
                     st.success("✅ Rascunho excluído permanentemente.")
                     deve_rerun = True
@@ -750,7 +767,11 @@ def renderizar(lista_nomes_produtos, limpar_func):
         # estivesse marcado — redundante e confuso). Desmarcado é o padrão:
         # o PDF sai só com quantidade, sem nenhum valor por item. Marcado,
         # mostra valor unitário E subtotal de cada item.
-        detalhar_itens_pdf = st.checkbox("Detalhar valor de cada item no PDF?", value=False,
+        # key: sem ela o campo era identificado pelo próprio texto do help —
+        # qualquer ajuste de redação desmarcava a opção pra todo mundo — e o
+        # "LIMPAR" da tela não conseguia alcançá-la, então a escolha vazava de
+        # um orçamento pro outro (ver limpar_tela_orcamento em tela_orcamentos.py).
+        detalhar_itens_pdf = st.checkbox("Detalhar valor de cada item no PDF?", value=False, key="chk_detalhar_pdf",
                                           help="Desmarcado (padrão): o PDF mostra só o subtotal de Equipamentos, sem preço por item. Marque pra listar o valor unitário e o subtotal de cada peça.")
         mostrar_precos_unitarios = detalhar_itens_pdf
         
@@ -869,7 +890,7 @@ def renderizar(lista_nomes_produtos, limpar_func):
         subtotal_equipamentos = pd.to_numeric(df_editavel['Venda Total'], errors='coerce').fillna(0).sum()
         st.markdown(f"**Subtotal Equipamentos:** :blue[{utils.to_br_currency(subtotal_equipamentos)}]")
         
-        mostrar_lucro = st.toggle("Exibir Custos, Margem e Lucro Estimado", value=False)
+        mostrar_lucro = st.toggle("Exibir Custos, Margem e Lucro Estimado", value=False, key="tg_mostrar_lucro")
         if mostrar_lucro:
             custo_total_produtos = pd.to_numeric(df_editavel["Custo Total"], errors='coerce').fillna(0).sum()
             venda_total_produtos = subtotal_equipamentos
@@ -929,7 +950,15 @@ def renderizar(lista_nomes_produtos, limpar_func):
 
         lista_outros = st.session_state.db_outros['Item'].dropna().tolist() if not st.session_state.db_outros.empty else []
         
-        outros_atual = st.selectbox("Adicionar Outros / Terceiros:", [""] + lista_outros + ["Manual"])
+        # key="sel_outros_base": sem ela, este selectbox era identificado pelas
+        # próprias OPÇÕES — e as opções vêm do banco (db_outros). Bastava o
+        # catálogo ser recarregado (botão "ATUALIZAR DADOS / LIMPAR", sessão
+        # nova) pro Streamlit tratar como um campo novo e voltar pro vazio;
+        # aí o comparador logo abaixo achava que o usuário tinha trocado a
+        # seleção e APAGAVA a descrição e o valor já digitados. Era o
+        # "selecionei/digitei e o sistema apagou" relatado pelo Breno
+        # (2026-09-10). Mesmo padrão do selectbox de Serviços acima.
+        outros_atual = st.selectbox("Adicionar Outros / Terceiros:", [""] + lista_outros + ["Manual"], key="sel_outros_base")
         
         if outros_atual != st.session_state.outros_selecionado_anterior:
             st.session_state.outros_selecionado_anterior = outros_atual

@@ -247,37 +247,56 @@ def renderizar():
                         df_editor.at[idx, 'Lucro (R$)'] = l_calc
                         precisa_atualizar_matematica = True
 
-        if precisa_atualizar_matematica:
+        def _mesclar_no_catalogo_inteiro(df_do_editor):
+            """Junta o que está na tabela (que pode estar mostrando só o
+            resultado da busca) de volta no catálogo inteiro, preservando as
+            linhas que a busca escondeu."""
             if termo_busca:
-                df_temp = df_atual.copy()
-                df_temp.update(df_editor)
-                linhas_apagadas = df_exibicao.index.difference(df_editor.index)
+                df_junto = df_atual.copy()
+                df_junto.update(df_do_editor)
+                linhas_apagadas = df_exibicao.index.difference(df_do_editor.index)
                 if not linhas_apagadas.empty:
-                    df_temp = df_temp.drop(linhas_apagadas)
-                linhas_novas = df_editor[~df_editor.index.isin(df_atual.index)]
+                    df_junto = df_junto.drop(linhas_apagadas)
+                linhas_novas = df_do_editor[~df_do_editor.index.isin(df_atual.index)]
                 if not linhas_novas.empty:
-                    df_temp = pd.concat([df_temp, linhas_novas])
-                df_temp = df_temp.reset_index(drop=True)
-            else:
-                df_temp = df_editor.reset_index(drop=True)
+                    df_junto = pd.concat([df_junto, linhas_novas])
+                return df_junto.reset_index(drop=True)
+            return df_do_editor.reset_index(drop=True)
 
-            st.session_state[f'temp_df_{nome_tabela}'] = df_temp
+        # Guarda o que está na tabela quando o usuário REALMENTE mexeu em algo —
+        # inclusive quando mexeu só em texto (Item/Descrição), que não entra em
+        # conta nenhuma e por isso antes não era guardado em lugar nenhum: o
+        # valor vivia só dentro da tabela e sumia assim que a lista mudava (por
+        # exemplo, ao digitar mais uma letra na busca acima). Era o "digitei e o
+        # sistema apagou" nesta tela. Correção de 2026-09-10.
+        #
+        # O "só quando mexeu" é essencial: `temp_df_...` é o rascunho da tela e,
+        # enquanto ele existe, o catálogo passa a ser lido DELE em vez do banco
+        # (ver linha ~137). Se fosse gravado a cada passagem, ele nasceria já na
+        # primeira abertura da aba e a tela nunca mais releria o banco na sessão
+        # — deixando de mostrar, por exemplo, o que a sincronização com o Gestão
+        # Click tivesse mudado. Sem edição, nada de rascunho.
+        # Nenhuma fórmula muda aqui: o df guardado é exatamente o que a
+        # matemática logo acima já produziu.
+        _estado_editor = st.session_state.get(editor_key) or {}
+        _houve_edicao = bool(
+            _estado_editor.get("edited_rows")
+            or _estado_editor.get("added_rows")
+            or _estado_editor.get("deleted_rows")
+        )
+        if _houve_edicao:
+            st.session_state[f'temp_df_{nome_tabela}'] = _mesclar_no_catalogo_inteiro(df_editor)
+
+        if precisa_atualizar_matematica:
+            # O redesenho continua só quando um número foi recalculado — é o
+            # que faz o Preço de Venda/Lucro aparecerem atualizados na hora.
             st.rerun()
 
         if st.button(f"💾 GRAVAR ALTERAÇÕES", type="primary", use_container_width=True, key=f"save_{nome_tabela}"):
-            if termo_busca:
-                df_salvar = df_atual.copy()
-                df_salvar.update(df_editor)
-                linhas_apagadas = df_exibicao.index.difference(df_editor.index)
-                if not linhas_apagadas.empty:
-                    df_salvar = df_salvar.drop(linhas_apagadas)
-                linhas_novas = df_editor[~df_editor.index.isin(df_atual.index)]
-                if not linhas_novas.empty:
-                    df_salvar = pd.concat([df_salvar, linhas_novas])
-                df_salvar = df_salvar.reset_index(drop=True)
-            else:
-                df_salvar = df_editor.reset_index(drop=True)
-                
+            # Mesma junção usada acima — uma função só, pra salvar exatamente o
+            # que a tela está mostrando.
+            df_salvar = _mesclar_no_catalogo_inteiro(df_editor)
+
             linhas_salvas = utils.save_catalog(nome_tabela, df_salvar)
             if f'temp_df_{nome_tabela}' in st.session_state: del st.session_state[f'temp_df_{nome_tabela}']
 
@@ -299,6 +318,11 @@ def renderizar():
                 st.success("Itens atualizados no ERP Ecoclim e no Gestão Click Ecoclim!")
             else:
                 st.success(f"Catálogo atualizado com sucesso!")
+            # A sincronização acima gravou `codigo_externo` de volta em alguns
+            # itens — limpa o cache de leitura de novo pra tela mostrar já o
+            # código do Gestão Click (o save_catalog lá em cima já tinha
+            # limpado uma vez, mas isso foi ANTES do sync).
+            utils.load_catalog.clear()
             st.rerun()
 
     with tabs[0]: exibir_aba_catalogo('catalogo_produtos', 'Produtos')
@@ -417,7 +441,12 @@ def renderizar():
         nomes_kits_salvos = [k for k in df_kits['nome_kit'].dropna().tolist() if k.strip() != ""]
         
         if nomes_kits_salvos:
-            kit_sel = st.selectbox("Selecione o Kit para adicionar/editar os produtos:", nomes_kits_salvos)
+            # key="sel_kit_lote": sem ela, este campo era identificado pela
+            # própria lista de kits — gravar um kit novo mudava a lista, o
+            # campo voltava pro primeiro kit e, como o nome do kit entra na
+            # chave da tabela logo abaixo, os produtos que estavam sendo
+            # montados sumiam antes de serem gravados. Correção de 2026-09-10.
+            kit_sel = st.selectbox("Selecione o Kit para adicionar/editar os produtos:", nomes_kits_salvos, key="sel_kit_lote")
             
             kit_row = df_kits[df_kits['nome_kit'] == kit_sel].iloc[0]
             kit_itens = kit_row.get('itens', [])
@@ -510,9 +539,13 @@ def renderizar():
                     })
 
             try:
-                st.session_state.supabase.table('config_instaladores').delete().neq("nome", "____").execute() 
+                st.session_state.supabase.table('config_instaladores').delete().neq("nome", "____").execute()
                 if dados_salvar:
                     st.session_state.supabase.table('config_instaladores').insert(dados_salvar).execute()
+                # A equipe mudou: derruba o cache pra lista nova já aparecer nas
+                # outras telas (ver carregar_lista_instaladores em tela_servicos).
+                import tela_servicos as _ts
+                _ts.carregar_lista_instaladores.clear()
                 st.success("✅ Equipe de instaladores salva com sucesso!")
                 st.rerun()
             except Exception as e:

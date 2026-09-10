@@ -47,10 +47,10 @@ def renderizar():
     
     # Seletores de Ano e Mês
     c_ano, c_mes, c_vazio = st.columns([1.5, 1.5, 5])
-    ano_sel = c_ano.selectbox("Selecione o Ano", anos_disponiveis, index=anos_disponiveis.index(ano_atual))
+    ano_sel = c_ano.selectbox("Selecione o Ano", anos_disponiveis, index=anos_disponiveis.index(ano_atual), key="rel_ano")
     
     opcoes_mes = ["Ano Completo (Mês a Mês)"] + utils.meses_pt
-    mes_sel = c_mes.selectbox("Selecione o Mês", opcoes_mes, index=0)
+    mes_sel = c_mes.selectbox("Selecione o Mês", opcoes_mes, index=0, key="rel_mes")
 
     # Filtro pelo ano selecionado
     df_ano = df_fin[df_fin['data_conclusao'].dt.year == ano_sel].copy()

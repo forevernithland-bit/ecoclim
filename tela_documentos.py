@@ -140,6 +140,9 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
         </style>
     """, unsafe_allow_html=True)
 
+    # Sem subpastas este nome não chega a ser definido; a chave do editor de
+    # baixo usa ele, então precisa existir nos dois caminhos.
+    sub_sel = ""
     if subpastas:
         c_sub, c_busca, c_data, c_sync, c_up = st.columns([1.2, 1.3, 1.2, 0.8, 1])
         with c_sub:
@@ -222,14 +225,18 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
 
     if nome_principal == "Boletos":
         with st.expander("➕ Adicionar Lembrete / Conta Manual (Sem Arquivo)"):
-            with st.form(f"form_manual_bol"):
+            # clear_on_submit: sem isso o formulário continuava preenchido depois
+            # de salvar e um segundo clique criava o MESMO lembrete duas vezes.
+            # As keys dão identidade estável aos campos (antes eles eram
+            # identificados pelos próprios parâmetros). Correção de 2026-09-10.
+            with st.form("form_manual_bol", clear_on_submit=True):
                 st.caption("Cadastre despesas manuais para centralizar os seus alertas.")
                 c_mn, c_mcat, c_mv, c_md, c_mrec = st.columns([2.5, 1.5, 1.2, 1.2, 1])
-                nome_man = c_mn.text_input("Descrição (Ex: Conta de Luz, Contador)")
-                cat_man = c_mcat.selectbox("Categoria", lista_categorias, index=4)
-                valor_man = c_mv.number_input("Valor (R$)", min_value=0.0, format="%.2f")
-                venc_man = c_md.date_input("Vencimento", format="DD/MM/YYYY")
-                rec_man = c_mrec.checkbox("Recorrente?")
+                nome_man = c_mn.text_input("Descrição (Ex: Conta de Luz, Contador)", key="bol_man_nome")
+                cat_man = c_mcat.selectbox("Categoria", lista_categorias, index=4, key="bol_man_cat")
+                valor_man = c_mv.number_input("Valor (R$)", min_value=0.0, format="%.2f", key="bol_man_valor")
+                venc_man = c_md.date_input("Vencimento", format="DD/MM/YYYY", key="bol_man_venc")
+                rec_man = c_mrec.checkbox("Recorrente?", key="bol_man_rec")
                 
                 if st.form_submit_button("Salvar Lembrete", use_container_width=True):
                     if not nome_man:
@@ -511,14 +518,21 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
             else:
                 df_exibicao = df_pagina
     
+            # A chave inclui página, pasta, busca e filtro de data de propósito.
+            # As edições do data_editor são guardadas por POSIÇÃO de linha; com
+            # uma chave só por pasta, o valor corrigido na linha 3 da página 1
+            # reaparecia na linha 3 da página 2 e podia ser gravado no BOLETO
+            # ERRADO ao confirmar. Trocando a chave junto com o conteúdo, cada
+            # recorte tem seu próprio estado. Correção de 2026-09-10.
+            _chave_editor_docs = f"editor_docs_v11_{nome_principal}_{sub_sel}_{pagina_atual}_{termo_busca}_{filtro_tipo}"
             df_editado = st.data_editor(
-                df_exibicao, 
-                column_config=config_colunas, 
-                column_order=col_order, 
+                df_exibicao,
+                column_config=config_colunas,
+                column_order=col_order,
                 disabled=lista_desabilitados,
-                hide_index=True, 
-                use_container_width=True, 
-                key=f"editor_docs_v11_{nome_principal}" 
+                hide_index=True,
+                use_container_width=True,
+                key=_chave_editor_docs
             )
     
             if df_editado is not None and not df_editado.empty:
