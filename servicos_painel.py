@@ -168,16 +168,117 @@ def selecionar_itens_produtos(df_produtos, session_key, itens_iniciais=None):
     return df_itens_final, custo_total, venda_total, lucro_total
 
 
-def montar_itens_material(supabase, catalogo_mat, opcoes_catalogo, chave_itens):
+def _renderizar_importar_pdf_materiais(supabase, catalogo_mat, chave_itens, chave_pendentes):
+    """Sobe um PDF — nota da Capelini ou uma Lista de Materiais que o
+    próprio sistema já gerou — e cruza com o catálogo sozinho (mesmo jeito
+    que já fazemos manualmente processando nota no chat). Item batido com
+    100% de certeza (código da Capelini já cadastrado, ou nome idêntico no
+    caso da nossa própria lista) entra direto na lista abaixo; o resto cai
+    na MESMA fila de confirmação de ambiguidade que "Colar lista do
+    WhatsApp" usa (`chave_pendentes`) — nunca inventa um casamento por nome
+    sozinho, porque testando contra uma nota real o "melhor palpite" às
+    vezes vinha errado mesmo com pontuação alta. Pedido do Breno (2026-09-09)."""
+    st.markdown("###### 📥 Importar PDF")
+    st.caption("Sobe a nota da Capelini (cruza os produtos com o nosso catálogo e já usa nosso preço de venda) ou uma Lista de Materiais que a gente já gerou (recarrega os itens e os valores dela). O sistema detecta sozinho qual é qual.")
+
+    # Persistido em session_state (não só mostrado na hora) porque logo
+    # depois vem um st.rerun() — uma mensagem só de "st.error" nesse mesmo
+    # instante passaria voando na tela antes do usuário conseguir ler,
+    # perdendo justamente o aviso mais importante (preço abaixo do custo).
+    _alertas_key = f"alertas_preco_pdf_{chave_itens}"
+    if st.session_state.get(_alertas_key):
+        st.error(
+            "⚠️ Estamos vendendo mais barato do que compramos desta vez — revise o preço de venda desses itens na tabela abaixo:\n\n"
+            + "\n".join(
+                f"- **{a['item']}**: venda atual {utils.to_br_currency(a['venda_atual'])} × custo desta compra {utils.to_br_currency(a['custo_agora'])}"
+                for a in st.session_state[_alertas_key]
+            )
+        )
+        if st.button("✖️ Já revisei, pode esconder este aviso", key=f"btn_ocultar_alerta_pdf_{chave_itens}"):
+            st.session_state[_alertas_key] = []
+            st.rerun()
+
+    _arquivo = st.file_uploader("Escolher PDF", type=["pdf"], key=f"upload_pdf_mat_{chave_itens}", label_visibility="collapsed")
+    if _arquivo is not None:
+        _fingerprint = (_arquivo.name, _arquivo.size)
+        _ultimo_key = f"pdf_ultimo_processado_{chave_itens}"
+        _ja_processado = st.session_state.get(_ultimo_key) == _fingerprint
+        if st.button("🔍 Processar PDF", key=f"btn_processar_pdf_{chave_itens}", disabled=_ja_processado):
+            resultado = utils.processar_pdf_materiais(supabase, _arquivo)
+            st.session_state[_ultimo_key] = _fingerprint
+
+            if resultado["tipo"] is None:
+                st.error("Não reconheci esse PDF — não parece nem com uma nota da Capelini, nem com uma Lista de Materiais nossa. Confira se é o arquivo certo.")
+            else:
+                _rotulo_tipo = "nota da Capelini" if resultado["tipo"] == "capelini" else "nossa Lista de Materiais"
+                # Duplicata SOMA a quantidade (é normal a mesma peça aparecer em
+                # mais de uma nota do mesmo pedido) — diferente do "Colar lista
+                # do WhatsApp", que ignora repetido pra não duplicar clique sem
+                # querer. Aqui cada PDF processado é uma fonte nova de verdade.
+                _novos, _somados = 0, 0
+                for _r in resultado["reconhecidos"]:
+                    _existente = next((x for x in st.session_state[chave_itens] if x["item"] == _r["item"]), None)
+                    if _existente:
+                        _existente["qtd"] = safe_float(_existente.get("qtd")) + safe_float(_r["qtd"])
+                        _somados += 1
+                    else:
+                        st.session_state[chave_itens].append(_r)
+                        _novos += 1
+                # Pendentes do PDF se somam aos que já existiam (ex.: sobrou
+                # um pendente de uma lista colada do WhatsApp antes) — nunca
+                # sobrescreve.
+                st.session_state[chave_pendentes] = st.session_state[chave_pendentes] + resultado["nao_reconhecidos"]
+                # "proprio": o valor de venda do PDF vale por cima do catálogo
+                # (é literalmente o preço que já demos pro cliente naquela
+                # lista — pode ter tido desconto pontual) — guardado à parte
+                # pra a tabela de edição usar esse valor em vez do preço
+                # cadastrado, na primeira vez que ela montar a coluna Venda.
+                if resultado["venda_override_por_item"]:
+                    _overrides_key = f"venda_override_import_{chave_itens}"
+                    st.session_state.setdefault(_overrides_key, {})
+                    st.session_state[_overrides_key].update(resultado["venda_override_por_item"])
+
+                _partes_msg = []
+                if _novos:
+                    _partes_msg.append(f"{_novos} item(ns) novo(s) adicionado(s)")
+                if _somados:
+                    _partes_msg.append(f"{_somados} item(ns) já estava(m) na lista — quantidade somada")
+                if _partes_msg:
+                    st.success(f"PDF ({_rotulo_tipo}) processado: " + ", ".join(_partes_msg) + ".")
+                if resultado["nao_reconhecidos"]:
+                    st.warning(f"{len(resultado['nao_reconhecidos'])} item(ns) da nota eu não reconheci com certeza — escolha abaixo o que cada um é.")
+                if resultado["alertas_preco_baixo"]:
+                    # Acumula (não substitui) — se já tinha alerta de um PDF
+                    # anterior nesta mesma lista, os dois ficam visíveis.
+                    st.session_state[_alertas_key] = st.session_state.get(_alertas_key, []) + resultado["alertas_preco_baixo"]
+                if resultado["linhas_nao_lidas"] and resultado["tipo"] == "capelini":
+                    st.caption(f"({len(resultado['linhas_nao_lidas'])} linha(s) da nota não pareciam item de produto — ignoradas, normal se forem cabeçalho/rodapé.)")
+                if not resultado["reconhecidos"] and not resultado["nao_reconhecidos"]:
+                    st.info("Não encontrei nenhum item de produto nesse PDF.")
+            st.rerun()
+        if _ja_processado:
+            st.caption("Este arquivo já foi processado — suba outro PDF (ou o mesmo, se quiser reprocessar, escolhendo-o de novo no seletor) pra adicionar mais itens.")
+
+
+def montar_itens_material(supabase, catalogo_mat, opcoes_catalogo, chave_itens, permitir_importar_pdf=False):
     """UI reaproveitável pra montar uma lista de itens de material — colar
     texto do WhatsApp (interpretado contra o catálogo), buscar no catálogo,
     ou digitar manual. Escreve direto em st.session_state[chave_itens]
     (lista de {item, qtd, unidade, categoria}); quem chama inicializa essa
     chave antes e desenha o data_editor final + botão de salvar (o que se
-    salva muda conforme o caso: lista de cliente x lista padrão)."""
+    salva muda conforme o caso: lista de cliente x lista padrão).
+
+    `permitir_importar_pdf`: liga a seção "Importar PDF" (nota da Capelini
+    ou uma lista nossa já gerada) — só no fluxo do cliente em andamento
+    (pedido do Breno, 2026-09-09), pra não aparecer também na lista padrão
+    (materiais_hid.py) onde não faz sentido."""
     chave_pendentes = f"pendentes_whats_{chave_itens}"
     if chave_pendentes not in st.session_state:
         st.session_state[chave_pendentes] = []
+
+    if permitir_importar_pdf:
+        _renderizar_importar_pdf_materiais(supabase, catalogo_mat, chave_itens, chave_pendentes)
+        st.markdown("---")
 
     st.markdown("###### 📋 Colar lista do WhatsApp")
     st.caption("Cole aqui o texto que o instalador manda no WhatsApp. O sistema tenta achar cada item no catálogo e já preenche a quantidade — o que não reconhecer, pergunta pra você escolher.")
@@ -228,8 +329,20 @@ def montar_itens_material(supabase, catalogo_mat, opcoes_catalogo, chave_itens):
         for _lbl, _c in opcoes_catalogo.items():
             _label_por_item.setdefault(_c['item'], _lbl)
         _pendentes_restantes = []
-        def _adicionar_confirmado(chave_itens, item_nome, qtd, unidade, categoria):
+        def _adicionar_confirmado(chave_itens, item_nome, qtd, unidade, categoria, meta_fornecedor=None):
             st.session_state[chave_itens].append({"item": item_nome, "qtd": qtd, "unidade": unidade, "categoria": categoria})
+            # Item veio de um PDF de fornecedor (ex.: nota da Capelini) e o
+            # usuário ACABOU de confirmar manualmente qual item do catálogo
+            # é — grava o código dele pra esse item agora, pra a PRÓXIMA nota
+            # já bater sozinha (pedido implícito do Breno, testando em lote
+            # com notas reais em 2026-09-10). Só roda com item de catálogo
+            # de verdade escolhido — "Manter como veio" nunca passa por aqui.
+            if meta_fornecedor:
+                try:
+                    utils.registrar_preco_fornecedor_confirmado(supabase, item_nome, categoria, unidade, meta_fornecedor)
+                    st.toast(f"Código {meta_fornecedor['codigo_fornecedor']} da {meta_fornecedor['fornecedor'].title()} cadastrado pra \"{item_nome}\" — a próxima nota já bate direto nele.", icon="🔖")
+                except Exception:
+                    pass  # não trava a confirmação do item por causa disso
 
         for _i, _p in enumerate(st.session_state[chave_pendentes]):
             with st.container(border=True):
@@ -248,7 +361,7 @@ def montar_itens_material(supabase, catalogo_mat, opcoes_catalogo, chave_itens):
                     for _pc, _nome_c in zip(_cols_palpites, _palpites):
                         _c = opcoes_catalogo.get(_label_por_item.get(_nome_c))
                         if _pc.button(f"✅ {_nome_c}", key=f"whats_pend_palpite_{chave_itens}_{_i}_{_nome_c}", use_container_width=True) and _c:
-                            _adicionar_confirmado(chave_itens, _c['item'], _p['qtd'], _c.get('unidade', 'un'), _c.get('categoria'))
+                            _adicionar_confirmado(chave_itens, _c['item'], _p['qtd'], _c.get('unidade', 'un'), _c.get('categoria'), _p.get('_fornecedor_meta'))
                             _confirmado = True
                     _idx_inicial = 0
                     st.caption("Nenhum desses? Escolha no catálogo abaixo:")
@@ -263,7 +376,7 @@ def montar_itens_material(supabase, catalogo_mat, opcoes_catalogo, chave_itens):
                     _col_ok, _col_manual = st.columns(2)
                     if _col_ok.button("✅ Usar este", key=f"whats_pend_ok_{chave_itens}_{_i}", disabled=(_escolha == "-- escolher no catálogo --")):
                         _c = opcoes_catalogo[_escolha]
-                        _adicionar_confirmado(chave_itens, _c['item'], _p['qtd'], _c.get('unidade', 'un'), _c.get('categoria'))
+                        _adicionar_confirmado(chave_itens, _c['item'], _p['qtd'], _c.get('unidade', 'un'), _c.get('categoria'), _p.get('_fornecedor_meta'))
                         _confirmado = True
                     if _col_manual.button("📝 Manter como veio", key=f"whats_pend_manual_{chave_itens}_{_i}"):
                         _adicionar_confirmado(chave_itens, _p['texto_original'], _p['qtd'], "un", None)
@@ -1338,7 +1451,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                         st.success(f"Itens de \"{modelo_sel}\" adicionados — ajuste o que precisar abaixo.")
                         st.rerun()
 
-                montar_itens_material(supabase, catalogo_mat, opcoes_catalogo, _novos_itens_key)
+                montar_itens_material(supabase, catalogo_mat, opcoes_catalogo, _novos_itens_key, permitir_importar_pdf=True)
 
                 if st.session_state[_novos_itens_key]:
                     df_novo = pd.DataFrame(st.session_state[_novos_itens_key])
@@ -1348,10 +1461,18 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     # lista como `venda_override` por item; o preço cadastrado em
                     # materiais_padrao nunca é tocado. Pedido do Breno (2026-09-03).
                     _precos_por_item_mat = {c['item']: c for c in catalogo_mat}
+                    # Item que veio de uma Lista de Materiais nossa importada
+                    # (via "📥 Importar PDF") usa o preço QUE ESTAVA NAQUELE PDF,
+                    # não o preço atual do catálogo — é literalmente o valor já
+                    # combinado com o cliente naquela lista (pode ter tido
+                    # desconto pontual). Só vale na primeira vez que a coluna é
+                    # montada; depois disso o usuário já pode editar livremente.
+                    _overrides_import_mat = st.session_state.get(f"venda_override_import_{_novos_itens_key}", {})
                     df_novo['custo_unitario'] = df_novo['item'].map(
                         lambda n: float((_precos_por_item_mat.get(n) or {}).get('custo') or 0))
                     df_novo['venda_unitario'] = df_novo['item'].map(
-                        lambda n: float((_precos_por_item_mat.get(n) or {}).get('venda') or 0))
+                        lambda n: float(_overrides_import_mat[n]) if n in _overrides_import_mat
+                        else float((_precos_por_item_mat.get(n) or {}).get('venda') or 0))
                     df_novo_editado = st.data_editor(
                         df_novo, num_rows="dynamic", use_container_width=True,
                         column_order=[c for c in ['item', 'qtd', 'unidade', 'categoria', 'custo_unitario', 'venda_unitario'] if c in df_novo.columns],

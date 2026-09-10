@@ -795,6 +795,354 @@ def sugerir_novo_material(supabase, item, instalador=None, cliente_nome=None, se
         pass
 
 
+# ---------------------------------------------------------------
+# Importação de PDF — nota da Capelini (fornecedor) ou lista nossa própria
+# já gerada — pedido do Breno (2026-09-09): em vez de digitar tudo de novo
+# na mão, sobe o PDF e o sistema cruza com o catálogo sozinho, igual já
+# fazemos manualmente processando as notas no chat. Devolve reconhecidos/
+# nao_reconhecidos no MESMO formato de `interpretar_lista_whatsapp`, pra
+# alimentar a tela de revisão que já existe (montar_itens_material em
+# servicos_painel.py) — um item que veio de PDF passa pelo mesmo fluxo de
+# confirmação de ambiguidade que um item colado do WhatsApp.
+#
+# Decisão importante: NUNCA escreve sozinho em materiais_padrao a partir de
+# um casamento por NOME (só "acho parecido") — testado contra uma nota real
+# e o "melhor palpite" às vezes vem errado mesmo com score alto (ex.:
+# "JOELHO CPVC 90 AQ 28X1" TIGRE" bateu com "Joelho CPVC 15mm 90°" em vez do
+# 28mm certo). Só o casamento por `codigo_fornecedor` exato é confiável o
+# bastante pra entrar sozinho — o resto sempre vira pergunta pra confirmar,
+# mesma postura do script `importar_tambasa.py` da skill.
+# ---------------------------------------------------------------
+MARGEM_POR_FORNECEDOR = {"TAMBASA": 40.0, "CAPELINI": 15.0}
+
+
+def margem_padrao_fornecedor(fornecedor):
+    """Margem padrão (%) do fornecedor pra calcular venda a partir do custo,
+    ou None se não tiver uma margem automática definida. Regra do Breno
+    (2026-09-02): Tambasa é atacado (margem maior), Capelini é
+    varejo/emergencial (margem menor, pra não sair caro pro cliente)."""
+    return MARGEM_POR_FORNECEDOR.get(str(fornecedor or "").strip().upper())
+
+
+_RUIDO_NF_FORNECEDOR = {
+    "de", "da", "do", "e", "com", "para", "p", "un", "und", "pc", "pct", "cx",
+    "krona", "amanco", "tigre", "deca", "acqua", "cipla", "alumasa", "gool",
+    "firmex", "mercoutil", "polyfita", "adelbras", "solda", "sold", "soldavel",
+    "marrom", "branco", "azul", "bru", "bruto", "ag", "aq", "qt", "agua",
+    "rct", "eluma", "cobix", "eos", "edras", "qualiflon", "saga", "docol",
+}
+
+
+def _tokens_nf_fornecedor(texto):
+    """Extrai os tokens que identificam o item numa descrição de fornecedor
+    (nota fiscal), separando medida de embalagem e código interno dele —
+    portado de ecoclim_db.py::tokens (script da skill) pra dar pra usar
+    direto no app (2026-09-09). Descrição de fornecedor mistura três coisas
+    no mesmo nome: medida (22mm, 3/4), embalagem (barra de 3m) e código
+    interno — só a medida identifica o produto de fato."""
+    t = unicodedata.normalize("NFD", str(texto or "").lower())
+    t = "".join(c for c in t if unicodedata.category(c) != "Mn")
+    t = t.replace("°", "").replace("º", "").replace('"', "").replace("'", "")
+    t = re.sub(r"[^a-z0-9/\s]+", " ", t)
+    t = re.sub(r"\b\d{4,}\s*[x×]\s*(\d+(?:/\d+)?)\b", r" \1 ", t)
+    t = re.sub(r"\b\d{4,}\s*[x×]?\b", " ", t)
+    t = re.sub(r"(\d+)\s*mm\s*[x×]\s*\d+\s*m\b", r"\1mm", t)
+    t = re.sub(r"\b\d+\s*(?:g|kg|ml|lt|litros?)\b", " ", t)
+    t = re.sub(r"\b\d+\s*m\b", " ", t)
+    t = re.sub(r"(\d)\s*[x×]\s*(\d)", r"\1x\2", t)
+    t = re.sub(r"(\d+x\d+)\s*mm\b", r"\1", t)
+    t = re.sub(r"(\d+)\s*mm", r"\1mm", t)
+    out = set()
+    for tk in t.split():
+        if tk in _RUIDO_NF_FORNECEDOR:
+            continue
+        if len(tk) <= 1 and not tk.isdigit():
+            continue
+        out.add(tk)
+    return out
+
+
+def _casar_item_fornecedor(descricao, catalogo):
+    """Acha o material do NOSSO catálogo mais parecido com a descrição de um
+    fornecedor. Retorna (melhor_ou_None, score 0..1, candidatos) — `melhor`
+    só vem preenchido quando existe um único candidato no topo do score
+    (mesmo assim, quem chama decide se o score é alto o bastante pra usar
+    sozinho ou não). Medida divergente elimina o candidato antes de
+    pontuar: joelho de 22 e de 28 são itens diferentes com preços
+    diferentes, e é exatamente aí que um casamento errado sai caro."""
+    alvo = _tokens_nf_fornecedor(descricao)
+    if not alvo:
+        return None, 0.0, []
+    num_alvo = {t for t in alvo if any(c.isdigit() for c in t)}
+    melhor_score = 0.0
+    melhor_por_nome = {}
+    for mat in catalogo:
+        cand = _tokens_nf_fornecedor(mat.get("item", ""))
+        if not cand:
+            continue
+        num_cand = {t for t in cand if any(c.isdigit() for c in t)}
+        if num_alvo and num_cand and not (num_alvo & num_cand):
+            continue
+        comuns = alvo & cand
+        if not comuns:
+            continue
+        cobertura = len(comuns) / len(cand)
+        precisao = len(comuns) / len(alvo)
+        score = 0.7 * cobertura + 0.3 * precisao
+        if num_alvo and (num_alvo & num_cand):
+            score += 0.1
+        nome = mat.get("item")
+        atual = melhor_por_nome.get(nome)
+        if atual is None or score > atual[0] + 1e-9:
+            melhor_por_nome[nome] = (score, mat)
+        if score > melhor_score:
+            melhor_score = score
+    if not melhor_por_nome:
+        return None, 0.0, []
+    candidatos = [m for (sc, m) in melhor_por_nome.values() if abs(sc - melhor_score) < 1e-9]
+    melhor = candidatos[0] if len(candidatos) == 1 else None
+    return melhor, round(min(melhor_score, 1.0), 3), candidatos
+
+
+def _extrair_texto_pdf(file_buffer):
+    file_buffer.seek(0)
+    reader = PyPDF2.PdfReader(file_buffer)
+    return "\n".join(page.extract_text() or "" for page in reader.pages)
+
+
+def detectar_tipo_pdf_materiais(texto):
+    """"capelini" (nota/DANFE da Capelini), "proprio" (nossa Lista de
+    Materiais gerada pelo próprio sistema) ou None se não reconhecer
+    nenhum dos dois — quem chama decide o que fazer nesse caso (perguntar
+    pro usuário, por exemplo)."""
+    t = (texto or "").upper()
+    if "CAPELINI" in t:
+        return "capelini"
+    if "LISTA DE MATERIAIS" in t and ("ECOCLIM" in t or re.search(r"MAT-\d", t)):
+        return "proprio"
+    return None
+
+
+def parse_pdf_nf_capelini(file_buffer):
+    """Lê uma nota fiscal (DANFE) da Capelini e devolve (itens, linhas_nao_lidas).
+    Cada item: {codigo, descricao, marca, ncm, und, qtd, custo_unit}.
+
+    `codigo` é o código interno da Capelini pra aquele produto — usado pra
+    casar com materiais_padrao.codigo_fornecedor com 100% de certeza quando
+    já compramos esse item antes.
+
+    A extração de texto do PDF (PyPDF2) NÃO preserva a ordem visual das
+    colunas dessa nota: em vez de "código descrição ... qtd valor", a
+    ordem real que sai é "código NCM CFOP UND QTD V.UN V.TOTAL BC.ICMS
+    V.ICMS V.IPI ALIQ.ICMS ALIQ.IPI CST descrição+marca" — confirmado
+    testando contra uma nota real (2026-09-09). O regex segue essa ordem
+    real extraída, não a ordem impressa na tela.
+    """
+    texto = _extrair_texto_pdf(file_buffer)
+    m_ini = re.search(r"DADOS DO PRODUTO", texto, re.IGNORECASE)
+    m_fim = re.search(r"FIM DOS PRODUTOS", texto, re.IGNORECASE)
+    bloco = texto[m_ini.end():m_fim.start()] if (m_ini and m_fim) else texto
+
+    padrao_linha = re.compile(
+        r"^(\d{2,7})\s+(\d{8})\s+(\d{3,4})\s+([A-Za-z]{1,3})\s+(\d+)\s+"
+        r"([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s+"
+        r"(\d{3})\s+(.+)$"
+    )
+    itens, nao_lidos = [], []
+    for lin in bloco.splitlines():
+        lin = lin.strip()
+        if not lin:
+            continue
+        mm = padrao_linha.match(lin)
+        if not mm:
+            nao_lidos.append(lin)
+            continue
+        codigo, ncm, und, qtd, v_un = mm.group(1), mm.group(2), mm.group(4), mm.group(5), mm.group(6)
+        resto = mm.group(14).split()
+        if len(resto) < 2:
+            nao_lidos.append(lin)
+            continue
+        marca, descricao = resto[-1], " ".join(resto[:-1])
+        itens.append({
+            "codigo": codigo, "descricao": descricao, "marca": marca,
+            "ncm": f"{ncm[:4]}.{ncm[4:6]}.{ncm[6:8]}" if len(ncm) == 8 else ncm,
+            "und": und.upper(), "qtd": int(qtd), "custo_unit": safe_float(v_un),
+        })
+    return itens, nao_lidos
+
+
+def parse_pdf_lista_propria(file_buffer):
+    """Lê uma Lista de Materiais que O PRÓPRIO sistema gerou (o PDF que a
+    Ecoclim manda pro cliente, `_construir_pdf_material_horizontal`) e
+    devolve a lista de itens: {nome, unidade, qtd, venda_unit}. Cada item
+    ocupa 6 linhas no texto extraído (nº, nome, und, qtd, "R$ unit.",
+    "R$ total") — testado contra um PDF real gerado pelo próprio sistema
+    (2026-09-09), inclusive com acentos saindo intactos do PyPDF2 aqui
+    (fonte diferente da nota da Capelini)."""
+    texto = _extrair_texto_pdf(file_buffer)
+    linhas = [l.strip() for l in texto.splitlines()]
+    itens = []
+    i = 0
+    while i < len(linhas):
+        if re.fullmatch(r"\d+", linhas[i]) and i + 5 < len(linhas):
+            nome, unidade, qtd_str = linhas[i + 1], linhas[i + 2], linhas[i + 3]
+            unit_str, total_str = linhas[i + 4], linhas[i + 5]
+            if (nome and unidade.isalpha() and re.fullmatch(r"[\d.]+", qtd_str)
+                    and "R$" in unit_str and "R$" in total_str):
+                itens.append({
+                    "nome": nome, "unidade": unidade.lower(),
+                    "qtd": safe_float(qtd_str), "venda_unit": safe_float(unit_str),
+                })
+                i += 6
+                continue
+        i += 1
+    return itens
+
+
+def _casar_exato_por_nome(nome, catalogo):
+    alvo = str(nome or "").strip().lower()
+    if not alvo:
+        return None
+    for m in catalogo:
+        if str(m.get("item") or "").strip().lower() == alvo:
+            return m
+    return None
+
+
+def registrar_preco_fornecedor_confirmado(supabase, item_nome, categoria, unidade, meta_fornecedor):
+    """Cria (ou atualiza, se já existir) a linha de preço de um fornecedor
+    pra um item do catálogo — SÓ chamado depois que um HUMANO já confirmou
+    manualmente qual item da nossa lista aquela descrição da nota é (nunca
+    a partir de um casamento por nome sozinho, que já provou errar mesmo
+    com pontuação alta — ver comentário no topo da seção de importação de
+    PDF). A partir daqui, a PRÓXIMA nota com esse mesmo código já bate
+    direto por `codigo_fornecedor`, sem precisar confirmar de novo — essa é
+    a memória que faz o import ficar mais rápido a cada nota processada.
+    Pedido implícito do Breno (2026-09-10), testando com notas reais em lote."""
+    fornecedor = meta_fornecedor.get("fornecedor")
+    codigo = meta_fornecedor.get("codigo_fornecedor")
+    if not fornecedor or not codigo:
+        return
+    margem = margem_padrao_fornecedor(fornecedor)
+    custo = safe_float(meta_fornecedor.get("custo"))
+    venda = round(custo * (1 + margem / 100), 2) if (margem and custo) else custo
+    dados = {
+        "item": item_nome, "categoria": categoria, "unidade": unidade or "un",
+        "custo": custo, "venda": venda, "margem_percentual": margem,
+        "fornecedor": fornecedor,
+        "fabricante": (meta_fornecedor.get("marca") or "").title() or None,
+        "codigo_fornecedor": codigo,
+        "descricao_fornecedor": meta_fornecedor.get("descricao_completa"),
+        "ncm": meta_fornecedor.get("ncm"),
+    }
+    existente = supabase.table("materiais_padrao").select("id").eq("fornecedor", fornecedor).eq("codigo_fornecedor", codigo).execute().data
+    if existente:
+        supabase.table("materiais_padrao").update(dados).eq("id", existente[0]["id"]).execute()
+    else:
+        supabase.table("materiais_padrao").insert(dados).execute()
+
+
+def processar_pdf_materiais(supabase, file_buffer, tipo_forcado=None):
+    """Processa um PDF de fornecedor (nota da Capelini) OU uma lista nossa
+    já gerada, cruza com materiais_padrao e devolve um dict pronto pra
+    alimentar a MESMA tela de revisão que "Colar lista do WhatsApp" já usa
+    — `reconhecidos`/`nao_reconhecidos` no mesmo formato de
+    `interpretar_lista_whatsapp`. Pedido do Breno (2026-09-09).
+
+    Retorna {
+      "tipo": "capelini" | "proprio" | None,
+      "reconhecidos": [{item, qtd, unidade, categoria}, ...],
+      "nao_reconhecidos": [{texto_original, qtd, palpites}, ...],
+      "venda_override_por_item": {item: venda},  # só populado no tipo "proprio"
+      "alertas_preco_baixo": [{item, venda_atual, custo_agora}, ...],
+      "linhas_nao_lidas": [str, ...],  # linhas da nota que não bateram o padrão esperado
+    }
+
+    Nunca escreve em materiais_padrao — casamento por nome (fuzzy) sempre
+    vira pergunta pra confirmar, nunca aplica sozinho (ver comentário no
+    topo desta seção pro porquê)."""
+    vazio = {"tipo": None, "reconhecidos": [], "nao_reconhecidos": [], "venda_override_por_item": {},
+             "alertas_preco_baixo": [], "linhas_nao_lidas": []}
+    texto = _extrair_texto_pdf(file_buffer)
+    tipo = tipo_forcado or detectar_tipo_pdf_materiais(texto)
+    if tipo not in ("capelini", "proprio"):
+        return vazio
+
+    catalogo = supabase.table('materiais_padrao').select('*').execute().data or []
+
+    if tipo == "proprio":
+        itens_pdf = parse_pdf_lista_propria(file_buffer)
+        reconhecidos, nao_reconhecidos, overrides = [], [], {}
+        for it in itens_pdf:
+            achado = _casar_exato_por_nome(it["nome"], catalogo)
+            if not achado:
+                _melhor, _score, _candidatos = _casar_item_fornecedor(it["nome"], catalogo)
+                achado = _melhor if (_melhor and _score >= 0.85) else None
+            if achado:
+                reconhecidos.append({
+                    "item": achado["item"], "qtd": it["qtd"],
+                    "unidade": achado.get("unidade") or it["unidade"], "categoria": achado.get("categoria"),
+                })
+                overrides[achado["item"]] = it["venda_unit"]
+            else:
+                nao_reconhecidos.append({"texto_original": it["nome"], "qtd": it["qtd"], "palpites": []})
+        return {"tipo": "proprio", "reconhecidos": reconhecidos, "nao_reconhecidos": nao_reconhecidos,
+                "venda_override_por_item": overrides, "alertas_preco_baixo": [], "linhas_nao_lidas": []}
+
+    # tipo == "capelini"
+    itens_pdf, nao_lidos = parse_pdf_nf_capelini(file_buffer)
+    por_codigo = {
+        (m.get("codigo_fornecedor") or "").strip(): m
+        for m in catalogo
+        if (m.get("fornecedor") or "").strip().upper() == "CAPELINI" and m.get("codigo_fornecedor")
+    }
+    # Menor venda cadastrada por nome de item, entre todos os fabricantes —
+    # é esse valor que vale de verdade pro cliente (mesma regra de
+    # gerar_pdf_lista_materiais) — e é contra ELE que a comparação de preço
+    # abaixo do custo faz sentido.
+    melhor_venda_por_item = {}
+    for m in catalogo:
+        nome, venda = m.get("item"), safe_float(m.get("venda"))
+        if venda <= 0:
+            continue
+        if nome not in melhor_venda_por_item or venda < melhor_venda_por_item[nome]:
+            melhor_venda_por_item[nome] = venda
+
+    reconhecidos, nao_reconhecidos, alertas = [], [], []
+    for it in itens_pdf:
+        material = por_codigo.get(it["codigo"])
+        if material:
+            reconhecidos.append({
+                "item": material["item"], "qtd": it["qtd"],
+                "unidade": material.get("unidade", "un"), "categoria": material.get("categoria"),
+            })
+            venda_atual = melhor_venda_por_item.get(material["item"])
+            if venda_atual and venda_atual < it["custo_unit"]:
+                alertas.append({"item": material["item"], "venda_atual": venda_atual, "custo_agora": it["custo_unit"]})
+            continue
+        descricao_completa = f"{it['descricao']} {it['marca']}"
+        _, _, candidatos = _casar_item_fornecedor(descricao_completa, catalogo)
+        nao_reconhecidos.append({
+            "texto_original": descricao_completa, "qtd": it["qtd"],
+            "palpites": [c["item"] for c in candidatos][:4],
+            # Carregado até a confirmação manual — se o usuário confirmar
+            # (ou escolher) um item pra esta descrição, a tela grava esse
+            # código como CAPELINI pra esse item, e a PRÓXIMA nota com esse
+            # código já bate direto (ver registrar_preco_fornecedor_confirmado
+            # em servicos_painel.py). "Manter como veio" ignora isso — sem
+            # item de catálogo escolhido, não tem onde gravar o código.
+            "_fornecedor_meta": {
+                "fornecedor": "CAPELINI", "codigo_fornecedor": it["codigo"],
+                "custo": it["custo_unit"], "marca": it["marca"], "ncm": it["ncm"],
+                "descricao_completa": descricao_completa,
+            },
+        })
+    return {
+        "tipo": "capelini", "reconhecidos": reconhecidos, "nao_reconhecidos": nao_reconhecidos,
+        "venda_override_por_item": {}, "alertas_preco_baixo": alertas, "linhas_nao_lidas": nao_lidos,
+    }
+
+
 # Nomes de exibição das categorias na lista formatada — mesma ordem/rótulo
 # usados no app do instalador (NOMES_CATEGORIA_MATERIAL em app.js), pra ficar
 # igual não importa se a lista foi gerada lá ou aqui no admin.
