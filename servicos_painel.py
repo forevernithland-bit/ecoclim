@@ -171,11 +171,27 @@ def selecionar_itens_produtos(df_produtos, session_key, itens_iniciais=None):
             df_itens_editavel.loc[idx, 'Custo Total'] = tot_c
             df_itens_editavel.loc[idx, 'Venda Total'] = tot_v
 
-    # Guarda o estado a cada passagem (sem redesenhar): é o que permite comparar
-    # o produto na próxima vez e o que os botões de salvar leem depois.
-    st.session_state[session_key] = df_itens_editavel
-
+    # ACHADO 2026-09-12 — a causa raiz DE VERDADE do "digito e o sistema
+    # apaga": com `num_rows="dynamic"`, o `st.data_editor` NÃO usa a `key`
+    # como identidade estável do widget — isso só vale com `num_rows="fixed"`
+    # (conferido no código-fonte do Streamlit, `data_editor.py::
+    # use_signature_identity`). Com "dynamic", a identidade inclui os DADOS
+    # de entrada inteiros. Reescrever `st.session_state[session_key]` — a
+    # MESMA variável que alimenta este editor — a cada passagem (mesmo só
+    # pra recalcular Custo Total/Venda Total) mudava os dados de entrada a
+    # cada tecla, o Streamlit tratava como um editor NOVO a cada rerun, e o
+    # front-end descartava a edição recém-digitada — daí precisar digitar
+    # 2-3 vezes a mesma coisa. A correção de 2026-09-10 (tirar o `del` da
+    # chave) resolveu SÓ a metade do problema; esta aqui é a causa completa.
+    #
+    # Só realimenta (e só então redesenha) quando um PRODUTO foi trocado de
+    # verdade — a única hora em que precisamos trazer preço novo do
+    # catálogo. Em qualquer outra edição, os dados de entrada do editor
+    # ficam estáveis entre execuções e o Streamlit sozinho preserva tudo que
+    # já foi editado. `df_itens_editavel` (com tudo recalculado) é o que a
+    # função devolve pra quem chamou — nunca dependeu deste session_state.
     if produto_trocado:
+        st.session_state[session_key] = df_itens_editavel
         # Aqui o redesenho é necessário e esperado — o preço acabou de vir do
         # catálogo e precisa aparecer na tela. A chave do editor é preservada
         # de propósito: apagá-la descartaria o que o usuário digitou nas outras
@@ -617,7 +633,17 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     st.session_state[session_pag_key], column_config=config_pag, num_rows="dynamic",
                     hide_index=True, use_container_width=True, key=f"edit_pag_{prefix_key}",
                 )
-                st.session_state[session_pag_key] = df_pagamentos_ed
+                # NÃO realimentar `session_state[session_pag_key]` aqui — com
+                # `num_rows="dynamic"`, o `st.data_editor` usa os DADOS de
+                # entrada inteiros como identidade do widget (a `key` sozinha
+                # só garante identidade estável quando `num_rows="fixed"`).
+                # Reescrever a cada passagem mudava a entrada a cada tecla e
+                # fazia o Streamlit tratar o editor como novo, descartando o
+                # que tinha acabado de ser digitado — o "digito e apaga"
+                # relatado pelo Breno (2026-09-12). Nada aqui embaixo precisa
+                # do session_state atualizado: os totais e o que é salvo no
+                # banco (`lista_pagamentos_salvar`) já leem `df_pagamentos_ed`
+                # direto, que reflete tudo certo dentro desta mesma execução.
 
                 valor_cartao_taxa = 0.0
                 total_recebido = 0.0
@@ -708,16 +734,26 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     st.session_state[_session_mo_key], column_config=_config_mo, num_rows="dynamic",
                     hide_index=True, use_container_width=True, key=f"edit_mo_{prefix_key}",
                 )
-                # Depois de uma edição, a coluna "Data Pagamento" pode voltar
-                # do data_editor com dtype STRING (ex.: célula digitada na
-                # hora), em vez de date/datetime — daí a PRÓXIMA renderização
-                # do mesmo data_editor quebra com StreamlitAPIException
-                # ("column type date... not compatible... STRING"), porque o
-                # DateColumn exige uma coluna date-compatível. Normaliza aqui
-                # antes de guardar em session_state, pra sempre ficar
-                # datetime64 (ou NaT), nunca string solta.
+                # Corrige o dtype de "Data Pagamento" pra uso LOCAL nesta
+                # execução (pode voltar como STRING quando a célula acabou de
+                # ser digitada) — é o que faz o `hasattr(..., 'strftime')`
+                # abaixo funcionar direito.
+                #
+                # NÃO realimenta `session_state[_session_mo_key]` (nem essa
+                # versão corrigida, nem a original) — com `num_rows="dynamic"`,
+                # o `st.data_editor` usa os DADOS de entrada inteiros como
+                # identidade do widget (a `key` sozinha só garante identidade
+                # estável com `num_rows="fixed"`). Reescrever a cada passagem
+                # mudava a entrada a cada tecla/clique e fazia o Streamlit
+                # tratar o editor como novo — descartando o que tinha acabado
+                # de ser digitado ("digito e apaga", relatado 2026-09-12) — e
+                # de quebra reintroduzia o próprio bug de dtype STRING que
+                # este trecho tentava consertar, porque a versão "consertada"
+                # virava a NOVA entrada, sujeita a corromper de novo na
+                # rodada seguinte. Sem write-back, o problema nem chega a
+                # existir: a base nunca muda, `df_mo_editado` (com o dtype já
+                # certo) é só o que os cálculos abaixo leem nesta execução.
                 df_mo_editado['Data Pagamento'] = pd.to_datetime(df_mo_editado['Data Pagamento'], errors='coerce')
-                st.session_state[_session_mo_key] = df_mo_editado
 
                 custo_mo = pd.to_numeric(df_mo_editado['Valor (R$)'], errors='coerce').fillna(0).sum()
                 st.caption(f"Total Mão de Obra / Terceiros: **{utils.to_br_currency(custo_mo)}**")
@@ -1541,19 +1577,33 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                         # entrar um item por fora (colar do WhatsApp, catálogo,
                         # importar PDF) pra chave mudar, o Streamlit tratar
                         # como uma tabela nova e JOGAR FORA tudo que já tinha
-                        # sido digitado (quantidades e descontos). Agora a
-                        # chave é estável e quem faz os itens novos aparecerem
-                        # é a devolução das edições logo abaixo — que também é
-                        # o que preserva o que o usuário digitou.
+                        # sido digitado (quantidades e descontos).
+                        #
+                        # ACHADO 2026-09-12 — key fixa sozinha não bastava: com
+                        # `num_rows="dynamic"`, o `st.data_editor` NÃO usa a
+                        # `key` como identidade estável (só vale com
+                        # `num_rows="fixed"` — conferido no código-fonte do
+                        # Streamlit). A identidade inclui os DADOS de entrada
+                        # inteiros. A linha que existia aqui (devolver
+                        # `df_novo_editado` pra `_novos_itens_key`, a MESMA
+                        # variável usada pra reconstruir `df_novo` — a entrada
+                        # deste editor) mudava esses dados a cada tecla, o
+                        # Streamlit tratava como um editor novo, e o
+                        # front-end descartava a edição recém-digitada —
+                        # exatamente o "digito e apaga" relatado (2026-09-12).
+                        #
+                        # A correção: `_novos_itens_key` NUNCA é reescrita por
+                        # uma edição desta grade — só quando um item entra por
+                        # FORA dela (colar WhatsApp, catálogo, importar PDF,
+                        # lista padrão — todos esses já chamam `st.rerun()`
+                        # logo em seguida, então um redesenho ali é esperado).
+                        # `df_novo` fica então determinístico entre execuções
+                        # (mesma lista + mesmo catálogo = mesmos bytes), a
+                        # identidade do widget não muda, e o Streamlit sozinho
+                        # preserva quantidade e desconto via o próprio diff
+                        # interno da grade (guardado sob esta key).
                         key=f"editor_novo_mat_{prefix_key}",
                     )
-                    # Devolve o que foi editado pra lista-fonte: é isto que faz
-                    # a quantidade e o desconto sobreviverem ao próximo
-                    # redesenho, e o que permite a chave acima ser fixa.
-                    # `custo_unitario` fica de fora de propósito — é derivado do
-                    # catálogo e nunca editável.
-                    _cols_fonte = [c for c in ['item', 'qtd', 'unidade', 'categoria', 'venda_unitario'] if c in df_novo_editado.columns]
-                    st.session_state[_novos_itens_key] = df_novo_editado[_cols_fonte].to_dict('records')
                     # Soma ao vivo — lê o dataframe JÁ editado, então acompanha
                     # qualquer alteração de qtd ou de Venda Unit. (desconto pontual)
                     # a cada interação, sem precisar salvar antes. Pedido do Breno (2026-09-03).

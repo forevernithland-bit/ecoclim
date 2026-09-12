@@ -244,15 +244,28 @@ def renderizar():
                 # Chave FIXA — antes carregava `len(lista)` pra forçar a tabela
                 # a recarregar quando entrava item por fora, mas o efeito
                 # colateral era jogar fora tudo que já tinha sido digitado
-                # (quantidades e descontos). Quem faz os itens novos aparecerem
-                # agora é a devolução das edições logo abaixo.
+                # (quantidades e descontos).
+                #
+                # ACHADO 2026-09-12 — key fixa sozinha não bastava: com
+                # `num_rows="dynamic"`, a identidade do widget inclui os DADOS
+                # de entrada inteiros, não só a `key` (isso só vale com
+                # `num_rows="fixed"` — conferido no código-fonte do
+                # Streamlit). A linha que existia aqui (devolver o editado pra
+                # `_itens_nova_lista_key`, a MESMA variável usada pra
+                # reconstruir `df_nova` — a entrada deste editor) mudava os
+                # dados a cada tecla, e o Streamlit tratava como um editor
+                # novo, descartando a edição recém-digitada — o "digito e
+                # apaga" relatado (2026-09-12).
+                #
+                # `_itens_nova_lista_key` agora só é escrita quando um item
+                # entra por FORA da grade (colar WhatsApp, catálogo, importar
+                # PDF, lista padrão — todos já chamam `st.rerun()` na
+                # sequência, então um redesenho ali é esperado). `df_nova`
+                # fica determinístico entre execuções, a identidade do widget
+                # não muda, e o Streamlit sozinho preserva quantidade e
+                # desconto via o diff interno da própria grade.
                 key="editor_nova_lista_hid",
             )
-            # Devolve o editado pra lista-fonte: é o que preserva quantidade e
-            # desconto quando entra um item novo. `custo_unitario` fica de fora
-            # de propósito (é derivado do catálogo, nunca editável).
-            _cols_fonte_hid = [c for c in ['item', 'qtd', 'unidade', 'categoria', 'venda_unitario'] if c in df_nova_edit.columns]
-            st.session_state[_itens_nova_lista_key] = df_nova_edit[_cols_fonte_hid].to_dict('records')
             # Soma ao vivo — lê o dataframe JÁ editado, então acompanha qualquer
             # alteração de qtd ou de Venda Unit. (desconto pontual) a cada
             # interação, sem precisar salvar antes. Pedido do Breno (2026-09-03).
@@ -397,12 +410,19 @@ def renderizar():
             df_novo_modelo = pd.DataFrame(st.session_state[_itens_novo_modelo_key])
             df_novo_modelo_edit = st.data_editor(
                 df_novo_modelo, num_rows="dynamic", use_container_width=True,
-                # Chave fixa + devolução das edições logo abaixo (mesma correção
-                # do editor de lista de cliente): com `len()` na chave, entrar um
-                # item novo apagava o que já tinha sido digitado.
+                # Chave FIXA — e, diferente de uma versão anterior desta
+                # correção, SEM devolver o editado pra `_itens_novo_modelo_key`
+                # a cada passagem: com `num_rows="dynamic"`, a identidade do
+                # widget inclui os dados de entrada inteiros (só usa a `key`
+                # sozinha quando `num_rows="fixed"` — conferido no código-fonte
+                # do Streamlit), então reescrever a mesma variável usada como
+                # entrada a cada tecla mudava a identidade e fazia o Streamlit
+                # tratar a grade como nova, descartando o que tinha acabado de
+                # ser digitado (2026-09-12). Só é escrita quando um item entra
+                # por FORA da grade (`montar_itens_material` acima, que já
+                # chama `st.rerun()` nesse caso).
                 key="editor_novo_modelo_mat",
             )
-            st.session_state[_itens_novo_modelo_key] = df_novo_modelo_edit.to_dict('records')
             if st.button("💾 Salvar lista padrão", type="primary", key="btn_save_novo_modelo_mat"):
                 _itens_final_modelo = df_novo_modelo_edit.dropna(subset=['item']).to_dict('records')
                 if not nome_novo_modelo.strip():

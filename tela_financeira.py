@@ -786,12 +786,22 @@ def renderizar():
             df_ap_itens_ed = st.data_editor(
                 st.session_state.db_df_ap_itens, column_config=cfg_ap, num_rows="dynamic",
                 hide_index=True, use_container_width=True, key=f"ed_ap_itens_{ano_selecionado}")
-            # Devolve os lançamentos pro estado da tela — sem isto, um depósito
-            # digitado e ainda não gravado vivia só dentro da tabela e sumia se
-            # a tela se redesenhasse (trocar de ano, mexer no período, etc).
-            # Mesmo padrão do Patrimônio e dos Recebimentos. Não muda cálculo:
-            # `agregar_aportes` logo abaixo continua lendo o mesmo df editado.
-            st.session_state.db_df_ap_itens = df_ap_itens_ed
+            # ACHADO 2026-09-12 — NÃO realimentar `db_df_ap_itens` aqui. Uma
+            # correção anterior (2026-09-10) fazia exatamente isso pra um
+            # depósito digitado sobreviver a um redesenho — mas, com
+            # `num_rows="dynamic"`, a identidade do widget inclui os DADOS de
+            # entrada inteiros (só usa a `key` sozinha quando
+            # `num_rows="fixed"` — conferido no código-fonte do Streamlit).
+            # Reescrever a MESMA variável usada como entrada a cada tecla
+            # mudava a identidade a cada uma, e o Streamlit tratava a grade
+            # como nova — descartando a edição recém-digitada. Era a causa
+            # completa do "digito e apaga" relatado 2026-09-12 (a correção
+            # anterior tratava só metade do problema).
+            # Sem reescrever, a entrada do editor fica estável entre execuções
+            # (mesmo ano, mesmo conteúdo do banco) e o Streamlit sozinho
+            # preserva os lançamentos via o diff interno da própria grade —
+            # `agregar_aportes` (linha abaixo) e o botão GRAVAR já leem
+            # `df_ap_itens_ed` direto, nunca dependeram deste session_state.
             if not df_ap_itens_ed.empty:
                 _vals = pd.to_numeric(df_ap_itens_ed.get("Valor"), errors="coerce").fillna(0)
                 _orig = df_ap_itens_ed.get("Origem")

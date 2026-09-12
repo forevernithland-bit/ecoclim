@@ -874,13 +874,38 @@ def renderizar(lista_nomes_produtos, limpar_func):
             df_editavel.at[i, 'Venda Total'] = qtd * preco
             df_editavel.at[i, 'Custo Total'] = qtd * custo_un
 
-        # Guarda o estado a cada passagem (sem redesenhar): é o que permite
-        # comparar o produto da próxima vez e é o que os botões de PDF/salvar
-        # leem depois.
-        st.session_state.df_orc = df_editavel
+        # `df_orc_prev` é só um instantâneo pra comparação (linha 838) — pode
+        # ser atualizado toda hora sem problema, porque NUNCA é o que
+        # alimenta o data_editor.
         st.session_state.df_orc_prev = df_editavel.copy()
 
+        # ACHADO 2026-09-12 — causa raiz de verdade do "digito e o sistema
+        # apaga, tenho que digitar de novo": o `st.data_editor` com
+        # `num_rows="dynamic"` NÃO usa a `key` como identidade estável do
+        # widget (isso só vale com `num_rows="fixed"` — conferido no código-
+        # fonte do Streamlit, `data_editor.py::use_signature_identity`). Com
+        # "dynamic", a identidade do widget inclui os DADOS de entrada
+        # inteiros. Reescrever `st.session_state.df_orc` — a MESMA variável
+        # que alimenta este editor — a cada passagem (mesmo só recalculando
+        # Custo Total/Venda Total) muda os dados de entrada a cada tecla, o
+        # Streamlit trata como um editor NOVO a cada rerun, e o front-end
+        # descarta a edição que acabou de ser digitada — daí precisar digitar
+        # 2-3 vezes a mesma coisa pra "pegar".
+        #
+        # A correção definitiva: só realimentar `df_orc` (e só então pedir
+        # redesenho) quando um PRODUTO foi trocado de verdade — é a única
+        # hora em que precisamos mesmo trazer um preço novo do catálogo pra
+        # tela. Em qualquer outra edição (Nome Manual, Qtd, Custo, Venda,
+        # adicionar/remover linha pela própria grade), `df_orc` NÃO muda —
+        # os dados de entrada do editor ficam estáveis entre execuções, a
+        # identidade do widget não muda, e o Streamlit sozinho re-aplica
+        # corretamente tudo que já foi editado (`edited_rows`/`added_rows`/
+        # `deleted_rows`, guardados por baixo do capô na própria `key`).
+        # `df_editavel` (com tudo recalculado) continua sendo o que os
+        # botões de PDF/salvar leem — eles nunca dependeram de
+        # `st.session_state.df_orc` pra isso.
         if produto_trocado:
+            st.session_state.df_orc = df_editavel
             # Aqui o redesenho é necessário e esperado — o preço acabou de vir
             # do catálogo e precisa aparecer. A chave do editor é preservada de
             # propósito: apagá-la descartaria o que o usuário digitou nas outras

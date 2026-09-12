@@ -263,31 +263,40 @@ def renderizar():
                 return df_junto.reset_index(drop=True)
             return df_do_editor.reset_index(drop=True)
 
-        # Guarda o que está na tabela quando o usuário REALMENTE mexeu em algo —
-        # inclusive quando mexeu só em texto (Item/Descrição), que não entra em
-        # conta nenhuma e por isso antes não era guardado em lugar nenhum: o
-        # valor vivia só dentro da tabela e sumia assim que a lista mudava (por
-        # exemplo, ao digitar mais uma letra na busca acima). Era o "digitei e o
-        # sistema apagou" nesta tela. Correção de 2026-09-10.
+        # ACHADO 2026-09-12 — causa raiz de verdade do "digito e o sistema
+        # apaga, tenho que digitar de novo" (o mesmo bug do Orçamentos,
+        # relatado de novo pelo usuário e daí investigado a fundo em toda
+        # parte do ERP que tem esse tipo de tabela).
         #
-        # O "só quando mexeu" é essencial: `temp_df_...` é o rascunho da tela e,
-        # enquanto ele existe, o catálogo passa a ser lido DELE em vez do banco
-        # (ver linha ~137). Se fosse gravado a cada passagem, ele nasceria já na
-        # primeira abertura da aba e a tela nunca mais releria o banco na sessão
-        # — deixando de mostrar, por exemplo, o que a sincronização com o Gestão
-        # Click tivesse mudado. Sem edição, nada de rascunho.
+        # `st.data_editor(..., num_rows="dynamic", key=...)` só mantém a
+        # identidade do widget (e portanto o que a pessoa acabou de digitar)
+        # se os DADOS DE ENTRADA da tabela não mudarem de um redesenho pro
+        # outro — com num_rows="dynamic" a identidade inclui os bytes da
+        # tabela inteira, não só a `key`. A correção de 2026-09-10 abaixo
+        # gravava `temp_df_...` (que alimenta `df_atual` -> `df_exibicao` ->
+        # esta mesma tabela, ver linha ~137) TODA VEZ que havia qualquer
+        # edição — inclusive editar uma letra do Item/Descrição. Isso troca
+        # os dados de entrada da tabela no redesenho seguinte, o Streamlit
+        # trata como uma tabela nova, e o que a pessoa digitou (item, depois
+        # quantidade, depois preço) é descartado — exigindo digitar de novo
+        # 2, 3 vezes.
+        #
+        # Fix definitivo: só gravar em `temp_df_...` (e só então redesenhar)
+        # quando o redesenho JÁ vai acontecer por outro motivo legítimo — o
+        # recálculo automático de Margem/Venda/Lucro logo abaixo, que precisa
+        # mesmo mostrar os números novos. Uma edição de texto puro (só
+        # Item/Descrição, sem mexer em número) não entra em `temp_df_...` e
+        # fica só dentro do retorno do editor (`df_editor`) neste redesenho —
+        # o que já é suficiente pro botão GRAVAR, que lê `df_editor`
+        # diretamente (ver `_mesclar_no_catalogo_inteiro(df_editor)` abaixo).
+        # Troca aceitável, do mesmo tipo já feita em Orçamentos: se a pessoa
+        # editar só texto e, ANTES de clicar em Gravar, mexer na busca ou no
+        # botão de margem em massa, essa edição de texto específica pode
+        # ficar "um passo atrás" — não afeta nenhuma conta.
         # Nenhuma fórmula muda aqui: o df guardado é exatamente o que a
         # matemática logo acima já produziu.
-        _estado_editor = st.session_state.get(editor_key) or {}
-        _houve_edicao = bool(
-            _estado_editor.get("edited_rows")
-            or _estado_editor.get("added_rows")
-            or _estado_editor.get("deleted_rows")
-        )
-        if _houve_edicao:
-            st.session_state[f'temp_df_{nome_tabela}'] = _mesclar_no_catalogo_inteiro(df_editor)
-
         if precisa_atualizar_matematica:
+            st.session_state[f'temp_df_{nome_tabela}'] = _mesclar_no_catalogo_inteiro(df_editor)
             # O redesenho continua só quando um número foi recalculado — é o
             # que faz o Preço de Venda/Lucro aparecerem atualizados na hora.
             st.rerun()

@@ -270,11 +270,21 @@ def _aba_compras(supabase, catalogo):
             # Chave FIXA. Antes carregava `len(lista)`: cada "➕ Adicionar" mudava
             # a chave, o Streamlit trocava a tabela por uma nova e as quantidades
             # e custos já digitados voltavam ao padrão (qtd=1 e custo antigo) —
-            # numa tela que mexe em custo, preço de venda e estoque. Quem faz o
-            # item novo aparecer agora é a devolução das edições logo abaixo.
+            # numa tela que mexe em custo, preço de venda e estoque.
+            #
+            # ACHADO 2026-09-12 — key fixa sozinha não bastava: com
+            # `num_rows="dynamic"`, a identidade do widget inclui os DADOS de
+            # entrada inteiros, não só a `key` (isso só vale com
+            # `num_rows="fixed"` — conferido no código-fonte do Streamlit).
+            # Devolver o editado pra `_itens_compra_key` — a MESMA variável
+            # usada como entrada — a cada tecla mudava os dados e fazia o
+            # Streamlit tratar a grade como nova, descartando a edição
+            # recém-digitada (o "digito e apaga" relatado 2026-09-12).
+            # `_itens_compra_key` agora só é escrita pelo botão "➕ Adicionar"
+            # acima (que já chama `st.rerun()`); a compra em si lê
+            # `df_compra_edit` direto, sempre atualizado nesta execução.
             key="editor_compra_materiais",
         )
-        st.session_state[_itens_compra_key] = df_compra_edit.to_dict('records')
         observacao = st.text_area("Observação (opcional)", key="compra_observacao")
         if st.button("💾 Registrar Compra", type="primary", key="btn_registrar_compra"):
             itens_final = df_compra_edit.dropna(subset=['item']).to_dict('records')

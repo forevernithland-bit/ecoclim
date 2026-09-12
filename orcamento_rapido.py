@@ -136,9 +136,20 @@ def renderizar(lista_nomes_produtos, limpar_func):
         df_r_ed.at[i, "Custo Total"] = qtd * c_un
         df_r_ed.at[i, "Venda Total"] = qtd * v_un
 
-    st.session_state.rapido_df_orc = df_r_ed
-
+    # ACHADO 2026-09-12 — a causa raiz de verdade do "digito e apaga": com
+    # `num_rows="dynamic"`, o `st.data_editor` NÃO usa a `key` como
+    # identidade estável (isso só vale com `num_rows="fixed"` — conferido no
+    # código-fonte do Streamlit). A identidade do widget inclui os DADOS de
+    # entrada inteiros. Reescrever `st.session_state.rapido_df_orc` — a
+    # MESMA variável que alimenta este editor — a cada passagem mudava os
+    # dados de entrada a cada tecla, e o Streamlit tratava como um editor
+    # NOVO a cada rerun, descartando a edição recém-digitada no front-end.
+    # Só realimenta (e só então redesenha) quando um PRODUTO foi trocado de
+    # verdade — a única hora em que precisamos trazer preço novo do
+    # catálogo. Em qualquer outra edição, os dados de entrada ficam
+    # estáveis e o Streamlit sozinho preserva tudo que já foi editado.
     if produto_trocado_r:
+        st.session_state.rapido_df_orc = df_r_ed
         # Redesenho necessário: o preço acabou de vir do catálogo e precisa
         # aparecer. A chave do editor fica de propósito — apagá-la jogaria fora
         # o que o usuário digitou nas outras células.
