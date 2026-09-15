@@ -827,6 +827,7 @@ def renderizar(lista_nomes_produtos, limpar_func):
         # em memória; o subtotal logo abaixo já sai correto, e a coluna Total da
         # linha se acerta na próxima interação.
         produto_trocado = False
+        valores_mudaram = False
 
         for i in range(len(df_editavel)):
             produto_atual = str(df_editavel.at[i, 'Produto da Base']).strip()
@@ -871,8 +872,37 @@ def renderizar(lista_nomes_produtos, limpar_func):
             df_editavel.at[i, 'Quantidade'] = qtd
             df_editavel.at[i, 'Venda (R$)'] = preco
             df_editavel.at[i, 'Custo (R$)'] = custo_un
-            df_editavel.at[i, 'Venda Total'] = qtd * preco
-            df_editavel.at[i, 'Custo Total'] = qtd * custo_un
+            venda_total_linha = qtd * preco
+            custo_total_linha = qtd * custo_un
+            df_editavel.at[i, 'Venda Total'] = venda_total_linha
+            df_editavel.at[i, 'Custo Total'] = custo_total_linha
+
+            # ACHADO 2026-09-15 — "Custo Total"/"Total" são colunas
+            # DESABILITADAS (disabled=True lá em cima): o usuário não digita
+            # nelas, então o Streamlit nunca as atualiza na TELA por conta
+            # própria entre execuções — ele só reaplica sozinho o que foi de
+            # fato EDITADO pelo usuário (Qtd/Custo/Venda). Como `df_orc` (a
+            # fonte do editor) só é realimentado quando troca de produto,
+            # essas duas colunas calculadas ficavam com o valor antigo na
+            # tela depois de editar Qtd/Custo/Venda manualmente — mesmo o
+            # Subtotal abaixo já saindo certo, porque ele é somado direto em
+            # Python a cada passagem, não lido da tela (relatado pelo Breno,
+            # 2026-09-15, print com "Bomba 550w" mostrando Custo Total/Total
+            # que não fecham com Qtd × Unt.).
+            #
+            # Comparo com o snapshot do render anterior (`df_orc_prev`, ainda
+            # não sobrescrito) e só realimento quando o valor calculado de
+            # verdade mudou — o mesmo gatilho "deliberado e único" já usado
+            # pra troca de produto, nunca um redesenho a cada tecla. Depois
+            # desse redesenho, `df_orc` passa a bater com o que já estava
+            # calculado e a comparação para de achar diferença sozinha.
+            venda_total_ant = 0.0
+            custo_total_ant = 0.0
+            if i < len(st.session_state.df_orc_prev):
+                venda_total_ant = utils.safe_float(st.session_state.df_orc_prev.at[i, 'Venda Total'])
+                custo_total_ant = utils.safe_float(st.session_state.df_orc_prev.at[i, 'Custo Total'])
+            if abs(venda_total_linha - venda_total_ant) > 0.005 or abs(custo_total_linha - custo_total_ant) > 0.005:
+                valores_mudaram = True
 
         # `df_orc_prev` é só um instantâneo pra comparação (linha 838) — pode
         # ser atualizado toda hora sem problema, porque NUNCA é o que
@@ -904,12 +934,13 @@ def renderizar(lista_nomes_produtos, limpar_func):
         # `df_editavel` (com tudo recalculado) continua sendo o que os
         # botões de PDF/salvar leem — eles nunca dependeram de
         # `st.session_state.df_orc` pra isso.
-        if produto_trocado:
+        if produto_trocado or valores_mudaram:
             st.session_state.df_orc = df_editavel
-            # Aqui o redesenho é necessário e esperado — o preço acabou de vir
-            # do catálogo e precisa aparecer. A chave do editor é preservada de
-            # propósito: apagá-la descartaria o que o usuário digitou nas outras
-            # células antes de escolher o produto.
+            # Aqui o redesenho é necessário e esperado — ou o preço acabou de
+            # vir do catálogo, ou uma coluna calculada (Custo Total/Total)
+            # mudou de verdade e precisa aparecer atualizada na tela. A chave
+            # do editor é preservada de propósito: apagá-la descartaria o que
+            # o usuário digitou nas outras células antes desta edição.
             deve_rerun = True
 
         subtotal_equipamentos = pd.to_numeric(df_editavel['Venda Total'], errors='coerce').fillna(0).sum()

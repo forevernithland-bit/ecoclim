@@ -139,6 +139,7 @@ def selecionar_itens_produtos(df_produtos, session_key, itens_iniciais=None):
     # linha se acerta na próxima interação. Mesma correção já validada em
     # orcamento_personalizado.py:798-808 e orcamento_rapido.py:103-106.
     produto_trocado = False
+    valores_mudaram = False
     for idx in df_itens_editavel.index:
         item_atual = str(df_itens_editavel.loc[idx, 'Item']).strip() if 'Item' in df_itens_editavel.columns and pd.notna(df_itens_editavel.loc[idx, 'Item']) else ""
         item_ant = ""
@@ -166,10 +167,27 @@ def selecionar_itens_produtos(df_produtos, session_key, itens_iniciais=None):
         c_tot_atual = safe_float(df_itens_editavel.loc[idx, 'Custo Total']) if 'Custo Total' in df_itens_editavel.columns else 0.0
         v_tot_atual = safe_float(df_itens_editavel.loc[idx, 'Venda Total']) if 'Venda Total' in df_itens_editavel.columns else 0.0
 
-        # Só recalcula em memória — sem marcar redesenho (ver comentário acima).
+        # ACHADO 2026-09-15 — "Custo Total"/"Venda Total" são colunas
+        # DESABILITADAS (disabled=True lá em cima): o Streamlit só reaplica
+        # sozinho, entre execuções, o que o usuário EDITOU (Item/Qtd/Custo
+        # Un./Venda Un.) — uma coluna calculada não é "editada" por ninguém,
+        # então ela nunca se atualiza na TELA por conta própria, só quando
+        # `session_state[session_key]` é realimentado de verdade. Por isso,
+        # recalcular só "em memória" (sem realimentar) deixava a linha com
+        # Custo Total/Venda Total desatualizados na tela depois de editar
+        # Qtd/Custo/Venda à mão — mesmo os agregados abaixo saindo certos,
+        # porque são somados direto em Python a cada passagem, não lidos da
+        # tela (relatado pelo Breno, 2026-09-15).
+        #
+        # `tot_c`/`tot_v` já são o valor calculado de verdade; `c_tot_atual`/
+        # `v_tot_atual` são o que ainda está na tela (herdado de
+        # `session_state[session_key]`, que só muda em troca de produto).
+        # Divergiu = motivo genuíno pra um redesenho deliberado e único —
+        # igual à troca de produto, nunca a cada tecla.
         if abs(tot_c - c_tot_atual) > 0.01 or abs(tot_v - v_tot_atual) > 0.01:
             df_itens_editavel.loc[idx, 'Custo Total'] = tot_c
             df_itens_editavel.loc[idx, 'Venda Total'] = tot_v
+            valores_mudaram = True
 
     # ACHADO 2026-09-12 — a causa raiz DE VERDADE do "digito e o sistema
     # apaga": com `num_rows="dynamic"`, o `st.data_editor` NÃO usa a `key`
@@ -190,12 +208,13 @@ def selecionar_itens_produtos(df_produtos, session_key, itens_iniciais=None):
     # ficam estáveis entre execuções e o Streamlit sozinho preserva tudo que
     # já foi editado. `df_itens_editavel` (com tudo recalculado) é o que a
     # função devolve pra quem chamou — nunca dependeu deste session_state.
-    if produto_trocado:
+    if produto_trocado or valores_mudaram:
         st.session_state[session_key] = df_itens_editavel
-        # Aqui o redesenho é necessário e esperado — o preço acabou de vir do
-        # catálogo e precisa aparecer na tela. A chave do editor é preservada
-        # de propósito: apagá-la descartaria o que o usuário digitou nas outras
-        # células antes de escolher o produto.
+        # Aqui o redesenho é necessário e esperado — ou o preço acabou de vir
+        # do catálogo, ou uma coluna calculada (Custo Total/Venda Total)
+        # mudou de verdade e precisa aparecer atualizada na tela. A chave do
+        # editor é preservada de propósito: apagá-la descartaria o que o
+        # usuário digitou nas outras células antes desta edição.
         st.rerun()
 
     df_itens_final = df_itens_editavel

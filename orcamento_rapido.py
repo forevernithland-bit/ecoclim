@@ -105,6 +105,7 @@ def renderizar(lista_nomes_produtos, limpar_func):
     # não redesenha — antes disso, cada tecla digitada descartava o estado do
     # editor e apagava o que estava sendo preenchido.
     produto_trocado_r = False
+    valores_mudaram_r = False
     for i in range(len(df_r_ed)):
         p_atual = str(df_r_ed.at[i, "Produto da Base"]).strip()
         
@@ -133,8 +134,27 @@ def renderizar(lista_nomes_produtos, limpar_func):
         df_r_ed.at[i, "Quantidade"] = qtd
         df_r_ed.at[i, "Custo (R$)"] = c_un
         df_r_ed.at[i, "Venda (R$)"] = v_un
-        df_r_ed.at[i, "Custo Total"] = qtd * c_un
-        df_r_ed.at[i, "Venda Total"] = qtd * v_un
+        custo_total_linha_r = qtd * c_un
+        venda_total_linha_r = qtd * v_un
+        df_r_ed.at[i, "Custo Total"] = custo_total_linha_r
+        df_r_ed.at[i, "Venda Total"] = venda_total_linha_r
+
+        # ACHADO 2026-09-15 — mesmo problema do Orçamento Personalizado:
+        # "Custo Total"/"Venda Total" são colunas DESABILITADAS, então o
+        # Streamlit nunca as atualiza na TELA por conta própria (ele só
+        # reaplica sozinho o que o usuário edita de verdade). Como
+        # `rapido_df_orc` só é realimentado na troca de produto, essas duas
+        # colunas ficavam com valor velho depois de editar Qtd/Custo/Venda à
+        # mão. Só realimenta quando o total calculado realmente mudou —
+        # redesenho deliberado e único, igual à troca de produto, nunca a
+        # cada tecla.
+        custo_total_ant_r = 0.0
+        venda_total_ant_r = 0.0
+        if i < len(st.session_state.rapido_df_orc):
+            custo_total_ant_r = utils.safe_float(st.session_state.rapido_df_orc.at[i, "Custo Total"])
+            venda_total_ant_r = utils.safe_float(st.session_state.rapido_df_orc.at[i, "Venda Total"])
+        if abs(custo_total_linha_r - custo_total_ant_r) > 0.005 or abs(venda_total_linha_r - venda_total_ant_r) > 0.005:
+            valores_mudaram_r = True
 
     # ACHADO 2026-09-12 — a causa raiz de verdade do "digito e apaga": com
     # `num_rows="dynamic"`, o `st.data_editor` NÃO usa a `key` como
@@ -148,11 +168,12 @@ def renderizar(lista_nomes_produtos, limpar_func):
     # verdade — a única hora em que precisamos trazer preço novo do
     # catálogo. Em qualquer outra edição, os dados de entrada ficam
     # estáveis e o Streamlit sozinho preserva tudo que já foi editado.
-    if produto_trocado_r:
+    if produto_trocado_r or valores_mudaram_r:
         st.session_state.rapido_df_orc = df_r_ed
-        # Redesenho necessário: o preço acabou de vir do catálogo e precisa
-        # aparecer. A chave do editor fica de propósito — apagá-la jogaria fora
-        # o que o usuário digitou nas outras células.
+        # Redesenho necessário: ou o preço acabou de vir do catálogo, ou uma
+        # coluna calculada (Custo Total/Venda Total) mudou de verdade e
+        # precisa aparecer atualizada. A chave do editor fica de propósito —
+        # apagá-la jogaria fora o que o usuário digitou nas outras células.
         deve_rerun = True
 
     custo_total_produtos_r = pd.to_numeric(df_r_ed["Custo Total"], errors='coerce').fillna(0).sum()
