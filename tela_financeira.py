@@ -786,6 +786,22 @@ def renderizar():
             df_ap_itens_ed = st.data_editor(
                 st.session_state.db_df_ap_itens, column_config=cfg_ap, num_rows="dynamic",
                 hide_index=True, use_container_width=True, key=f"ed_ap_itens_{ano_selecionado}")
+            # Corrige o dtype de "Data" pra uso LOCAL nesta execução — o
+            # `st.data_editor` pode devolver a coluna com um dtype diferente
+            # do que `carregar_aportes_itens` produz (objeto de
+            # `datetime.date`/`None`), principalmente numa linha nova ou
+            # recém-editada. Sem isto, gravar esse retorno em
+            # `db_df_ap_itens` (só acontece no clique de GRAVAR, mais abaixo)
+            # faz essa MESMA variável virar, no próximo carregamento da tela,
+            # a entrada deste editor com um formato de Data incompatível com
+            # a `DateColumn` — StreamlitAPIException ("column type date...
+            # not compatible... STRING"), reportado em produção 2026-09-15.
+            # Mesma causa já vista e corrigida em Mão de Obra
+            # (servicos_painel.py) — normalizar pro MESMO formato do
+            # carregamento original resolve pra sempre, sem mexer em cálculo.
+            df_ap_itens_ed['Data'] = pd.to_datetime(df_ap_itens_ed['Data'], errors='coerce').apply(
+                lambda x: x.date() if pd.notna(x) else None
+            )
             # ACHADO 2026-09-12 — NÃO realimentar `db_df_ap_itens` aqui. Uma
             # correção anterior (2026-09-10) fazia exatamente isso pra um
             # depósito digitado sobreviver a um redesenho — mas, com
