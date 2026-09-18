@@ -555,7 +555,16 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             if instalador_atual.lower() in ['nan', 'none']: instalador_atual = ""
         
             opcoes_inst = [""] + lista_instaladores
-            idx_inst = opcoes_inst.index(instalador_atual) if instalador_atual in opcoes_inst else 0
+            if instalador_atual in opcoes_inst:
+                idx_inst = opcoes_inst.index(instalador_atual)
+            elif "Valdimar" in opcoes_inst:
+                # Pedido do Breno (2026-09-16): projeto sem instalador definido
+                # ainda vem pré-preenchido com o Valdimar (o mais usado), em vez
+                # de nascer em branco — só o valor inicial do campo, o usuário
+                # ainda pode trocar antes de salvar.
+                idx_inst = opcoes_inst.index("Valdimar")
+            else:
+                idx_inst = 0
             novo_instalador = col_dir.selectbox("Instalador Responsável", opcoes_inst, index=idx_inst, key=f"inst_{prefix_key}")
 
             st.markdown("#### 🛒 Itens Vendidos (Ajuste Quantidades e Custos)")
@@ -627,9 +636,22 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                             "Data": p.get('data'),
                             "Obs": p.get('obs') or "",
                         } for p in pagamentos_salvos]
-                    elif custo_c_salvo > 0 or venda_final > 0:
+                    elif custo_c_salvo > 0 or str(projeto_selecionado.get('status_projeto', '')) in ('Concluído PIX', 'Concluído CARTÃO'):
                         # Migra o registro antigo (uma taxa só, pra venda inteira)
-                        # pra uma primeira linha, em vez de simplesmente sumir.
+                        # pra uma primeira linha, em vez de simplesmente sumir —
+                        # só faz sentido assumir "já recebeu tudo" quando o
+                        # projeto JÁ está concluído (pago) ou já tinha uma taxa
+                        # de cartão antiga calculada (sinal de pagamento real
+                        # já processado no sistema antigo).
+                        #
+                        # ACHADO 2026-09-16: a condição era só `venda_final > 0`
+                        # — verdadeira pra QUALQUER projeto com preço definido,
+                        # inclusive um "Em Andamento" novo que ainda não
+                        # recebeu nada. Isso pré-preenchia a linha de
+                        # recebimento com o valor total da venda como se já
+                        # tivesse entrado inteiro em Dinheiro/PIX, relatado pelo
+                        # Breno (print com "Falta receber: -R$290,00", negativo,
+                        # porque o valor pré-preenchido nem batia com o total).
                         _forma_antiga = opcoes_cartao[0]
                         for _opt in opcoes_cartao:
                             if abs(dict_taxas[_opt] - perc_previo) < 0.01:
@@ -970,6 +992,23 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                             with st.spinner("🤖 Lendo dados do boleto..."):
                                 venc_ext, val_ext = utils.extrair_dados_boleto(arquivo_boleto)
                                 st.session_state[f"dados_bol_{prefix_key}"] = {"vencimento": venc_ext, "valor": val_ext}
+
+                            # Pedido do Breno (2026-09-16): a data de vencimento
+                            # lida do boleto do fornecedor É a mesma data do
+                            # "Vencimento Boleto (Cliente)" acima — só preenche
+                            # sozinho quando esse campo ainda está vazio (não
+                            # sobrescreve o que já veio do banco nem o que a
+                            # pessoa já tiver digitado à mão). O campo é
+                            # renderizado ANTES deste upload no mesmo formulário,
+                            # então precisa de um redesenho pra aparecer
+                            # preenchido — mesmo padrão já usado nesta tela pra
+                            # injetar dado novo vindo de fora da grade.
+                            if venc_ext and not pago_avista and novo_venc_boleto is None:
+                                try:
+                                    st.session_state[f"venc_bol_{prefix_key}"] = datetime.datetime.strptime(venc_ext, "%d/%m/%Y").date()
+                                    st.rerun()
+                                except Exception:
+                                    pass
 
                         dados_ext = st.session_state[f"dados_bol_{prefix_key}"]
                     
