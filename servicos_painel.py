@@ -1083,6 +1083,44 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             elif _erro_pasta:
                 st.warning(f"⚠️ Não deu pra criar a pasta do cliente no Drive: {_erro_pasta}")
 
+            # Pedido do Breno (2026-09-19): lembrete/atalho no topo da aba pra
+            # não esquecer que já existe contrato/boleto salvo pra este cliente
+            # — antes só dava pra saber abrindo o expander (contrato) ou a aba
+            # Fiscal/Boletos (boletos), e o aviso de contrato nem sobrevivia a
+            # fechar e reabrir o projeto (vinha só de session_state).
+            _dc_lembrete = projeto_selecionado.get('dados_contrato')
+            if isinstance(_dc_lembrete, dict) and _dc_lembrete.get('pdf_drive_id'):
+                _dt_ct_ger = _dc_lembrete.get('pdf_gerado_em', '')
+                try:
+                    _dt_ct_ger = datetime.datetime.strptime(_dt_ct_ger, "%Y-%m-%d").strftime("%d/%m/%Y")
+                except Exception:
+                    pass
+                st.success(
+                    f"📝 Já existe um **contrato gerado** pra este cliente"
+                    + (f" (em {_dt_ct_ger})" if _dt_ct_ger else "")
+                    + f" — [abrir no Drive](https://drive.google.com/file/d/{_dc_lembrete['pdf_drive_id']}/view)."
+                )
+
+            try:
+                _boletos_lembrete = supabase.table('boletos_fornecedores').select('id, vencimento, valor, link_drive_id').eq('servico_id', id_projeto).execute().data or []
+            except Exception:
+                _boletos_lembrete = []
+            if _boletos_lembrete:
+                _partes_bol = []
+                for _b in _boletos_lembrete:
+                    _dt_b = "sem data"
+                    try:
+                        _dt_bo = pd.to_datetime(_b.get('vencimento'))
+                        if pd.notna(_dt_bo): _dt_b = _dt_bo.strftime('%d/%m/%Y')
+                    except Exception:
+                        pass
+                    _lnk_b = _b.get('link_drive_id')
+                    _txt_b = f"{utils.to_br_currency(_b.get('valor', 0))} (venc. {_dt_b})"
+                    if _lnk_b:
+                        _txt_b = f"[{_txt_b}](https://drive.google.com/file/d/{_lnk_b}/view)"
+                    _partes_bol.append(_txt_b)
+                st.info(f"🧾 {len(_boletos_lembrete)} **boleto(s) de fornecedor** já importado(s): " + " · ".join(_partes_bol) + " — veja/gerencie na aba **Fiscal/Boletos**.")
+
             try:
                 _res_midias = supabase.table('servico_midias').select('*').eq('servico_id', id_projeto).order('criado_em').execute()
                 _midias = _res_midias.data or []
@@ -1260,6 +1298,25 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                                 st.success(f"✅ Contrato gerado e **salvo automaticamente** no Drive (pasta *Contratos*) como **{_fname_ct}**.")
                                 if _pasta_drive_id:
                                     utils.criar_atalho_drive(_res_ct, _pasta_drive_id, _fname_ct)
+                                # Grava no `dados_contrato` (persistente, sobrevive a fechar e
+                                # reabrir o projeto) que já existe um PDF salvo — sem isto, só
+                                # dava pra saber que o contrato já tinha sido gerado enquanto a
+                                # aba continuasse aberta na mesma sessão (`ct_drive_link_...` é
+                                # só session_state). É o que alimenta o aviso/atalho no topo
+                                # desta aba (Mídia/Fotos/Contrato) daqui pra frente.
+                                try:
+                                    _payload_persist = {
+                                        "tipo": c_tipo, "nome": c_nome, "cpf": c_cpf, "cep": c_cep, "rua": c_rua,
+                                        "num": c_num, "bairro": c_bairro, "cidade": c_cidade, "uf": c_uf,
+                                        "objeto": c_objeto, "mat_inclusos": c_mat,
+                                        "data_termino": c_data_term.strftime("%Y-%m-%d"), "pagamento": c_pagamento,
+                                        "obs_pagamento": c_obs_pag, "val_base": c_val_base, "val_inst": c_val_inst,
+                                        "val_hidr": c_val_hidr, "val_outros": c_val_outros, "desc_outros": c_desc_outros,
+                                        "pdf_drive_id": _res_ct, "pdf_gerado_em": datetime.datetime.now().strftime("%Y-%m-%d"),
+                                    }
+                                    supabase.table('servicos_andamento').update({"dados_contrato": _payload_persist}).eq('id', id_projeto).execute()
+                                except Exception:
+                                    pass
                             else:
                                 st.warning(f"Contrato gerado, mas o envio automático ao Drive falhou ({_res_ct}). Use o envio manual abaixo.")
 
