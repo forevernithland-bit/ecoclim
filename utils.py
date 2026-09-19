@@ -1923,7 +1923,13 @@ def gerar_pdf_contrato(nome, doc, tipo_cliente, endereco, objeto, df_items, mat_
     story.append(Paragraph("Fica eleito o foro da Comarca de Santa Luzia/MG para dirimir quaisquer controvérsias oriundas deste contrato, com renúncia expressa a qualquer outro, por mais privilegiado que seja.", style_normal))
 
     story.append(Spacer(1, 1.0*cm))
-    story.append(Paragraph(f"Santa Luzia, MG, {obter_data_atual_br().strftime('%d de %B de %Y').lower()}.", style_normal))
+    # `strftime('%B')` depende da localidade do SISTEMA (não do Streamlit) —
+    # sem locale pt_BR instalada, sai o mês em inglês ("19 de september de
+    # 2026"), reproduzido e achado ao gerar um contrato real em 2026-09-19.
+    # `meses_pt` (linha ~100 deste arquivo) não depende de locale nenhuma.
+    _data_ass = obter_data_atual_br()
+    _mes_ass = meses_pt[_data_ass.month - 1].capitalize()
+    story.append(Paragraph(f"Santa Luzia, MG, {_data_ass.day} de {_mes_ass} de {_data_ass.year}.", style_normal))
     story.append(Spacer(1, 1.5*cm))
     
     try:
