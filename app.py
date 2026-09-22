@@ -111,11 +111,34 @@ def _painel_lembretes_erp():
         if titulo:
             st.markdown(f"**:red[{titulo}]**")
         for lem in grupo:
+            # Pedido do Breno (2026-09-22): confirmar antes de marcar como
+            # concluído, pra não correr o risco de tocar no checkbox sem
+            # querer e a tarefa simplesmente desaparecer da lista. O clique
+            # no checkbox só ARMA a confirmação (session_state); "Sim,
+            # concluir" é quem de fato chama `marcar_feito`. "Cancelar"
+            # desmarca o checkbox de volta (senão ele ficaria travado
+            # marcado, mesmo sem ter concluído nada).
+            _confirmar_key = f"lem_erp_confirmar_{lem['id']}"
+            if st.session_state.get(_confirmar_key):
+                st.markdown(f"✅ Concluir **{lem['texto']}**?")
+                cc1, cc2 = st.columns(2)
+                if cc1.button("Sim, concluir", key=f"lem_erp_conf_sim_{lem['id']}",
+                               type="primary", use_container_width=True):
+                    L.marcar_feito(lem, True)
+                    st.session_state.pop(_confirmar_key, None)
+                    st.rerun(scope="fragment")
+                if cc2.button("Cancelar", key=f"lem_erp_conf_nao_{lem['id']}",
+                               use_container_width=True):
+                    st.session_state.pop(_confirmar_key, None)
+                    st.session_state[f"lem_erp_chk_{lem['id']}"] = False
+                    st.rerun(scope="fragment")
+                continue
+
             c_chk, c_body, c_menu = st.columns([0.07, 0.80, 0.13])
             with c_chk:
                 if st.checkbox("ok", key=f"lem_erp_chk_{lem['id']}",
                                label_visibility="collapsed"):
-                    L.marcar_feito(lem, True)
+                    st.session_state[_confirmar_key] = True
                     st.rerun(scope="fragment")
             with c_body:
                 atras = L.esta_atrasado(lem)

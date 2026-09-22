@@ -1149,8 +1149,13 @@ async function viewLembretes() {
     b.addEventListener("click", async () => {
       const l = todos.find((x) => x.id === Number(b.dataset.check));
       if (!l) return;
+      const vaiConcluir = !l.feito;
+      // Pedido do Breno (2026-09-22): confirmar antes de CONCLUIR (não ao
+      // reabrir uma tarefa já feita), pra não correr o risco de tocar sem
+      // querer e a tarefa desaparecer da lista sem querer.
+      if (vaiConcluir && !confirm(`Concluir "${l.texto}"?`)) return;
       b.disabled = true;
-      try { await marcarFeito(l, !l.feito); await recarregar(); }
+      try { await marcarFeito(l, vaiConcluir); await recarregar(); }
       catch (e) { b.disabled = false; alert("Não deu pra atualizar agora."); }
     });
   });
