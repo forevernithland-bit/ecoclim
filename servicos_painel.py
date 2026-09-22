@@ -660,7 +660,20 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                         linhas_pag = [{"Forma": _forma_antiga, "Valor (R$)": venda_final, "Data": None, "Obs": ""}]
                     else:
                         linhas_pag = [{"Forma": opcoes_cartao[0], "Valor (R$)": 0.0, "Data": None, "Obs": ""}]
-                    st.session_state[session_pag_key] = pd.DataFrame(linhas_pag, columns=["Forma", "Valor (R$)", "Data", "Obs"])
+                    _df_pag_inicial = pd.DataFrame(linhas_pag, columns=["Forma", "Valor (R$)", "Data", "Obs"])
+                    # ACHADO 2026-09-21 — mesma causa já vista em Mão de Obra e
+                    # Aportes: a coluna "Data" é uma `DateColumn`, mas o valor
+                    # salvo em `pagamentos_recebidos[i]['data']` pode vir como
+                    # STRING (ex.: "2026-09-18", formato ISO gravado por um
+                    # script) em vez de `datetime.date`/`None` — o Streamlit
+                    # recusa isso com StreamlitAPIException ("column type date
+                    # ... not compatible ... STRING") assim que a tela tenta
+                    # abrir, travando a aba inteira pro Breno. Normaliza aqui,
+                    # na entrada, pro MESMO formato que o resto do ERP usa.
+                    _df_pag_inicial['Data'] = pd.to_datetime(_df_pag_inicial['Data'], errors='coerce').apply(
+                        lambda x: x.date() if pd.notna(x) else None
+                    )
+                    st.session_state[session_pag_key] = _df_pag_inicial
 
                 st.markdown("**💳 Pagamentos Recebidos**")
                 st.caption("Uma linha por recebimento — se o cliente pagou parte em PIX e parte no cartão, ou pagou entrada e o resto depois, lance cada um separado. Assim a taxa de cartão é cobrada só em cima do que realmente foi pago com cartão, e fica registrado quanto já entrou (útil pra lembrar o valor da entrada lá na frente).")
