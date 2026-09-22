@@ -1245,7 +1245,13 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                 
                     col_val3, col_val4 = st.columns(2)
                     c_val_hidr = col_val3.number_input("Valor Materiais Hidráulicos (R$ - Opcional)", value=float(d_ct.get('val_hidr', 0.0)), format="%.2f", step=None, key=f"ct_val_hidr_{prefix_key}")
-                    c_val_outros = col_val4.number_input("Valor Outros Serviços (R$ - Opcional)", value=float(d_ct.get('val_outros', 0.0)), format="%.2f", step=None, key=f"ct_val_outros_{prefix_key}")
+                    # ACHADO 2026-09-21 — chave RENOMEADA de "val_outros" pra
+                    # "ct_val_outros": "val_outros" também é usada pelo
+                    # Orçamento Personalizado (seção "Outros/Terceiros", outro
+                    # significado) na MESMA coluna `dados_contrato`. Com o
+                    # mesmo nome, salvar o contrato sobrescrevia o valor de
+                    # Terceiros do orçamento (ou vice-versa) sem ninguém notar.
+                    c_val_outros = col_val4.number_input("Valor Outros Serviços (R$ - Opcional)", value=float(d_ct.get('ct_val_outros', 0.0)), format="%.2f", step=None, key=f"ct_val_outros_{prefix_key}")
                 
                     c_desc_outros = ""
                     if c_val_outros > 0:
@@ -1264,14 +1270,25 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                 
                     if col_b1.button("💾 SALVAR DADOS DO CONTRATO", use_container_width=True, key=f"btn_sv_ct_{prefix_key}"):
                         payload = {
-                            "tipo": c_tipo, "nome": c_nome, "cpf": c_cpf, "cep": c_cep, "rua": c_rua, "num": c_num, 
-                            "bairro": c_bairro, "cidade": c_cidade, "uf": c_uf, "objeto": c_objeto, "mat_inclusos": c_mat, 
-                            "data_termino": c_data_term.strftime("%Y-%m-%d"), "pagamento": c_pagamento, "obs_pagamento": c_obs_pag, 
-                            "val_base": c_val_base, "val_inst": c_val_inst, "val_hidr": c_val_hidr, 
-                            "val_outros": c_val_outros, "desc_outros": c_desc_outros
+                            "tipo": c_tipo, "nome": c_nome, "cpf": c_cpf, "cep": c_cep, "rua": c_rua, "num": c_num,
+                            "bairro": c_bairro, "cidade": c_cidade, "uf": c_uf, "objeto": c_objeto, "mat_inclusos": c_mat,
+                            "data_termino": c_data_term.strftime("%Y-%m-%d"), "pagamento": c_pagamento, "obs_pagamento": c_obs_pag,
+                            "val_base": c_val_base, "val_inst": c_val_inst, "val_hidr": c_val_hidr,
+                            "ct_val_outros": c_val_outros, "desc_outros": c_desc_outros
                         }
                         try:
-                            supabase.table('servicos_andamento').update({"dados_contrato": payload}).eq('id', id_projeto).execute()
+                            # ACHADO 2026-09-21 — MERGE, não overwrite: `dados_contrato`
+                            # é a MESMA coluna que o Orçamento Personalizado usa pra
+                            # guardar Valor do Serviço/Outros-Terceiros (`val_servico`,
+                            # `txt_servico`, `txt_outros`, `val_outros`, `obs_pdf`). Um
+                            # `update({"dados_contrato": payload})` direto (só com os
+                            # campos do contrato) APAGAVA esses campos do orçamento
+                            # assim que alguém salvasse o contrato — o valor "sumia" de
+                            # novo, agora numa etapa diferente do mesmo bug relatado
+                            # pelo Breno. Junta com o que já tinha antes de gravar.
+                            _dc_merge = dict(d_ct)
+                            _dc_merge.update(payload)
+                            supabase.table('servicos_andamento').update({"dados_contrato": _dc_merge}).eq('id', id_projeto).execute()
                             st.success("✅ Dados do contrato salvos com sucesso!")
                         except Exception as e:
                             st.error("⚠️ ERRO: Certifique-se de que a coluna 'dados_contrato' existe no Supabase.")
@@ -1318,16 +1335,21 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                                 # só session_state). É o que alimenta o aviso/atalho no topo
                                 # desta aba (Mídia/Fotos/Contrato) daqui pra frente.
                                 try:
+                                    # Mesmo cuidado do botão "SALVAR DADOS DO CONTRATO" logo
+                                    # acima: MERGE (não overwrite) e "ct_val_outros" (não
+                                    # "val_outros", que é do Orçamento Personalizado).
                                     _payload_persist = {
                                         "tipo": c_tipo, "nome": c_nome, "cpf": c_cpf, "cep": c_cep, "rua": c_rua,
                                         "num": c_num, "bairro": c_bairro, "cidade": c_cidade, "uf": c_uf,
                                         "objeto": c_objeto, "mat_inclusos": c_mat,
                                         "data_termino": c_data_term.strftime("%Y-%m-%d"), "pagamento": c_pagamento,
                                         "obs_pagamento": c_obs_pag, "val_base": c_val_base, "val_inst": c_val_inst,
-                                        "val_hidr": c_val_hidr, "val_outros": c_val_outros, "desc_outros": c_desc_outros,
+                                        "val_hidr": c_val_hidr, "ct_val_outros": c_val_outros, "desc_outros": c_desc_outros,
                                         "pdf_drive_id": _res_ct, "pdf_gerado_em": datetime.datetime.now().strftime("%Y-%m-%d"),
                                     }
-                                    supabase.table('servicos_andamento').update({"dados_contrato": _payload_persist}).eq('id', id_projeto).execute()
+                                    _dc_merge_pdf = dict(d_ct)
+                                    _dc_merge_pdf.update(_payload_persist)
+                                    supabase.table('servicos_andamento').update({"dados_contrato": _dc_merge_pdf}).eq('id', id_projeto).execute()
                                 except Exception:
                                     pass
                             else:

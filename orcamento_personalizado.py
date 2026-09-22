@@ -338,25 +338,38 @@ def registrar_previa_como_rascunho(supabase, rascunho_id_atual, nome_cliente, te
     Sempre grava a versão em orcamento_versoes. Retorna o id do rascunho
     (novo ou reaproveitado) pra quem chamou continuar usando."""
     snapshot_itens = []
+    custo_produtos_total = 0.0
     for _, r in df_itens.iterrows():
         qtd_r = float(r.get('Quantidade') or 0)
         if qtd_r <= 0:
             continue
         nome_item = _nome_produto_linha(r)
+        custo_un_r = float(r.get('Custo (R$)') or 0)
+        custo_produtos_total += qtd_r * custo_un_r
         snapshot_itens.append({
             "Item": nome_item, "Qtd": qtd_r,
-            "Venda Un.": float(r.get('Venda (R$)') or 0), "Custo Un.": float(r.get('Custo (R$)') or 0),
+            "Venda Un.": float(r.get('Venda (R$)') or 0), "Custo Un.": custo_un_r,
             "Descrição": str(r.get('Descrição', '') or ''),
         })
+
+    # ACHADO 2026-09-21 — estimativa de lucro pra já aparecer na fila de
+    # Orçamentos (antes ficava sempre R$0,00: nenhum dos 3 caminhos que criam
+    # um orçamento por aqui calculava `lucro_estimado`). Só desconta o custo
+    # dos PRODUTOS (equipamentos) — Serviço/Instalação e Outros/Terceiros
+    # ainda não têm custo próprio nesta etapa (só o preço de venda que o
+    # Breno digitou), então entram como margem cheia até o custo real do
+    # instalador/terceiro ser preenchido lá na frente, em Em Andamento.
+    lucro_estimado_calc = valor_total - custo_produtos_total
 
     payload_rascunho = {
         "nome_cliente": nome_cliente, "telefone_cliente": telefone, "endereco_cliente": endereco,
         "servicos_adquiridos": descricao_servico, "valor_venda_total": valor_total,
+        "lucro_estimado": lucro_estimado_calc,
         "status_projeto": "Rascunho", "detalhamento_itens": snapshot_itens,
         "data_conclusao": datetime.date.today().strftime('%Y-%m-%d'),
         "dados_contrato": {
-            "val_servico": valor_servico, "txt_outros": descricao_outros,
-            "val_outros": valor_outros, "obs_pdf": observacoes,
+            "val_servico": valor_servico, "txt_servico": descricao_servico,
+            "txt_outros": descricao_outros, "val_outros": valor_outros, "obs_pdf": observacoes,
         },
     }
 
@@ -1188,12 +1201,14 @@ def renderizar(lista_nomes_produtos, limpar_func):
             else:
                 tel_formatado = formatar_telefone(whatsapp)
                 snapshot_itens = []
+                custo_produtos_total = 0.0
                 for _, r in df_editavel.iterrows():
                     if r['Quantidade'] > 0 or str(r.get('Produto da Base', '')) != "" or str(r.get('Produto Manual', '')) != "":
                         p_base = str(r.get('Produto da Base', '')).strip()
                         p_man = str(r.get('Produto Manual', '')).strip()
                         nome_item = p_base if p_base not in ["", "OUTRO", "None"] else p_man
-                        
+                        custo_produtos_total += utils.safe_float(r['Quantidade']) * utils.safe_float(r['Custo (R$)'])
+
                         snapshot_itens.append({
                             "Item": nome_item,
                             "Qtd": r['Quantidade'],
@@ -1202,17 +1217,25 @@ def renderizar(lista_nomes_produtos, limpar_func):
                             "Descrição": r['Descrição']
                         })
 
+                # ACHADO 2026-09-21 — mesma estimativa de lucro usada em
+                # `registrar_previa_como_rascunho`: só desconta custo dos
+                # produtos, Serviço/Outros entram como margem cheia por
+                # enquanto (sem custo próprio digitado nesta tela).
+                lucro_estimado_calc = total_investimento - custo_produtos_total
+
                 payload_rascunho = {
                     "nome_cliente": nome_cliente,
                     "telefone_cliente": tel_formatado,
                     "endereco_cliente": endereco_cliente,
                     "servicos_adquiridos": descricao_final_servico,
                     "valor_venda_total": total_investimento,
+                    "lucro_estimado": lucro_estimado_calc,
                     "status_projeto": "Rascunho",
                     "detalhamento_itens": snapshot_itens,
                     "data_conclusao": datetime.date.today().strftime('%Y-%m-%d'),
                     "dados_contrato": {
                         "val_servico": valor_final_servico,
+                        "txt_servico": descricao_final_servico,
                         "txt_outros": descricao_final_outros,
                         "val_outros": valor_final_outros,
                         "obs_pdf": obs_pdf
@@ -1240,23 +1263,46 @@ def renderizar(lista_nomes_produtos, limpar_func):
                     tel_formatado = formatar_telefone(whatsapp)
                     snapshot_itens = []
                     lista_prods_texto = []
-                    
+                    custo_produtos_total = 0.0
+
                     for _, r in df_editavel.iterrows():
                         if r['Quantidade'] > 0:
                             p_base = str(r.get('Produto da Base', '')).strip()
                             p_man = str(r.get('Produto Manual', '')).strip()
                             nome_item = p_base if p_base not in ["", "OUTRO", "None"] else p_man
-                            
+                            custo_produtos_total += utils.safe_float(r['Quantidade']) * utils.safe_float(r.get('Custo (R$)', 0))
+
                             snapshot_itens.append({
-                                "Item": nome_item, 
-                                "Qtd": r['Quantidade'], 
-                                "Venda Un.": r['Venda (R$)'], 
+                                "Item": nome_item,
+                                "Qtd": r['Quantidade'],
+                                "Venda Un.": r['Venda (R$)'],
+                                "Custo Un.": r.get('Custo (R$)', 0),
                                 "Descrição": r['Descrição']
                             })
                             lista_prods_texto.append(f"{int(r['Quantidade'])}x {nome_item}")
-                    
+
                     string_produtos = ", ".join(lista_prods_texto)
-                    
+
+                    # ACHADO 2026-09-21 — este era o ÚNICO dos 3 caminhos que
+                    # criam orçamento por aqui que jogava `dados_contrato`
+                    # fora (`{}` vazio) — os outros dois (Salvar Rascunho e o
+                    # rascunho automático da Prévia) já guardavam
+                    # Valor do Serviço e Valor de Outros/Terceiros lá dentro.
+                    # Sem isso, quando o orçamento virava "Em Andamento", a
+                    # aba Fiscal/Boletos não tinha de onde puxar esses
+                    # valores (ela já sabe ler `dados_contrato.val_servico`
+                    # como fallback pra Mão de Obra/Terceiros — só não tinha
+                    # o dado, porque este caminho nunca salvava). Relatado
+                    # pelo Breno: "o valor do serviço vem em branco" na fila
+                    # de Orçamentos.
+                    #
+                    # `lucro_estimado` também nunca era calculado por nenhum
+                    # dos 3 caminhos — por isso a coluna Lucro Líquido
+                    # sempre aparecia R$0,00 na fila de Orçamentos. Só
+                    # desconta custo de PRODUTO por enquanto (Serviço/Outros
+                    # ainda não têm custo próprio digitado nesta tela).
+                    lucro_estimado_calc = total_investimento - custo_produtos_total
+
                     payload_final = {
                         "numero_orcamento": numero_do_orcamento,
                         "nome_cliente": nome_cliente,
@@ -1265,10 +1311,17 @@ def renderizar(lista_nomes_produtos, limpar_func):
                         "produtos_adquiridos": string_produtos,
                         "servicos_adquiridos": descricao_final_servico,
                         "valor_venda_total": total_investimento,
+                        "lucro_estimado": lucro_estimado_calc,
                         "status_projeto": "Orçamento Enviado",
                         "detalhamento_itens": snapshot_itens,
                         "data_conclusao": datetime.date.today().strftime('%Y-%m-%d'),
-                        "dados_contrato": {}
+                        "dados_contrato": {
+                            "val_servico": valor_final_servico,
+                            "txt_servico": descricao_final_servico,
+                            "txt_outros": descricao_final_outros,
+                            "val_outros": valor_final_outros,
+                            "obs_pdf": obs_pdf,
+                        },
                     }
                     
                     if st.session_state.get('rascunho_id'):
