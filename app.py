@@ -420,35 +420,46 @@ else:
         # ---------- KPIs (somente leitura, sem alterar regras de negócio) ----------
         try:
             _sa = st.session_state.supabase.table('servicos_andamento').select(
-                'status_projeto, valor_venda_total, data_conclusao').execute().data or []
+                'status_projeto, valor_venda_total, lucro_estimado, data_conclusao').execute().data or []
         except Exception:
             _sa = []
         _mes = hoje_br.strftime('%Y-%m')
         _em_and = sum(1 for r in _sa if str(r.get('status_projeto')) == 'Em Andamento')
         _orc = sum(1 for r in _sa if str(r.get('status_projeto')) == 'Orçamento Enviado')
         _fat = 0.0
+        _fin_mes = 0
+        _lucro_mes = 0.0
         for r in _sa:
             stt = str(r.get('status_projeto', ''))
             # Faturamento do mês = concluído no mês atual + tudo que está em andamento agora.
             eh_concluido_mes = stt.startswith('Concluído') and str(r.get('data_conclusao', '')).startswith(_mes)
+            if eh_concluido_mes:
+                _fin_mes += 1
             if eh_concluido_mes or stt == 'Em Andamento':
                 try:
                     _fat += float(r.get('valor_venda_total') or 0)
+                    _lucro_mes += float(r.get('lucro_estimado') or 0)
                 except Exception:
                     pass
+
+        # ACHADO 2026-09-22 — "Boletos a pagar" somava TODOS os pendentes, de
+        # qualquer mês (por isso um boleto de outubro já entrava na conta de
+        # setembro). Filtra por vencimento no mês vigente, igual o
+        # Faturamento já faz com `data_conclusao`.
         try:
-            _bp = st.session_state.supabase.table('boletos_fornecedores').select('valor').eq('status', 'Pendente').execute().data or []
-            _pend = sum(float(x.get('valor') or 0) for x in _bp)
+            _bp = st.session_state.supabase.table('boletos_fornecedores').select('valor, vencimento').eq('status', 'Pendente').execute().data or []
+            _pend = sum(float(x.get('valor') or 0) for x in _bp if str(x.get('vencimento') or '').startswith(_mes))
         except Exception:
             _pend = 0.0
 
-        # Empréstimos a receber — o espelho do "boletos a pagar". Fica em try
-        # próprio pra que a Home continue abrindo mesmo se a tabela ainda não
-        # existir no banco (sql_emprestimos.sql não rodado).
+        # Empréstimos a receber — o espelho do "boletos a pagar", mesma
+        # correção de mês vigente aplicada. Fica em try próprio pra que a
+        # Home continue abrindo mesmo se a tabela ainda não existir no banco
+        # (sql_emprestimos.sql não rodado).
         try:
             _emp = st.session_state.supabase.table('emprestimos').select(
-                'valor_parcela').eq('status', 'Pendente').execute().data or []
-            _receber = sum(float(x.get('valor_parcela') or 0) for x in _emp)
+                'valor_parcela, vencimento').eq('status', 'Pendente').execute().data or []
+            _receber = sum(float(x.get('valor_parcela') or 0) for x in _emp if str(x.get('vencimento') or '').startswith(_mes))
         except Exception:
             _receber = 0.0
 
@@ -456,8 +467,13 @@ else:
         k1.metric("🛠️ Serviços em andamento", str(_em_and))
         k2.metric("📝 Orçamentos enviados", str(_orc))
         k3.metric("💰 Faturamento do mês", utils.to_br_currency(_fat))
-        k4.metric("📄 Boletos a pagar", utils.to_br_currency(_pend))
-        k5.metric("💸 Empréstimos a receber", utils.to_br_currency(_receber))
+        k4.metric("📄 Boletos a pagar (mês)", utils.to_br_currency(_pend))
+        k5.metric("💸 Empréstimos a receber (mês)", utils.to_br_currency(_receber))
+
+        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+        k6, k7, _k8, _k9, _k10 = st.columns(5)
+        k6.metric("✅ Serviços finalizados (mês)", str(_fin_mes))
+        k7.metric("📈 Lucro previsto (mês)", utils.to_br_currency(_lucro_mes))
 
         st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
         st.markdown("<div class='eco-sectiontitle'>🔔 Lembretes de Pagamento</div>", unsafe_allow_html=True)
