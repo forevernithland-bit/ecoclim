@@ -486,17 +486,24 @@ else:
         except Exception:
             _receber = 0.0
 
-        k1, k2, k3, k4, k5 = st.columns(5)
-        k1.metric("🛠️ Serviços em andamento", str(_em_and))
-        k2.metric("📝 Orçamentos enviados", str(_orc))
-        k3.metric("💰 Faturamento do mês", utils.to_br_currency(_fat))
-        k4.metric("📄 Boletos a pagar (mês)", utils.to_br_currency(_pend))
-        k5.metric("💸 Empréstimos a receber (mês)", utils.to_br_currency(_receber))
-
-        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-        k6, k7, _k8, _k9, _k10 = st.columns(5)
-        k6.metric("✅ Serviços finalizados (mês)", str(_fin_mes))
-        k7.metric("📈 Lucro previsto (mês)", utils.to_br_currency(_lucro_mes))
+        # Pedido do Breno (2026-09-22): os 7 KPIs em `st.metric` (cartão
+        # grande, 2 linhas de 5 colunas) ocupavam espaço demais na tela —
+        # trocado por uma tirinha só de chips compactos (CSS em estilo.py).
+        _kpis = [
+            ("🛠️", "Em andamento", str(_em_and)),
+            ("📝", "Orçamentos enviados", str(_orc)),
+            ("💰", "Faturamento (mês)", utils.to_br_currency(_fat)),
+            ("📄", "Boletos a pagar (mês)", utils.to_br_currency(_pend)),
+            ("💸", "Empréstimos a receber (mês)", utils.to_br_currency(_receber)),
+            ("✅", "Finalizados (mês)", str(_fin_mes)),
+            ("📈", "Lucro previsto (mês)", utils.to_br_currency(_lucro_mes)),
+        ]
+        _kpi_html = "".join(
+            f"<div class='eco-kpi'><span class='ico'>{ico}</span>"
+            f"<span class='lbl'>{lbl}</span><span class='val'>{val}</span></div>"
+            for ico, lbl, val in _kpis
+        )
+        st.markdown(f"<div class='eco-kpirow'>{_kpi_html}</div>", unsafe_allow_html=True)
 
         st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
         st.markdown("<div class='eco-sectiontitle'>🔔 Lembretes de Pagamento</div>", unsafe_allow_html=True)

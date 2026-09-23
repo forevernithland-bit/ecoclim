@@ -219,6 +219,15 @@ def montar_css(chave_tema=None):
     .eco-sectiontitle {{ font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 800; color: var(--ink); font-size: 1.08rem; display: flex; align-items: center; gap: 8px; margin: 10px 0 12px; letter-spacing: -.02em; }}
     .eco-sectiontitle::before {{ content: ""; width: 4px; height: 18px; border-radius: 3px; background: linear-gradient(180deg, var(--brand), var(--brand-dark)); }}
 
+    /* KPIs da Home em uma tirinha só (pedido do Breno 2026-09-22: os
+       st.metric em cartão grande, 2 linhas de 5, ocupavam espaço demais). */
+    .eco-kpirow {{ display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 18px; }}
+    .eco-kpi {{ display: flex; align-items: center; gap: 6px; background: var(--card); border: 1px solid var(--line);
+        border-radius: 999px; padding: 7px 14px; white-space: nowrap; box-shadow: var(--shadow-sm); }}
+    .eco-kpi .ico {{ font-size: .9rem; }}
+    .eco-kpi .lbl {{ color: var(--muted); font-size: .78rem; }}
+    .eco-kpi .val {{ font-weight: 800; color: var(--ink); font-size: .92rem; }}
+
     /* ================= RESPONSIVIDADE (mobile / tablet) ================= */
     @media screen and (max-width: 820px) {{
         .block-container {{ padding: 1rem 0.7rem 2rem !important; }}
