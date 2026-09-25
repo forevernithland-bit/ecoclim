@@ -382,17 +382,36 @@ def renderizar_pagamento_instaladores(df_subset, supabase, key_suffix, titulo):
     # pendentes ficam embaixo, mais fáceis de achar.
     df_pag_base = df_pag_base.sort_values(['pago_instalador', 'nome_cliente'], ascending=[False, True]).reset_index(drop=True)
 
-    n_pendentes = int((~df_pag_base['pago_instalador']).sum())
-    valor_total_pendente = df_pag_base.loc[~df_pag_base['pago_instalador'], 'custo_terceirizados'].sum()
-
     # Adiantamentos ainda não compensados dos instaladores que aparecem
     # nesta lista — descontados do total pendente (pedido do Breno).
-    instaladores_aqui = [i for i in df_pag_base['instalador'].dropna().unique().tolist() if str(i).strip()]
-    total_adiantado = sum(a['_saldo'] for a in _buscar_adiantamentos_com_saldo(supabase, instaladores_aqui))
+    instaladores_aqui = sorted(i for i in df_pag_base['instalador'].dropna().unique().tolist() if str(i).strip())
+
+    # Filtro "ver só um instalador" (pedido do Breno, 2026-09-25): lido do
+    # session_state ANTES de criar o widget, pra já entrar no título do
+    # expander (que é montado antes do corpo, onde o selectbox de fato mora).
+    _filtro_key = f"filtro_inst_pag_{key_suffix}"
+    _filtro_inst = st.session_state.get(_filtro_key, "Todos")
+    if _filtro_inst != "Todos" and _filtro_inst not in instaladores_aqui:
+        _filtro_inst = "Todos"  # instalador do filtro sumiu desta lista (ex.: mudou de mês)
+
+    df_pag_filtrado = df_pag_base if _filtro_inst == "Todos" else df_pag_base[df_pag_base['instalador'] == _filtro_inst]
+
+    n_pendentes = int((~df_pag_filtrado['pago_instalador']).sum())
+    valor_total_pendente = df_pag_filtrado.loc[~df_pag_filtrado['pago_instalador'], 'custo_terceirizados'].sum()
+
+    _instaladores_p_adiantamento = [_filtro_inst] if _filtro_inst != "Todos" else instaladores_aqui
+    total_adiantado = sum(a['_saldo'] for a in _buscar_adiantamentos_com_saldo(supabase, _instaladores_p_adiantamento))
     valor_liquido = valor_total_pendente - total_adiantado
 
-    with st.expander(f"💰 {titulo} — {utils.to_br_currency(valor_liquido)} líquido pendente ({n_pendentes})", expanded=False):
-        df_pag_view = df_pag_base.copy()
+    _sufixo_titulo = f" — {_filtro_inst}" if _filtro_inst != "Todos" else ""
+    with st.expander(f"💰 {titulo}{_sufixo_titulo} — {utils.to_br_currency(valor_liquido)} líquido pendente ({n_pendentes})",
+                      expanded=(_filtro_inst != "Todos")):
+        if instaladores_aqui:
+            opcoes_filtro = ["Todos"] + instaladores_aqui
+            st.selectbox("👤 Filtrar por instalador", opcoes_filtro,
+                         index=opcoes_filtro.index(_filtro_inst), key=_filtro_key)
+
+        df_pag_view = df_pag_filtrado.copy()
         df_pag_view['nome_cliente'] = df_pag_view.apply(
             lambda r: f"{r['nome_cliente']}  🔴 cliente não pagou ainda" if r['cliente_nao_pagou'] else r['nome_cliente'],
             axis=1,
