@@ -428,8 +428,14 @@ def renderizar_pagamento_instaladores(df_subset, supabase, key_suffix, titulo):
             "Valor Instalação": st.column_config.NumberColumn("Valor Instalação", format="R$ %.2f", disabled=True),
             "Pago?": st.column_config.CheckboxColumn("💰 Pago?"),
         }
+        # A key inclui o filtro de propósito: o data_editor guarda edição
+        # pendente (não salva) por POSIÇÃO de linha, e trocar o filtro muda
+        # quais linhas aparecem — sem isso, uma marcação "Pago?" feita antes
+        # de trocar o filtro podia "vazar" pra linha errada da nova visão e
+        # gravar no instalador errado ao clicar Salvar (mesma armadilha já
+        # documentada abaixo pra depois do save, aqui é antes dele).
         df_pag_ed = st.data_editor(df_pag_view, column_config=cfg_pag, hide_index=True,
-                                   use_container_width=True, key=f"pag_editor_{key_suffix}")
+                                   use_container_width=True, key=f"pag_editor_{key_suffix}_{_filtro_inst}")
 
         total_pendente_pag = df_pag_ed.loc[~df_pag_ed['Pago?'].astype(bool), 'Valor Instalação'].sum()
         total_pago_pag = df_pag_ed.loc[df_pag_ed['Pago?'].astype(bool), 'Valor Instalação'].sum()
@@ -510,7 +516,7 @@ def renderizar_pagamento_instaladores(df_subset, supabase, key_suffix, titulo):
                 # o "Pago?" que acabou de ser salvo reaparecia na linha que
                 # assumiu aquela posição, e um segundo clique em Salvar gravaria
                 # no INSTALADOR ERRADO. Correção de 2026-09-10.
-                st.session_state.pop(f"pag_editor_{key_suffix}", None)
+                st.session_state.pop(f"pag_editor_{key_suffix}_{_filtro_inst}", None)
                 st.rerun()
             else:
                 st.info("Nenhuma alteração pra salvar.")
