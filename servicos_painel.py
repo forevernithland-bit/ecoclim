@@ -817,7 +817,15 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                         _val_mo_legado = safe_float(d_ct_fallback.get('val_servico'))
                     _splits_salvos = utils.pagamentos_instaladores_do_servico({**projeto_selecionado, 'custo_terceirizados': _val_mo_legado})
                     if not _splits_salvos:
-                        _splits_salvos = [{"instalador": projeto_selecionado.get('instalador') or "", "valor": 0.0, "pago": False, "data_pagamento": None}]
+                        # Usa `novo_instalador` (valor JÁ selecionado no
+                        # combobox "Instalador Responsável" acima, que já cai
+                        # em Valdimar quando o banco está vazio) em vez do
+                        # campo bruto do projeto — ler direto daria `nan`
+                        # (float) quando o banco tem `instalador` vazio/None,
+                        # e `nan or ""` NÃO vira "" (nan é truthy em Python).
+                        # Foi assim que "nan" virou string salva de verdade
+                        # em produção (achado 2026-09-25).
+                        _splits_salvos = [{"instalador": novo_instalador or "", "valor": 0.0, "pago": False, "data_pagamento": None}]
                     _linhas_mo = []
                     for _s in _splits_salvos:
                         _data_s = _s.get('data_pagamento')
@@ -872,7 +880,8 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
 
                 lista_pagamentos_inst_salvar = []
                 for _, _r_mo in df_mo_editado.iterrows():
-                    _inst_mo = str(_r_mo.get('Instalador') or '').strip()
+                    _inst_mo_bruto = _r_mo.get('Instalador')
+                    _inst_mo = str(_inst_mo_bruto).strip() if (pd.notna(_inst_mo_bruto) and str(_inst_mo_bruto).strip()) else ''
                     _val_mo_linha = safe_float(_r_mo.get('Valor (R$)'))
                     if not _inst_mo and _val_mo_linha == 0:
                         continue

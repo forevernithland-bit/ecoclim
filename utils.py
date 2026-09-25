@@ -84,8 +84,15 @@ def pagamentos_instaladores_do_servico(servico):
     valor_legado = safe_float(servico.get('custo_terceirizados'))
     if valor_legado <= 0:
         return []
+    # `servico` às vezes é um dict vindo de `pd.Series.to_dict()` — campo
+    # vazio no banco (`None`) pode chegar aqui como `float('nan')`, e
+    # `nan or ""` NÃO cai no `""` (nan é truthy em Python) — sem o
+    # `pd.notna`, isso já gravou a string literal "nan" como instalador em
+    # produção (achado 2026-09-25, ids 150/152/165 corrigidos na mão).
+    _inst_legado = servico.get('instalador')
+    _inst_legado = _inst_legado if (pd.notna(_inst_legado) and str(_inst_legado).strip()) else ""
     return [{
-        "instalador": servico.get('instalador') or "",
+        "instalador": _inst_legado,
         "valor": valor_legado,
         "pago": bool(servico.get('pago_instalador', False)),
         "data_pagamento": servico.get('data_pagamento_instalador'),
