@@ -567,6 +567,64 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                 idx_inst = 0
             novo_instalador = col_dir.selectbox("Instalador Responsável", opcoes_inst, index=idx_inst, key=f"inst_{prefix_key}")
 
+            # ---------------------------------------------------------------
+            # "Serviço Finalizado" manual (Breno, pelo ERP) — mesma ação que o
+            # técnico faz no app dele. Só serve pra liberar o pagamento do
+            # instalador em Financeiro; NUNCA mexe em status_projeto (o card
+            # continua em Em Andamento até o Breno fechar financeiramente com
+            # o cliente, trocando "Alterar Status" pra Concluído PIX/CARTÃO).
+            # ---------------------------------------------------------------
+            _concluido_pelo_tecnico = bool(projeto_selecionado.get('instalacao_concluida_instalador', False))
+            _data_ci_banco = projeto_selecionado.get('data_conclusao_instalador')
+            _data_ci_atual = None
+            if pd.notna(_data_ci_banco) and str(_data_ci_banco).lower() not in ('none', 'nan', 'nat', ''):
+                try: _data_ci_atual = pd.to_datetime(_data_ci_banco).date()
+                except Exception: pass
+
+            if not _concluido_pelo_tecnico:
+                if col_dir.button("✅ Serviço Finalizado", key=f"btn_srv_finalizado_{prefix_key}",
+                                   help="Use se o técnico ainda não marcou concluído no app dele. Grava a data de hoje (editável depois) e libera o pagamento do instalador em Financeiro — não muda o status do projeto."):
+                    _hoje_ci = datetime.date.today()
+                    _patch_ci = {
+                        "instalacao_concluida_instalador": True,
+                        "data_conclusao_instalador": _hoje_ci.isoformat(),
+                        "conclusao_vista_pelo_admin": True,
+                    }
+                    _garantia_banco_ci = projeto_selecionado.get('data_inicio_garantia')
+                    _garantia_ja_existe = pd.notna(_garantia_banco_ci) and str(_garantia_banco_ci).lower() not in ('none', 'nan', 'nat', '')
+                    if not _garantia_ja_existe:
+                        _patch_ci["data_inicio_garantia"] = _hoje_ci.isoformat()
+                    supabase.table('servicos_andamento').update(_patch_ci).eq('id', id_projeto).execute()
+                    st.toast("Serviço finalizado — já aparece pra pagamento do instalador em Financeiro.", icon="✅")
+                    st.rerun()
+            else:
+                col_dir.success("✅ Serviço Finalizado")
+                _nova_data_ci = col_dir.date_input(
+                    "Data da conclusão", value=_data_ci_atual or datetime.date.today(), format="DD/MM/YYYY",
+                    max_value=datetime.date.today(), key=f"data_ci_{prefix_key}",
+                    help="Preenchida automaticamente ao clicar em Serviço Finalizado. Ajuste se o técnico concluiu em outro dia.")
+                _col_upd, _col_undo = col_dir.columns(2)
+                if _nova_data_ci != _data_ci_atual:
+                    if _col_upd.button("💾 Atualizar data", key=f"btn_upd_data_ci_{prefix_key}"):
+                        supabase.table('servicos_andamento').update(
+                            {"data_conclusao_instalador": _nova_data_ci.isoformat()}
+                        ).eq('id', id_projeto).execute()
+                        st.toast("Data de conclusão atualizada.", icon="💾")
+                        st.rerun()
+                if _col_undo.button("↩️ Desfazer", key=f"btn_undo_ci_{prefix_key}",
+                                     help="Desmarca (uso raro — ex.: clicado por engano)."):
+                    _patch_undo = {
+                        "instalacao_concluida_instalador": False,
+                        "data_conclusao_instalador": None,
+                        "conclusao_vista_pelo_admin": True,
+                    }
+                    _garantia_atual = projeto_selecionado.get('data_inicio_garantia')
+                    if _garantia_atual and _data_ci_banco and str(_garantia_atual)[:10] == str(_data_ci_banco)[:10]:
+                        _patch_undo["data_inicio_garantia"] = None
+                    supabase.table('servicos_andamento').update(_patch_undo).eq('id', id_projeto).execute()
+                    st.toast("Conclusão do serviço desfeita.", icon="↩️")
+                    st.rerun()
+
             st.markdown("#### 🛒 Itens Vendidos (Ajuste Quantidades e Custos)")
 
             df_itens_final, custo_total_produtos, venda_total_produtos, lucro_total_produtos = selecionar_itens_produtos(
@@ -857,15 +915,17 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                 r4.metric("💧 Lucro Materiais Hidráulicos", utils.to_br_currency(lucro_materiais_hidraulicos))
 
             # ---------------------------------------------------------------
-            # Reportado pelo Instalador (app do instalador) — só leitura aqui.
-            # Ajustes são feitos direto no orçamento/painel, não por este campo.
+            # Reportado pelo Instalador (app do instalador) OU marcado aqui
+            # pelo Breno via "✅ Serviço Finalizado" acima — mesmo campo pros
+            # dois casos, por isso a mensagem não atribui a quem clicou. Só
+            # leitura aqui; ajustes de data são feitos no bloco do botão acima.
             # ---------------------------------------------------------------
             _concluida_inst = bool(projeto_selecionado.get('instalacao_concluida_instalador', False))
             _obs_inst = str(projeto_selecionado.get('observacao_instalador', '') or '').strip()
             if _obs_inst.lower() in ('nan', 'none'): _obs_inst = ''
             if _concluida_inst or _obs_inst:
                 with st.container(border=True):
-                    st.markdown("##### 📲 Reportado pelo Instalador")
+                    st.markdown("##### 📲 Conclusão da Instalação")
                     if _concluida_inst:
                         _data_ci = projeto_selecionado.get('data_conclusao_instalador')
                         _data_ci_str = ""
@@ -874,7 +934,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                                 _data_ci_str = pd.to_datetime(_data_ci).strftime('%d/%m/%Y')
                         except Exception:
                             pass
-                        st.success(f"✅ Instalação marcada como concluída pelo instalador{f' em {_data_ci_str}' if _data_ci_str else ''}.")
+                        st.success(f"✅ Instalação marcada como concluída{f' em {_data_ci_str}' if _data_ci_str else ''}.")
                     if _obs_inst:
                         st.caption("Observação do instalador:")
                         st.markdown(f"> {_obs_inst}")
