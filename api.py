@@ -21,6 +21,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# App Evolua (fitness) — rotas de IA em /fit/*. Protegido: se a biblioteca
+# `anthropic` ainda não estiver instalada na VPS, a API da Ecoclim continua
+# funcionando normalmente (só as rotas /fit ficam fora do ar).
+try:
+    import fit_api
+    app.include_router(fit_api.router)
+except Exception as e:
+    print(f"[fit] rotas do app fitness desligadas: {e}")
+
 # Conecta no seu Supabase
 supabase = utils.init_connection()
 
