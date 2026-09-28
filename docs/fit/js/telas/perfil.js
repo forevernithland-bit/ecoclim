@@ -1,5 +1,5 @@
 // Perfil: dados, metas, objetivo/físico-alvo, conta e exportação.
-import { esc, num, toast, confirmar, abrirSheet } from "../ui.js";
+import { esc, num, toast, confirmar, abrirSheet, temaAtual, aplicarTema } from "../ui.js";
 import { OBJETIVOS, FISICOS, estimarTempoFisico, formatarMeses, imc, ffmi } from "../ciencia.js";
 import { E, salvarPerfil, metasAtuais, listar } from "../estado.js";
 import { usuarioAtual, sair, pendentes, sincronizar } from "../nuvem.js";
@@ -56,22 +56,34 @@ export async function telaPerfil(el, ctx) {
       <button class="card card--link" id="supl"><span class="card-tag">💊 Suplementos recomendados</span><span class="nota">Com nível de evidência científica ›</span></button>
 
       <div class="card">
+        <div class="card-tag">🎨 Aparência</div>
+        <div class="seg seg--mini">
+          ${[["auto", "Automático"], ["light", "☀️ Claro"], ["dark", "🌙 Escuro"]].map(([k, t]) => `<button class="seg-b ${temaAtual() === k ? "seg-b--on" : ""}" data-tema="${k}">${t}</button>`).join("")}
+        </div>
+        <p class="nota">Automático segue o tema do seu celular.</p>
+      </div>
+
+      <div class="card">
         <div class="card-tag">☁️ Conta e backup</div>
         ${user
-          ? `<p>${esc(user.email)}</p><p class="nota">${pend ? `${pend} alteração(ões) aguardando envio.` : "Tudo salvo na nuvem ✅"}</p>
+          ? `<p>${esc(user.email.endsWith("@evolua.app") ? user.email.replace("@evolua.app", "") : user.email)}</p><p class="nota">${pend ? `${pend} alteração(ões) aguardando envio.` : "Tudo salvo na nuvem ✅"}</p>
              <div class="linha-botoes"><button class="btn btn--sec btn--peq" id="sync">Sincronizar</button><button class="btn btn--sec btn--peq" id="sair">Sair</button></div>`
           : `<p class="nota">Modo teste: seus dados estão só neste aparelho e a IA fica desligada.</p><button class="btn btn--peq" id="entrar">Criar conta / entrar</button>`}
         <button class="btn btn--sec btn--peq" id="exportar">⬇️ Exportar meus dados (JSON)</button>
       </div>
 
       <p class="aviso">Este app é educativo e não substitui médico, nutricionista ou educador físico. Com doenças, gravidez ou uso de remédios, procure acompanhamento profissional.</p>
-      <p class="nota centro">Versão ${VERSAO}</p>
+      <p class="assinatura">Evolua · versão ${VERSAO}<br>Desenvolvido por <b>Breno Lima</b></p>
     </div>`;
 
   el.querySelectorAll("[data-obj]").forEach((b) => b.onclick = async () => { await salvarPerfil({ ...p, objetivo: b.dataset.obj }); toast("Objetivo atualizado — metas recalculadas"); ctx.rerender(); });
   el.querySelectorAll("[data-fis]").forEach((b) => b.onclick = async () => { await salvarPerfil({ ...p, fisicoAlvo: b.dataset.fis }); ctx.rerender(); });
   el.querySelector("#pesoMeta").onchange = async (e) => { await salvarPerfil({ ...p, pesoMeta: +String(e.target.value).replace(",", ".") || null }); toast("Peso meta salvo"); };
   el.querySelector("#supl").onclick = abrirSuplementos;
+  el.querySelectorAll("[data-tema]").forEach((b) => b.onclick = () => {
+    aplicarTema(b.dataset.tema);
+    el.querySelectorAll("[data-tema]").forEach((x) => x.classList.toggle("seg-b--on", x === b));
+  });
   const gostos = { naoGosta: [...(p.naoGosta || [])], dietas: [...(p.dietas || ["tudo"])], alergias: p.alergias || "" };
   let tGostos = null;
   editorGostos(el.querySelector("#editor-gostos"), gostos, () => {

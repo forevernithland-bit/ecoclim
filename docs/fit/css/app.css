@@ -544,3 +544,22 @@ summary.card-tag { cursor: pointer; margin: 0; }
 .marco:not(:last-child)::after { content: ""; position: absolute; left: 6px; top: 26px; bottom: -8px; width: 2px; background: var(--linha); }
 .marco b { display: block; font-size: .92rem; } .marco small { color: var(--muted); font-size: .8rem; }
 .fisico .fig-caixa { max-width: 96px; margin: 0 auto 6px; }
+
+
+/* ---------- Tema escuro escolhido no app (mesmas regras do escuro automático) ---------- */
+:root[data-theme="dark"] {
+    --texto: #e8edf5; --muted: #8b98ab; --linha: #232b39; --card: #131924; --bg: #0a0e15; --campo: #1a2130;
+    --lima-forte: #c6f432; --lima-suave: rgba(198, 244, 50, 0.12); --ia-suave: rgba(124, 92, 255, 0.16);
+    --bom: #34d399; --ruim: #fb7185;
+    --sombra: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .25);
+    color-scheme: dark;
+  }
+:root[data-theme="dark"] .chip--on { background: var(--lima); color: var(--ink); border-color: var(--lima); }
+:root[data-theme="dark"] .fig-c1 { stop-color: #5b6a82; } :root[data-theme="dark"] .fig-c2 { stop-color: #9aa9c0; }
+  :root[data-theme="dark"] .fig-linha { stroke: #2b3547; } :root[data-theme="dark"] .fig-sombra { fill: #2b3547; }
+  :root[data-theme="dark"] .fig-roupa { fill: #0b1220; } :root[data-theme="dark"] .fig-chao { fill: rgba(0, 0, 0, .35); }
+  :root[data-theme="dark"] .fig--destaque .fig-c1 { stop-color: #8fbf1c; } :root[data-theme="dark"] .fig--destaque .fig-c2 { stop-color: #d6f58a; }
+:root[data-theme="dark"] .sem-b--on, :root[data-theme="dark"] .dia-b--on { background: var(--lima); color: var(--ink); border-color: var(--lima); }
+
+.assinatura { text-align: center; color: var(--muted); font-size: .78rem; margin: 18px 0 4px; line-height: 1.5; }
+.assinatura b { color: var(--texto); font-weight: 700; }

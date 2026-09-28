@@ -106,6 +106,7 @@ export async function telaHoje(el, ctx) {
         <button class="card card--link card--agente" data-agente="nutri"><span class="agente-av">🥗</span><b>Nina</b><small>Nutricionista</small></button>
         <button class="card card--link card--agente" data-agente="coach"><span class="agente-av">🏋️</span><b>Léo</b><small>Personal</small></button>
       </div>
+      <p class="assinatura">Evolua · desenvolvido por <b>Breno Lima</b></p>
     </div>`;
 
   el.querySelectorAll("[data-add]").forEach((b) => b.onclick = () => abrirNovaRefeicao(b.dataset.add, { aoSalvar: ctx.rerender }));

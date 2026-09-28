@@ -20,23 +20,39 @@ const TABELA = { refeicoes: "fit_refeicoes", checkins: "fit_checkins", treinos: 
 
 function traduzirErro(e) {
   const m = String((e && e.message) || e || "");
-  if (/Invalid login/i.test(m)) return "E-mail ou senha incorretos.";
-  if (/already registered|already exists/i.test(m)) return "Esse e-mail já tem conta. Toque em 'Já tenho conta'.";
+  if (/Invalid login/i.test(m)) return "Usuário ou senha incorretos.";
+  if (/already registered|already exists/i.test(m)) return "Esse usuário já tem conta. Toque em 'Já tenho conta'.";
   if (/Password should be/i.test(m)) return "A senha precisa ter pelo menos 6 caracteres.";
   if (/Email not confirmed/i.test(m)) return "Confirme seu e-mail (veja a caixa de entrada) e tente de novo.";
   if (/fetch|network/i.test(m)) return "Sem conexão com a internet.";
   return m || "Algo deu errado.";
 }
 
-export async function cadastrar(email, senha) {
-  const { data, error } = await sb().auth.signUp({ email: email.trim(), password: senha });
+// Aceita "usuário" simples (ex.: teste) além de e-mail: vira teste@evolua.app.
+export function paraEmail(login) {
+  const l = String(login || "").trim().toLowerCase();
+  return l.includes("@") ? l : `${l.replace(/[^a-z0-9._-]/g, "")}@evolua.app`;
+}
+// O Supabase exige senha com 6+ caracteres; o app acrescenta um complemento
+// fixo pra permitir senhas curtas (ex.: "teste"). Contas antigas, criadas com
+// a senha "pura", continuam entrando pelo plano B em entrar().
+const COMPLEMENTO = "::evolua";
+const senhaReal = (s) => `${s}${COMPLEMENTO}`;
+
+export async function cadastrar(login, senha) {
+  if (String(senha || "").length < 4) return { ok: false, erro: "A senha precisa ter pelo menos 4 caracteres." };
+  const { data, error } = await sb().auth.signUp({ email: paraEmail(login), password: senhaReal(senha) });
   if (error) return { ok: false, erro: traduzirErro(error) };
   if (!data.session) return { ok: false, confirmar: true, erro: "Enviamos um link de confirmação para o seu e-mail. Confirme e depois entre." };
   return { ok: true, usuario: data.user };
 }
 
-export async function entrar(email, senha) {
-  const { data, error } = await sb().auth.signInWithPassword({ email: email.trim(), password: senha });
+export async function entrar(login, senha) {
+  const email = paraEmail(login);
+  let { data, error } = await sb().auth.signInWithPassword({ email, password: senhaReal(senha) });
+  if (error && /Invalid login/i.test(error.message || "") && String(senha).length >= 6) {
+    ({ data, error } = await sb().auth.signInWithPassword({ email, password: senha }));
+  }
   if (error) return { ok: false, erro: traduzirErro(error) };
   return { ok: true, usuario: data.user };
 }

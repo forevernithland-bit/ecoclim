@@ -74,13 +74,14 @@ function telaBoasVindas(aoEntrar) {
           <li>📊 Antes × depois com fotos e medidas</li>
         </ul>
         <form class="bv-form" id="form">
-          <input class="campo" id="email" type="email" autocomplete="email" placeholder="Seu e-mail" required>
-          <input class="campo" id="senha" type="password" autocomplete="${modo === "cadastro" ? "new-password" : "current-password"}" placeholder="Senha (mín. 6 caracteres)" required minlength="6">
+          <input class="campo" id="email" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="Usuário ou e-mail" required>
+          <input class="campo" id="senha" type="password" autocomplete="${modo === "cadastro" ? "new-password" : "current-password"}" placeholder="Senha (mín. 4 caracteres)" required minlength="4">
           <button class="btn btn--grande" id="ok">${modo === "cadastro" ? "Criar minha conta" : "Entrar"}</button>
           <p class="erro-txt" id="erro"></p>
         </form>
         <button class="link" id="trocar">${modo === "cadastro" ? "Já tenho conta" : "Criar conta nova"}</button>
         <button class="link link--fraco" id="local">Só quero testar (sem conta, sem IA)</button>
+        <p class="assinatura">Desenvolvido por <b>Breno Lima</b></p>
       </div>`;
     raiz.querySelector("#trocar").onclick = () => { modo = modo === "cadastro" ? "entrar" : "cadastro"; pinta(); };
     raiz.querySelector("#local").onclick = async () => { await kvSet("modoLocal", true); E.modoLocal = true; aoEntrar(); };

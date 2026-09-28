@@ -168,3 +168,16 @@ export function graficoBarras(itens, { meta = null, altura = 140 } = {}) {
 export function carregando(texto = "Carregando…") {
   return `<div class="carregando"><div class="pulso"></div><span>${esc(texto)}</span></div>`;
 }
+
+// ---------- Tema (automático / claro / escuro) ----------
+export function temaAtual() {
+  try { return localStorage.getItem("fit-tema") || "auto"; } catch (e) { return "auto"; }
+}
+export function aplicarTema(t) {
+  try { if (t === "auto") localStorage.removeItem("fit-tema"); else localStorage.setItem("fit-tema", t); } catch (e) { /* modo privado */ }
+  if (t === "dark" || t === "light") document.documentElement.setAttribute("data-theme", t);
+  else document.documentElement.removeAttribute("data-theme");
+  const escuro = t === "dark" || (t === "auto" && matchMedia("(prefers-color-scheme: dark)").matches);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", escuro ? "#0a0e15" : "#0b1220");
+}

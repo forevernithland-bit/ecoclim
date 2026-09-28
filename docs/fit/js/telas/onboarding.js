@@ -358,7 +358,8 @@ export function rodarOnboarding(raiz, aoConcluir) {
         <p class="nota">Os exercícios mudam a cada ${plano.semanasCiclo} semanas para o corpo continuar evoluindo. Todos têm vídeo de execução.</p>
       </div>
 
-      <button class="btn btn--grande" id="comecar">Aceito o desafio — começar 🚀</button>`;
+      <button class="btn btn--grande" id="comecar">Aceito o desafio — começar 🚀</button>
+      <p class="assinatura">Programa desenvolvido por <b>Breno Lima</b></p>`;
 
     if (temFotos && !E.modoLocal) {
       analisarFisico({ perfil: p, frente: r.fotoFrente, lado: r.fotoLado, fisicoAlvo: fisico, estimativaCiencia: { meses: est.meses, minimo: est.minimo, maximo: est.maximo, gordura_fita: p.gordura } })
