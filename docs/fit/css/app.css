@@ -563,3 +563,6 @@ summary.card-tag { cursor: pointer; margin: 0; }
 
 .assinatura { text-align: center; color: var(--muted); font-size: .78rem; margin: 18px 0 4px; line-height: 1.5; }
 .assinatura b { color: var(--texto); font-weight: 700; }
+
+.topo-acoes { display: flex; gap: 10px; align-items: center; }
+.topo-acoes .icone-btn { width: 44px; height: 44px; font-size: 1.15rem; }

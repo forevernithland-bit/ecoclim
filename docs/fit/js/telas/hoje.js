@@ -1,5 +1,5 @@
 // Tela inicial: resumo do dia, registro rápido e o que fazer agora.
-import { esc, num, anel, saudacao, toast, dataBR } from "../ui.js";
+import { esc, num, anel, saudacao, toast, dataBR, temaAtual, aplicarTema } from "../ui.js";
 import { E, metasAtuais, metricasDoDia, salvarMetrica, listar } from "../estado.js";
 import { totaisDoDia, abrirNovaRefeicao } from "./comida.js";
 import { proximoTreino } from "./treino.js";
@@ -18,6 +18,8 @@ const DICAS = [
   "Caminhar depois das refeições ajuda a controlar o açúcar no sangue.",
   "Fim de semana conta! Planeje as refeições livres em vez de improvisar.",
 ];
+
+const ehEscuro = () => temaAtual() === "dark" || (temaAtual() === "auto" && matchMedia("(prefers-color-scheme: dark)").matches);
 
 export async function telaHoje(el, ctx) {
   const m = metasAtuais();
@@ -44,7 +46,10 @@ export async function telaHoje(el, ctx) {
           <small>${dataBR(hojeISO(), { weekday: "long", day: "2-digit", month: "long" })}</small>
           <h1>${saudacao()}, ${esc(E.perfil.nome)}!</h1>
         </div>
-        <button class="avatar" id="perfil" aria-label="Perfil">${esc(E.perfil.nome.slice(0, 1).toUpperCase())}</button>
+        <div class="topo-acoes">
+          <button class="icone-btn" id="tema" aria-label="Trocar tema claro/escuro">${ehEscuro() ? "☀️" : "🌙"}</button>
+          <button class="avatar" id="perfil" aria-label="Perfil">${esc(E.perfil.nome.slice(0, 1).toUpperCase())}</button>
+        </div>
       </header>
 
       ${inicio ? `
@@ -113,6 +118,10 @@ export async function telaHoje(el, ctx) {
   el.querySelectorAll("[data-ir]").forEach((b) => b.onclick = () => ctx.ir(b.dataset.ir));
   el.querySelectorAll("[data-agente]").forEach((b) => b.onclick = () => ctx.ir("coach", { agente: b.dataset.agente }));
   el.querySelector("#perfil").onclick = () => ctx.ir("perfil");
+  el.querySelector("#tema").onclick = (ev) => {
+    aplicarTema(ehEscuro() ? "light" : "dark");
+    ev.currentTarget.textContent = ehEscuro() ? "☀️" : "🌙";
+  };
   const comp = el.querySelector("#completar");
   if (comp) comp.onclick = () => completarInicial(ctx.rerender);
   el.querySelectorAll("[data-agua]").forEach((b) => b.onclick = async () => {
