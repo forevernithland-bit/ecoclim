@@ -10,6 +10,11 @@ import { E, salvarPerfil, salvarPlano, gravar } from "../estado.js";
 import { hojeISO } from "../db.js";
 import { editorGostos } from "../gostos.js";
 
+const PULAVEL = {
+  medidas: "Não tenho fita agora — preencher depois",
+  fotos: "Tirar as fotos depois",
+};
+
 const ETAPAS = ["nome", "basico", "corpo", "medidas", "fotos", "fisico", "objetivo", "gostos", "treino", "resultado"];
 
 export function rodarOnboarding(raiz, aoConcluir) {
@@ -30,12 +35,21 @@ export function rodarOnboarding(raiz, aoConcluir) {
           <span class="onb-passo">${i + 1}/${ETAPAS.length}</span>
         </header>
         <main class="onb-corpo entra">${TELAS[etapa]()}</main>
-        ${etapa !== "resultado" ? `<footer class="onb-rodape"><button class="btn btn--grande" id="seguir">${etapa === "treino" ? "Ver meu plano ✨" : "Continuar"}</button></footer>` : ""}
+        ${etapa !== "resultado" ? `<footer class="onb-rodape">
+          <button class="btn btn--grande" id="seguir">${etapa === "treino" ? "Ver meu plano ✨" : "Continuar"}</button>
+          ${PULAVEL[etapa] ? `<button class="link link--fraco" id="pular">${PULAVEL[etapa]}</button>` : ""}
+        </footer>` : ""}
       </div>`;
     const v = raiz.querySelector("#voltar");
     if (v) v.onclick = () => { i--; pinta(); };
     const s = raiz.querySelector("#seguir");
     if (s) s.onclick = () => { if (VALIDA[etapa]()) { i++; pinta(); window.scrollTo(0, 0); } };
+    const pular = raiz.querySelector("#pular");
+    if (pular) pular.onclick = () => {
+      if (etapa === "medidas") { VALIDA.medidas(); r.medidasDepois = true; }
+      if (etapa === "fotos") r.fotosDepois = true;
+      i++; pinta(); window.scrollTo(0, 0);
+    };
     LIGA[etapa] && LIGA[etapa]();
     const primeiro = raiz.querySelector(".onb-corpo input:not([type=hidden])");
     if (primeiro && ["nome", "basico", "corpo"].includes(etapa)) setTimeout(() => primeiro.focus(), 250);
@@ -80,7 +94,7 @@ export function rodarOnboarding(raiz, aoConcluir) {
           </div>`;
         }).join("")}
       </div>
-      <p class="nota">Sem fita agora? Pode continuar e preencher depois em Evolução → Novo check-in.</p>`,
+      <p class="nota">Sem fita agora? Toque em "preencher depois" lá embaixo — vamos te lembrar na tela inicial. Enquanto isso, o % de gordura é estimado pelo peso e altura.</p>`,
     fotos: () => `
       <h1>Fotos de "antes" 📸</h1>
       <p class="sub">Daqui a algumas semanas você vai agradecer por ter tirado. Ficam guardadas só pra você.</p>

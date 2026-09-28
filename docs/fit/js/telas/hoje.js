@@ -3,7 +3,7 @@ import { esc, num, anel, saudacao, toast, dataBR } from "../ui.js";
 import { E, metasAtuais, metricasDoDia, salvarMetrica, listar } from "../estado.js";
 import { totaisDoDia, abrirNovaRefeicao } from "./comida.js";
 import { proximoTreino } from "./treino.js";
-import { proximoCheckin } from "./evolucao.js";
+import { proximoCheckin, completarInicial } from "./evolucao.js";
 import { hojeISO } from "../db.js";
 
 const DICAS = [
@@ -27,6 +27,9 @@ export async function telaHoje(el, ctx) {
   const hojeTreina = !E.plano.diasSemana || E.plano.diasSemana.includes(new Date().getDay());
   const ck = await proximoCheckin();
   const cks = await listar("checkins");
+  const ini = cks.find((c) => c.tipo === "inicial") || cks[0];
+  const faltaMedidas = ini && !(ini.medidas && ini.medidas.cintura && ini.medidas.pescoco && (E.perfil.sexo !== "F" || ini.medidas.quadril));
+  const faltaFotos = ini && !(ini.fotoFrente || ini.fotoLado);
   const inicio = cks[0];
   const aguaL = +met.agua || 0;
   const pctProt = Math.min(100, Math.round((t.proteina / m.prot) * 100));
@@ -48,6 +51,12 @@ export async function telaHoje(el, ctx) {
       <button class="jornada" data-ir="evolucao">
         <div><small>Dia ${diasJornada + 1} da jornada</small><b>${deltaPeso === 0 ? "Começando forte 💪" : `${deltaPeso > 0 ? "+" : ""}${num(deltaPeso, 1)} kg desde o início`}</b></div>
         <span>Ver evolução ›</span>
+      </button>` : ""}
+
+      ${faltaMedidas || faltaFotos ? `
+      <button class="card card--link card--alerta" id="completar">
+        <div class="card-tag">${faltaMedidas && faltaFotos ? "📏📸 Faltam suas medidas e fotos de \"antes\"" : faltaMedidas ? "📏 Faltam suas medidas de \"antes\"" : "📸 Faltam suas fotos de \"antes\""}</div>
+        <span>Sem elas não dá pra comparar sua evolução depois${faltaMedidas ? " e o % de gordura fica só estimado" : ""}. Leva 3 minutos — <b>toque para completar</b>.</span>
       </button>` : ""}
 
       <div class="card card--anel card--hero">
@@ -103,6 +112,8 @@ export async function telaHoje(el, ctx) {
   el.querySelectorAll("[data-ir]").forEach((b) => b.onclick = () => ctx.ir(b.dataset.ir));
   el.querySelectorAll("[data-agente]").forEach((b) => b.onclick = () => ctx.ir("coach", { agente: b.dataset.agente }));
   el.querySelector("#perfil").onclick = () => ctx.ir("perfil");
+  const comp = el.querySelector("#completar");
+  if (comp) comp.onclick = () => completarInicial(ctx.rerender);
   el.querySelectorAll("[data-agua]").forEach((b) => b.onclick = async () => {
     const novo = Math.max(0, +(aguaL + +b.dataset.agua).toFixed(2));
     await salvarMetrica(hojeISO(), { agua: novo });

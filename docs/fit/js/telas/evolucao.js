@@ -277,6 +277,49 @@ async function gerarImagem(A, B, d) {
 }
 
 // ---------- Novo check-in ----------
+// Completa o "antes" (check-in inicial) quando a pessoa pulou medidas/fotos
+// no cadastro. Mantém a data de início — é a base de todas as comparações.
+export async function completarInicial(aoSalvar) {
+  const cks = await listar("checkins");
+  const ini = cks.find((c) => c.tipo === "inicial") || cks[0];
+  if (!ini) return;
+  const r = { medidas: { ...(ini.medidas || {}) }, fotoFrente: ini.fotoFrente || null, fotoLado: ini.fotoLado || null };
+  const s = abrirSheet(`
+    <h2>Complete seu "antes"</h2>
+    <p class="sub">É a base de todas as comparações. Faça de manhã, em jejum, com roupa justa.</p>
+    <label class="rotulo">Fotos</label>
+    <div class="fotos-par" id="ci-fotos"></div>
+    <label class="rotulo">Medidas (cm)</label>
+    <div class="lista-medidas">
+      ${MEDIDAS.map((m) => `
+        <div class="medida"><div class="medida-txt"><b>${m.nome}${m.obrig === true || m.obrig === E.perfil.sexo ? ' <span class="obrig">*</span>' : ""}</b><small>${m.dica}</small></div>
+        <div class="campo-unid campo-unid--mini"><input class="campo" data-medida="${m.id}" type="number" inputmode="decimal" step="0.1" value="${esc(r.medidas[m.id] || "")}" placeholder="–"><span>cm</span></div></div>`).join("")}
+    </div>
+    <button class="btn btn--grande" id="ci-salvar">Salvar ✅</button>`, { cheia: true });
+  const pintaFotos = () => {
+    s.el.querySelector("#ci-fotos").innerHTML = ["Frente", "Lado"].map((l) => {
+      const b = r[`foto${l}`];
+      return `<button class="foto-slot ${b ? "foto-slot--ok" : ""}" data-f="${l}">${b ? `<img src="${urlDe(b)}" alt="">` : `<span class="foto-slot-mais">＋</span>`}<span class="foto-slot-rot">${b ? "Refazer" : l}</span></button>`;
+    }).join("");
+    s.el.querySelectorAll("[data-f]").forEach((b) => b.onclick = async () => {
+      const f = await fotografarCorpo({ titulo: `Foto de ${b.dataset.f.toLowerCase()}` });
+      if (f) { r[`foto${b.dataset.f}`] = f; pintaFotos(); }
+    });
+  };
+  pintaFotos();
+  s.el.querySelector("#ci-salvar").onclick = async () => {
+    const medidas = {};
+    s.el.querySelectorAll("[data-medida]").forEach((i) => { const v = +String(i.value).replace(",", "."); if (v > 0) medidas[i.dataset.medida] = v; });
+    const gordura = gorduraEstimada({ ...E.perfil, peso: ini.peso }, medidas);
+    await gravar("checkins", { ...ini, medidas, gordura, fotoFrente: r.fotoFrente, fotoLado: r.fotoLado });
+    // Perfil usa as medidas mais recentes: só atualiza se ainda não houve outro check-in
+    if (cks.length === 1) await salvarPerfil({ ...E.perfil, medidas });
+    s.fechar();
+    toast("Seu ponto de partida está completo ✅");
+    aoSalvar && aoSalvar();
+  };
+}
+
 async function novoCheckin(cks, aoSalvar) {
   const ult = cks[cks.length - 1];
   const r = { peso: E.perfil.peso, medidas: { ...(ult ? ult.medidas : E.perfil.medidas) }, fotoFrente: null, fotoLado: null };
