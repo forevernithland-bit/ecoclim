@@ -1354,6 +1354,136 @@ def _construir_pdf_material_horizontal(nome_cliente, telefone, itens_pdf, total,
     return buffer
 
 
+def gerar_pdf_pedido_compras(fornecedor_nome, itens, observacoes=""):
+    """PDF de PEDIDO DE COMPRAS pra mandar pro fornecedor (Tambasa etc.) —
+    modelo padrão da Ecoclim pra isso, pedido do Breno (2026-09-26). Mesmo
+    estilo visual de `_construir_pdf_material_horizontal` (paisagem, cores da
+    marca), mas SEM preço — este documento é pra o atendente do fornecedor
+    entender o pedido (item, marca, código deles, quantidade), não uma
+    cotação nossa. Preço/custo fica só na conversa com o Breno, não aqui.
+
+    `itens`: lista de {item, marca (fabricante, opcional), codigo_fornecedor
+    (opcional), qtd, unidade (opcional, default "un")}.
+
+    Retorna `pdf_buffer` (BytesIO) — quem chama decide se salva local, manda
+    por WhatsApp/e-mail ou sobe pro Drive."""
+    from reportlab.lib.pagesizes import landscape
+
+    GRAFITE = colors.HexColor("#2b3440")
+    GRAFITE_DEEP = colors.HexColor("#171c24")
+    GOLD = colors.HexColor("#E4A100")
+    GREEN = colors.HexColor("#7FB01E")
+    INK = colors.HexColor("#1e2530")
+    MUTED = colors.HexColor("#6a7180")
+    HAIR = colors.HexColor("#e6e8ec")
+    PANEL = colors.HexColor("#f6f7f9")
+    ZEBRA = colors.HexColor("#fafbfc")
+
+    numero = f"PED-{datetime.datetime.now().strftime('%y%m%d-%H%M')}"
+    data_str = obter_data_atual_br().strftime('%d/%m/%Y')
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=landscape(A4),
+        leftMargin=1.6*cm, rightMargin=1.6*cm, topMargin=2.6*cm, bottomMargin=1.3*cm,
+        title=f"Pedido de Compras - {fornecedor_nome}",
+    )
+    LU = doc.width
+
+    styles = getSampleStyleSheet()
+    def _st(name, **kw):
+        return ParagraphStyle(name, parent=styles['Normal'], **kw)
+
+    s_cli_k = _st('pck', fontName='Helvetica', fontSize=8, leading=10, textColor=MUTED)
+    s_th    = _st('pth', fontName='Helvetica-Bold', fontSize=9, leading=11, textColor=colors.white)
+    s_thc   = _st('pthc', fontName='Helvetica-Bold', fontSize=9, leading=11, textColor=colors.white, alignment=TA_CENTER)
+    s_item  = _st('pit', fontName='Helvetica', fontSize=9.5, leading=12, textColor=INK)
+    s_num   = _st('pnu', fontName='Helvetica', fontSize=9.5, leading=12, textColor=INK, alignment=TA_CENTER)
+    s_obs   = _st('pob', fontName='Helvetica', fontSize=8.5, leading=12, textColor=MUTED)
+
+    story = []
+
+    # ---------- Fornecedor / Data ----------
+    cab_info = Table([[
+        Paragraph(f"FORNECEDOR<br/><font size=11 color='#1e2530'><b>{_limpo_txt(fornecedor_nome) or '-'}</b></font>", s_cli_k),
+        Paragraph(f"SOLICITANTE<br/><font size=11 color='#1e2530'><b>Ecoclim Aquecimento Solar</b></font>", s_cli_k),
+        Paragraph(f"DATA<br/><font size=11 color='#1e2530'><b>{data_str}</b></font>", s_cli_k),
+    ]], colWidths=[LU*0.4, LU*0.35, LU*0.25])
+    cab_info.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), PANEL),
+        ('BOX', (0, 0), (-1, -1), 0.6, HAIR),
+        ('LINEAFTER', (0, 0), (0, -1), 0.6, HAIR),
+        ('LINEAFTER', (1, 0), (1, -1), 0.6, HAIR),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 12), ('RIGHTPADDING', (0, 0), (-1, -1), 12),
+        ('TOPPADDING', (0, 0), (-1, -1), 8), ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+    ]))
+    story.append(cab_info)
+    story.append(Spacer(1, 0.25*cm))
+
+    # ---------- Tabela de itens ----------
+    cab = [Paragraph("Nº", s_thc), Paragraph("MATERIAL", s_th), Paragraph("MARCA", s_th),
+           Paragraph("CÓD. FORNECEDOR", s_thc), Paragraph("UND", s_thc), Paragraph("QTD", s_thc)]
+    col_w = [LU*0.05, LU*0.42, LU*0.17, LU*0.16, LU*0.08, LU*0.12]
+    linhas = [cab]
+    for i, it in enumerate(itens, start=1):
+        linhas.append([
+            Paragraph(str(i), s_num),
+            Paragraph(_limpo_txt(it.get('item')) or "Item", s_item),
+            Paragraph(_limpo_txt(it.get('marca')) or "-", s_item),
+            Paragraph(_limpo_txt(it.get('codigo_fornecedor')) or "-", s_num),
+            Paragraph(_limpo_txt(it.get('unidade')) or "un", s_num),
+            Paragraph(f"{safe_float(it.get('qtd')):g}", s_num),
+        ])
+    if len(linhas) == 1:
+        linhas.append(["", Paragraph("Nenhum item neste pedido.", s_item), "", "", "", ""])
+
+    n_last = len(linhas)
+    tbl = Table(linhas, colWidths=col_w, repeatRows=1)
+    tbl.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), GRAFITE),
+        ('LINEBELOW', (0, 0), (-1, -1), 0.5, HAIR),
+        ('BOX', (0, 0), (-1, -1), 0.6, HAIR),
+        ('INNERGRID', (0, 0), (-1, -1), 0.4, HAIR),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 10), ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+        ('TOPPADDING', (0, 0), (-1, -1), 2.8), ('BOTTOMPADDING', (0, 0), (-1, -1), 2.8),
+        ('ROWBACKGROUNDS', (0, 1), (-1, n_last - 1), [colors.white, ZEBRA]),
+    ]))
+    story.append(tbl)
+    story.append(Spacer(1, 0.25*cm))
+
+    n_itens = len([it for it in itens if _limpo_txt(it.get('item'))])
+    obs_completa = " · ".join(filter(None, [
+        observacoes or "", f"{n_itens} ite{'ns' if n_itens != 1 else 'm'} neste pedido",
+    ]))
+    if obs_completa:
+        story.append(Paragraph(obs_completa, s_obs))
+
+    def _moldura(canv, _doc):
+        w, h = landscape(A4)
+        try:
+            canv.drawImage("logo.png", 1.6*cm, h - 2.2*cm, width=3.6*cm, height=1.42*cm, preserveAspectRatio=True, mask='auto')
+        except Exception:
+            canv.setFillColor(GRAFITE); canv.setFont("Helvetica-Bold", 16); canv.drawString(1.6*cm, h - 1.75*cm, "ECOCLIM")
+        canv.setFillColor(GRAFITE); canv.setFont("Helvetica-Bold", 13)
+        canv.drawRightString(w - 1.6*cm, h - 1.25*cm, "PEDIDO DE COMPRAS")
+        canv.setFillColor(MUTED); canv.setFont("Helvetica", 8.5)
+        canv.drawRightString(w - 1.6*cm, h - 1.7*cm, f"Nº {numero}")
+        rw = w - 3.2*cm; ry = h - 2.4*cm
+        canv.setFillColor(GRAFITE); canv.rect(1.6*cm, ry, rw*0.55, 0.09*cm, fill=1, stroke=0)
+        canv.setFillColor(GREEN);  canv.rect(1.6*cm + rw*0.55, ry, rw*0.15, 0.09*cm, fill=1, stroke=0)
+        canv.setFillColor(GOLD);   canv.rect(1.6*cm + rw*0.70, ry, rw*0.30, 0.09*cm, fill=1, stroke=0)
+        canv.setStrokeColor(HAIR); canv.setLineWidth(0.5); canv.line(1.6*cm, 1.05*cm, w - 1.6*cm, 1.05*cm)
+        canv.setFillColor(MUTED); canv.setFont("Helvetica", 7.5)
+        canv.drawString(1.6*cm, 0.7*cm, "Ecoclim · Aquecimento Solar · (31) 99867-7808 · comercial@ecoclim.com.br")
+        canv.drawRightString(w - 1.6*cm, 0.7*cm, f"Página {_doc.page}")
+
+    doc.build(story, onFirstPage=_moldura, onLaterPages=_moldura)
+    buffer.seek(0)
+    return buffer
+
+
 def _limpo_txt(txt):
     s = str(txt or "").strip()
     return s if s.lower() != 'nan' else ""
