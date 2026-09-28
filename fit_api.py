@@ -5,8 +5,10 @@ Ecoclim (api.ecoclim.com.br). Para ligar, no api.py:
     import fit_api
     app.include_router(fit_api.router)
 
-Chave da Anthropic: variável de ambiente ANTHROPIC_API_KEY (ou a mesma chave
-no .streamlit/secrets.toml). Nunca vai pro navegador.
+IA usada (a chave fica só no servidor, nunca no navegador):
+- GEMINI_API_KEY (Google, plano GRÁTIS) → usa o Gemini. É o padrão.
+- senão ANTHROPIC_API_KEY → usa o Claude (pago).
+As chaves podem estar em variável de ambiente ou no .streamlit/secrets.toml.
 
 Segurança: toda chamada exige o token de login do Supabase (o app manda no
 header Authorization). Validamos o token no próprio Supabase e aplicamos um
@@ -18,12 +20,18 @@ import os
 import threading
 from typing import Any, List, Literal, Optional
 
-import anthropic
 import requests
+
+try:  # só é necessário se for usar o Claude
+    import anthropic
+except ImportError:
+    anthropic = None
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
 MODELO = "claude-opus-5-5"
+# Gemini: tenta o principal e, se estiver sem cota/indisponível, cai no reserva.
+MODELOS_GEMINI = [m for m in [os.environ.get("FIT_GEMINI_MODELO"), "gemini-3.8-flash", "gemini-3.5-flash-lite"] if m]
 SUPABASE_URL = os.environ.get("FIT_SUPABASE_URL", "https://ldoxfmdajhamdfrksyby.supabase.co")
 SUPABASE_ANON_KEY = os.environ.get("FIT_SUPABASE_ANON_KEY", "sb_publishable_dWLIIeBa7Yj68FP4W4uq2A_ljsHb6W2")
 LIMITE_DIARIO = int(os.environ.get("FIT_LIMITE_DIARIO", "150"))
@@ -31,23 +39,96 @@ LIMITE_DIARIO = int(os.environ.get("FIT_LIMITE_DIARIO", "150"))
 router = APIRouter(prefix="/fit", tags=["fit"])
 
 
-def _chave_anthropic() -> Optional[str]:
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        return os.environ["ANTHROPIC_API_KEY"]
+def _segredo(nome: str) -> Optional[str]:
+    if os.environ.get(nome):
+        return os.environ[nome]
     try:
         import tomllib
         caminho = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".streamlit", "secrets.toml")
         with open(caminho, "rb") as f:
-            return tomllib.load(f).get("ANTHROPIC_API_KEY")
+            return tomllib.load(f).get(nome)
     except Exception:
         return None
 
 
-_cliente: Optional[anthropic.Anthropic] = None
+def _chave_anthropic() -> Optional[str]:
+    return _segredo("ANTHROPIC_API_KEY")
 
 
-def cliente() -> anthropic.Anthropic:
+def provedor() -> Optional[str]:
+    if _segredo("GEMINI_API_KEY"):
+        return "gemini"
+    if _chave_anthropic() and anthropic is not None:
+        return "claude"
+    return None
+
+
+# ---------- Gemini (Google) via REST — sem biblioteca extra ----------
+def _schema_gemini(sch):
+    """O responseSchema do Gemini não aceita additionalProperties."""
+    if isinstance(sch, dict):
+        return {k: _schema_gemini(v) for k, v in sch.items() if k != "additionalProperties"}
+    if isinstance(sch, list):
+        return [_schema_gemini(x) for x in sch]
+    return sch
+
+
+def _partes_gemini(conteudo: List[dict]) -> List[dict]:
+    partes = []
+    for b in conteudo:
+        if b.get("type") == "image":
+            partes.append({"inlineData": {"mimeType": b["source"]["media_type"], "data": b["source"]["data"]}})
+        elif b.get("text"):
+            partes.append({"text": b["text"]})
+    return partes
+
+
+def _gemini_json(sistema: str, contents: List[dict], schema: dict) -> dict:
+    chave = _segredo("GEMINI_API_KEY")
+    corpo = {
+        "systemInstruction": {"parts": [{"text": sistema}]},
+        "contents": contents,
+        "generationConfig": {"responseMimeType": "application/json", "responseSchema": _schema_gemini(schema), "temperature": 0.4},
+    }
+    ultimo = "IA indisponível."
+    for modelo in MODELOS_GEMINI:
+        try:
+            r = requests.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent",
+                headers={"x-goog-api-key": chave, "Content-Type": "application/json"},
+                json=corpo, timeout=150,
+            )
+        except requests.RequestException:
+            ultimo = "Sem conexão com a IA."
+            continue
+        if r.status_code in (404, 429, 500, 503):
+            # modelo sem cota grátis hoje / fora do ar → tenta o reserva
+            ultimo = "Limite grátis da IA atingido por agora. Tente mais tarde." if r.status_code == 429 else f"Erro da IA ({r.status_code})."
+            continue
+        if r.status_code != 200:
+            raise HTTPException(502, f"Erro da IA ({r.status_code}).")
+        dados = r.json()
+        if (dados.get("promptFeedback") or {}).get("blockReason"):
+            raise HTTPException(422, "A IA não pôde analisar este conteúdo.")
+        cand = (dados.get("candidates") or [{}])[0]
+        texto = "".join(p.get("text", "") for p in (cand.get("content") or {}).get("parts", []) if not p.get("thought"))
+        if cand.get("finishReason") in ("SAFETY", "PROHIBITED_CONTENT", "IMAGE_SAFETY", "BLOCKLIST"):
+            raise HTTPException(422, "A IA não pôde analisar este conteúdo.")
+        try:
+            return json.loads(texto)
+        except ValueError:
+            ultimo = "Resposta da IA veio incompleta. Tente de novo."
+            continue
+    raise HTTPException(503 if "Sem conexão" in ultimo else 429 if "Limite" in ultimo else 502, ultimo)
+
+
+_cliente = None
+
+
+def cliente():
     global _cliente
+    if anthropic is None:
+        raise HTTPException(503, "IA não configurada no servidor.")
     if _cliente is None:
         chave = _chave_anthropic()
         if not chave:
@@ -110,6 +191,11 @@ def _criar(**kwargs):
 
 
 def perguntar_json(sistema: str, conteudo: List[dict], schema: dict, esforco: str = "medium") -> dict:
+    qual = provedor()
+    if qual is None:
+        raise HTTPException(503, "IA não configurada no servidor (falta GEMINI_API_KEY).")
+    if qual == "gemini":
+        return _gemini_json(sistema, [{"role": "user", "parts": _partes_gemini(conteudo)}], schema)
     try:
         resp = _criar(
             model=MODELO,
@@ -350,6 +436,19 @@ def ia_chat(req: ReqChat, authorization: Optional[str] = Header(None)):
             juntas[-1]["content"] += "\n\n" + m["content"]
         else:
             juntas.append(dict(m))
+    if provedor() == "gemini":
+        contents = [{"role": "model" if m["role"] == "assistant" else "user", "parts": [{"text": m["content"]}]} for m in juntas]
+        dados = _gemini_json(
+            AGENTES[req.agente] + REGRAS_CHAT + "\n\nCONTEXTO:\n" + json.dumps(req.contexto or {}, ensure_ascii=False),
+            contents, SCHEMA_CHAT,
+        )
+        if not str(dados.get("resposta", "")).strip():
+            dados["resposta"] = "Hmm, não consegui formular uma resposta. Pode reformular?"
+        dados.setdefault("adicionar_nao_gosta", [])
+        dados.setdefault("remover_nao_gosta", [])
+        return dados
+    if provedor() is None:
+        raise HTTPException(503, "IA não configurada no servidor (falta GEMINI_API_KEY).")
     # Sistema fixo (cacheável) + contexto do dia no fim, como bloco separado
     sistema = [
         {"type": "text", "text": AGENTES[req.agente] + REGRAS_CHAT, "cache_control": {"type": "ephemeral"}},
@@ -380,4 +479,5 @@ def ia_chat(req: ReqChat, authorization: Optional[str] = Header(None)):
 
 @router.get("/saude")
 def saude():
-    return {"ok": True, "ia_configurada": bool(_chave_anthropic()), "modelo": MODELO}
+    qual = provedor()
+    return {"ok": True, "ia_configurada": bool(qual), "provedor": qual, "modelo": MODELOS_GEMINI[0] if qual == "gemini" else MODELO}
