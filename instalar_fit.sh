@@ -1,19 +1,22 @@
 #!/usr/bin/env bash
-# Liga a IA (Google Gemini) do app Evolua na API da Ecoclim — com trava de segurança.
+# Liga a IA (Google Gemini) do app Evolua na API da Ecoclim SEM atualizar o
+# código da Ecoclim que já roda no servidor.
 # Uso (terminal da VPS):  bash <(curl -fsSL https://raw.githubusercontent.com/forevernithland-bit/ecoclim/main/instalar_fit.sh)
 #
 # O que faz:
-#  1. Confere se há alterações locais no código do servidor — se houver, PARA sem mexer em nada.
-#  2. Backup do .streamlit/secrets.toml e anota a versão atual do código.
+#  1. Confere o servidor (e para se houver algo inesperado).
+#  2. Backup do api.py e do .streamlit/secrets.toml.
 #  3. Pede a chave do Gemini (não aparece na tela) e grava na 1ª linha do secrets.toml.
-#  4. git pull (só avança, nunca mistura) e reinicia SÓ o serviço ecoclim-api.
-#  5. Testa. Se a API não voltar, desfaz tudo (código + secrets) e reinicia como estava.
-# Não toca em n8n, Evolution, crons, nginx nem em nenhum outro serviço.
+#  4. ACRESCENTA o arquivo fit_api.py (novo) e 6 linhas no api.py do servidor —
+#     nenhuma linha existente é alterada. NÃO faz git pull.
+#  5. Reinicia só o ecoclim-api e testa. Se falhar, desfaz tudo e volta como estava.
+# Não toca em n8n, Evolution, crons, nginx nem em outros arquivos da Ecoclim.
 
 set -u
 PASTA=/root/ecoclim-bot/ecoclim
 SEGREDOS="$PASTA/.streamlit/secrets.toml"
 SERVICO=ecoclim-api
+RAW=https://raw.githubusercontent.com/forevernithland-bit/ecoclim/main
 
 verde() { printf "\033[32m%s\033[0m\n" "$*"; }
 vermelho() { printf "\033[31m%s\033[0m\n" "$*"; }
@@ -21,25 +24,37 @@ vermelho() { printf "\033[31m%s\033[0m\n" "$*"; }
 cd "$PASTA" 2>/dev/null || { vermelho "Pasta $PASTA não encontrada. Nada foi alterado."; exit 1; }
 
 echo "1/5  Conferindo o servidor..."
-MEXIDOS=$(git status --porcelain --untracked-files=no)
-if [ -n "$MEXIDOS" ]; then
-  vermelho "Há arquivos alterados direto no servidor:"
-  echo "$MEXIDOS"
-  vermelho "Parei por segurança — NADA foi alterado. Mande este print para o Claude."
-  exit 1
-fi
 if ! systemctl is-active --quiet "$SERVICO"; then
   vermelho "O serviço $SERVICO já estava parado antes de começar. Parei — NADA foi alterado."
   exit 1
 fi
-ANTES=$(git rev-parse HEAD)
-verde "     OK (versão atual: ${ANTES:0:7})"
+if [ ! -f api.py ] || ! grep -q 'allow_headers=\["\*"\],' api.py; then
+  vermelho "O api.py não está no formato esperado. Parei — NADA foi alterado. Mande o print para o Claude."
+  exit 1
+fi
+verde "     OK"
 
 echo "2/5  Fazendo backup..."
 CARIMBO=$(date +%Y%m%d-%H%M%S)
 mkdir -p "$PASTA/.streamlit"
+cp -p api.py "api.py.bak-$CARIMBO"
 [ -f "$SEGREDOS" ] && cp -p "$SEGREDOS" "$SEGREDOS.bak-$CARIMBO"
-verde "     OK (backup: secrets.toml.bak-$CARIMBO)"
+TINHA_FIT=0; [ -f fit_api.py ] && { TINHA_FIT=1; cp -p fit_api.py "fit_api.py.bak-$CARIMBO"; }
+verde "     OK (api.py.bak-$CARIMBO e secrets.toml.bak-$CARIMBO)"
+
+desfazer() {
+  vermelho "Algo deu errado — desfazendo tudo..."
+  cp -p "api.py.bak-$CARIMBO" api.py
+  [ -f "$SEGREDOS.bak-$CARIMBO" ] && cp -p "$SEGREDOS.bak-$CARIMBO" "$SEGREDOS"
+  if [ "$TINHA_FIT" = 1 ]; then cp -p "fit_api.py.bak-$CARIMBO" fit_api.py; else rm -f fit_api.py; fi
+  systemctl restart "$SERVICO"; sleep 4
+  if systemctl is-active --quiet "$SERVICO"; then
+    verde "Servidor voltou exatamente como estava. Mande o print para o Claude."
+  else
+    vermelho "ATENÇÃO: o serviço não voltou. Mande o print para o Claude."
+  fi
+  exit 1
+}
 
 echo "3/5  Chave do Gemini"
 read -rsp "     Cole a chave e aperte Enter (ela não aparece na tela): " CHAVE < /dev/tty
@@ -47,9 +62,10 @@ echo
 CHAVE=$(printf "%s" "$CHAVE" | tr -d '[:space:]"')
 if [ ${#CHAVE} -lt 20 ]; then
   vermelho "Chave vazia ou curta demais. Parei — NADA foi alterado."
+  rm -f "api.py.bak-$CARIMBO" "fit_api.py.bak-$CARIMBO"
   exit 1
 fi
-CHAVE="$CHAVE" python3 - "$SEGREDOS" <<'PY'
+CHAVE="$CHAVE" python3 - "$SEGREDOS" <<'PY' || desfazer
 import os, sys
 caminho = sys.argv[1]
 linhas = open(caminho, encoding="utf-8").read().splitlines() if os.path.exists(caminho) else []
@@ -60,27 +76,38 @@ PY
 unset CHAVE
 verde "     OK (gravada na 1ª linha do secrets.toml)"
 
-desfazer() {
-  vermelho "Algo deu errado — desfazendo tudo..."
-  git reset -q --hard "$ANTES"
-  [ -f "$SEGREDOS.bak-$CARIMBO" ] && cp -p "$SEGREDOS.bak-$CARIMBO" "$SEGREDOS"
-  systemctl restart "$SERVICO"; sleep 4
-  if systemctl is-active --quiet "$SERVICO"; then
-    verde "Servidor voltou exatamente como estava. Mande o print para o Claude."
-  else
-    vermelho "ATENÇÃO: o serviço não voltou. Mande o print para o Claude."
-  fi
-  exit 1
-}
-
-echo "4/5  Atualizando o código..."
-if ! git pull -q --ff-only; then
-  vermelho "Não foi possível atualizar o código (nada do código mudou)."
-  [ -f "$SEGREDOS.bak-$CARIMBO" ] && cp -p "$SEGREDOS.bak-$CARIMBO" "$SEGREDOS"
-  vermelho "Secrets restaurado. Mande o print para o Claude."
-  exit 1
-fi
-verde "     OK ($(git rev-parse --short HEAD))"
+echo "4/5  Acrescentando o app fitness (sem mexer no resto)..."
+curl -fsSL "$RAW/fit_api.py" -o fit_api.py.novo || desfazer
+python3 -c "import ast,sys; ast.parse(open('fit_api.py.novo',encoding='utf-8').read())" || { rm -f fit_api.py.novo; desfazer; }
+mv fit_api.py.novo fit_api.py
+python3 - <<'PY' || desfazer
+p = "api.py"
+s = open(p, encoding="utf-8", newline="").read()
+if "import fit_api" in s:
+    print("     api.py já tinha as linhas do app fitness")
+else:
+    nl = "\r\n" if "\r\n" in s else "\n"
+    marca = 'allow_headers=["*"],' + nl + ")" + nl
+    i = s.find(marca)
+    if i < 0:
+        raise SystemExit("marca não encontrada")
+    bloco = nl.join([
+        "",
+        "# App Evolua (fitness) - rotas /fit/*. Se der erro, a API da Ecoclim segue normal.",
+        "try:",
+        "    import fit_api",
+        "    app.include_router(fit_api.router)",
+        "except Exception as e:",
+        "    print(f\"[fit] rotas do app fitness desligadas: {e}\")",
+        "",
+    ])
+    j = i + len(marca)
+    s = s[:j] + bloco + s[j:]
+    open(p, "w", encoding="utf-8", newline="").write(s)
+    print("     6 linhas acrescentadas no api.py")
+PY
+python3 -c "import ast; ast.parse(open('api.py',encoding='utf-8').read())" || desfazer
+verde "     OK"
 
 echo "5/5  Reiniciando só a API da Ecoclim e testando..."
 systemctl restart "$SERVICO"
@@ -92,4 +119,4 @@ SAUDE=$(curl -s http://127.0.0.1:8000/fit/saude)
 verde "     API da Ecoclim no ar ✅"
 echo "     App fitness: $SAUDE"
 echo
-verde "Pronto! Nada do que já funcionava foi alterado além da atualização do código."
+verde "Pronto! O código da Ecoclim não foi atualizado — só foi acrescentado o app fitness."
