@@ -42,10 +42,12 @@ export async function telaEvolucao(el, ctx) {
         </div>
         <button class="btn btn--peq" id="novo-ck">Novo check-in</button>
       </div>
+      <button class="card card--link card--relatorio-link" id="ir-relatorio"><span class="card-tag">📊 Relatórios diário, semanal e mensal</span><span class="nota">Meta × realizado, nota de aderência e projeção ›</span></button>
       <div id="conteudo"></div>
     </div>`;
   el.querySelectorAll("[data-aba]").forEach((b) => b.onclick = () => { aba = b.dataset.aba; ctx.rerender(); });
   el.querySelector("#novo-ck").onclick = () => novoCheckin(cks, ctx.rerender);
+  el.querySelector("#ir-relatorio").onclick = () => ctx.ir("relatorio", { periodo: "semana" });
   const c = el.querySelector("#conteudo");
   if (aba === "comparar") return abaComparar(c, cks, ctx);
   if (aba === "metricas") return abaMetricas(c, cks, ctx);

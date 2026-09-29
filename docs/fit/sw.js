@@ -1,18 +1,18 @@
 // Service Worker — cacheia o app pra abrir sem sinal. Não intercepta Supabase,
 // esm.sh nem a API (essas precisam de rede; os dados offline vêm do IndexedDB).
 // ⚠️ Suba a versão do CACHE (e js/versao.js) a cada publicação.
-const CACHE = "evolua-v8";
+const CACHE = "evolua-v9";
 const ARQUIVOS = [
   "./", "./index.html", "./manifest.json", "./css/app.css",
   "./js/app.js", "./js/versao.js", "./js/config.js", "./js/db.js", "./js/estado.js", "./js/nuvem.js", "./js/ia.js",
   "./js/ui.js", "./js/midia.js", "./js/camera.js", "./js/ciencia.js", "./js/treino.js", "./js/alimentos.js", "./js/suplementos.js", "./js/gostos.js", "./js/fisico-arte.js", "./js/instalar.js",
   "./js/telas/onboarding.js", "./js/telas/hoje.js", "./js/telas/comida.js", "./js/telas/treino.js",
-  "./js/telas/evolucao.js", "./js/telas/coach.js", "./js/telas/perfil.js",
+  "./js/telas/evolucao.js", "./js/telas/coach.js", "./js/telas/perfil.js", "./js/telas/relatorio.js",
   "./data/alimentos.json", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/icon-192-maskable.png", "./icons/icon-512-maskable.png",
 ];
 
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ARQUIVOS)).catch(() => {}));
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ARQUIVOS.map((u) => new Request(u, { cache: "reload" })))).catch(() => {}));
   self.skipWaiting();
 });
 
@@ -26,7 +26,9 @@ self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   if (url.origin !== self.location.origin || e.request.method !== "GET") return;
   e.respondWith(
-    fetch(e.request)
+    // "no-cache" = sempre confere com o servidor se o arquivo mudou (o GitHub
+    // Pages manda o navegador guardar por 10 min — sem isso a atualização atrasava)
+    fetch(e.request, { cache: "no-cache" })
       .then((resp) => {
         const copia = resp.clone();
         caches.open(CACHE).then((c) => c.put(e.request, copia));

@@ -188,6 +188,29 @@ function ganhoMagroMes(p, meses) {
   return base * sexo * idade * decai * fatorTreino(p);
 }
 
+// Projeção "se continuar assim": a partir do que a pessoa REALMENTE está
+// fazendo (média de calorias, % dos treinos cumpridos, proteína), simula mês
+// a mês peso, gordura e massa magra. 1 kg de gordura ≈ 7.700 kcal.
+// balanco = calorias comidas − gasto (kcal/dia; negativo = déficit).
+export function projetarRitmo(p, { balanco, aderenciaTreino = 1, proteinaOk = true }, meses = 6) {
+  let magra = p.peso * (1 - p.gordura / 100);
+  let gordKg = p.peso - magra;
+  const trilha = [{ mes: 0, peso: r1(p.peso), gordura: r1(p.gordura), magra: r1(magra) }];
+  for (let m = 1; m <= meses; m++) {
+    const deltaPeso = (balanco * 30.4) / 7700;
+    // músculo: depende do treino cumprido, da proteína e da energia disponível
+    let ganho = ganhoMagroMes(p, m) * Math.min(1, aderenciaTreino) * (proteinaOk ? 1 : 0.6);
+    if (balanco < -250) ganho *= p.nivel === "iniciante" ? 0.6 : 0.35; // em déficit cresce menos
+    if (aderenciaTreino < 0.3) ganho = balanco < -250 ? -0.15 : 0;    // sem treino, déficit come músculo
+    const deltaGord = deltaPeso - ganho;
+    magra = Math.max(magra * 0.9, magra + ganho);
+    gordKg = Math.max(p.peso * 0.03, gordKg + deltaGord);
+    const peso = magra + gordKg;
+    trilha.push({ mes: m, peso: r1(peso), gordura: r1((gordKg / peso) * 100), magra: r1(magra) });
+  }
+  return trilha;
+}
+
 // Estimativa de tempo até um físico-alvo. Simula mês a mês: primeiro reduz
 // gordura (se precisar), depois constrói massa magra (se precisar).
 export function estimarTempoFisico(p, fisico) {

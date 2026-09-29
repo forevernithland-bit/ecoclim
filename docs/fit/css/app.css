@@ -581,3 +581,48 @@ summary.card-tag { cursor: pointer; margin: 0; }
 .ex--foco .ex-num { background: var(--lima); color: var(--ink); }
 .ex--biset { border-left: 4px solid var(--ia); }
 .selo-biset { display: block; font-style: normal; font-size: .72rem; font-weight: 800; color: var(--ia); margin-top: 2px; }
+
+/* ---------- Relatório ---------- */
+.rel-topo { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.rel-topo h2 { margin: 0; }
+.rel-datas { margin-top: -4px; }
+.rel-datas::first-letter { text-transform: uppercase; }
+.rel-nota { display: flex; gap: 16px; align-items: center; }
+.rel-nota-txt { font-family: var(--f-titulo); font-size: 1.25rem; display: block; margin-bottom: 8px; }
+.rel-partes { display: flex; flex-wrap: wrap; gap: 6px; }
+.rel-partes span { background: var(--campo); border-radius: 99px; padding: 4px 10px; font-size: .75rem; color: var(--muted); }
+.rel-partes b { color: var(--texto); }
+.rel-nota--bom .anel-valor { stroke: #16a34a; } .rel-nota--medio .anel-valor { stroke: var(--alerta); } .rel-nota--ruim .anel-valor { stroke: var(--ruim); }
+.rel-linha { margin: 10px 0; }
+.rel-linha-topo { display: flex; justify-content: space-between; font-size: .85rem; margin-bottom: 5px; }
+.rel-linha-topo span { color: var(--muted); font-weight: 600; }
+.rel-ok { background: #16a34a; } .rel-medio { background: var(--alerta); } .rel-baixo { background: var(--ruim); }
+.rel-frase { font-size: 1.02rem; line-height: 1.5; }
+.rel-frase b { color: var(--lima); }
+.rel-marcos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0; }
+.rel-marco { background: rgba(255, 255, 255, .07); border-radius: 14px; padding: 10px; display: flex; flex-direction: column; gap: 1px; }
+.rel-marco small { color: #a9b6ca; font-weight: 700; font-size: .72rem; }
+.rel-marco b { font-family: var(--f-titulo); font-size: 1.2rem; color: #fff; }
+.rel-marco span { color: #cbd5e1; font-size: .74rem; }
+.rel-comparar { color: #e2e8f0; font-size: .9rem; margin-top: 8px; }
+.card--destaque .graf-eixo { fill: #8b98ab; } .card--destaque .graf-grade { stroke: rgba(255, 255, 255, .08); }
+.proj-assim { fill: none; stroke: var(--lima); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.proj-assim-p { fill: var(--lima); }
+.proj-ideal { fill: none; stroke: #a78bfa; stroke-width: 2; stroke-dasharray: 5 4; }
+.proj-ideal-p { fill: #a78bfa; }
+.legenda { display: flex; gap: 16px; justify-content: center; font-size: .75rem; color: #a9b6ca; margin-top: 4px; }
+.legenda i { display: inline-block; width: 16px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
+.lg-assim { background: var(--lima); } .lg-ideal { background: #a78bfa; }
+.rel-dicas { display: grid; gap: 10px; margin-bottom: 8px; }
+.rel-dica { display: flex; gap: 10px; align-items: flex-start; background: var(--campo); border-radius: 14px; padding: 12px; }
+.rel-dica span { font-size: 1.25rem; line-height: 1.2; } .rel-dica p { margin: 0; font-size: .9rem; }
+.card--relatorio { display: flex; gap: 14px; align-items: center; }
+.rel-mini { display: flex; gap: 8px; flex-shrink: 0; }
+.rel-mini-num { width: 64px; height: 64px; border-radius: 18px; display: flex; flex-direction: column; align-items: center; justify-content: center; background: var(--campo); border: 2px solid var(--linha); }
+.rel-mini-num b { font-family: var(--f-titulo); font-size: 1.15rem; }
+.rel-mini-num small { font-size: .65rem; color: var(--muted); font-weight: 700; text-transform: uppercase; }
+.rel-mini-num.rel-nota--bom { border-color: #16a34a; } .rel-mini-num.rel-nota--bom b { color: #16a34a; }
+.rel-mini-num.rel-nota--medio { border-color: var(--alerta); } .rel-mini-num.rel-nota--medio b { color: var(--alerta); }
+.rel-mini-num.rel-nota--ruim { border-color: var(--ruim); } .rel-mini-num.rel-nota--ruim b { color: var(--ruim); }
+.rel-mini-txt span { font-size: .88rem; }
+.card--relatorio-link { margin-bottom: 14px; }

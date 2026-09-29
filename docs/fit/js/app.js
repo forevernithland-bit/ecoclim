@@ -11,6 +11,7 @@ import { telaTreino } from "./telas/treino.js";
 import { telaEvolucao } from "./telas/evolucao.js";
 import { telaCoach, abrirAgente } from "./telas/coach.js";
 import { telaPerfil } from "./telas/perfil.js";
+import { telaRelatorio, abrirRelatorio } from "./telas/relatorio.js";
 import { iniciarAtualizacaoAutomatica } from "./instalar.js";
 
 const raiz = document.getElementById("app");
@@ -27,6 +28,7 @@ let abaAtual = "hoje";
 
 async function ir(aba, opts = {}) {
   if (aba === "coach" && opts.agente) abrirAgente(opts.agente);
+  if (aba === "relatorio") abrirRelatorio(opts.periodo);
   if (aba === "comida" && abaAtual !== "comida") resetDiaComida();
   abaAtual = aba;
   window.scrollTo(0, 0);
@@ -52,6 +54,7 @@ async function renderApp() {
   const ctx = { rerender: renderApp, ir };
   try {
     if (abaAtual === "perfil") await telaPerfil(tela, ctx);
+    else if (abaAtual === "relatorio") await telaRelatorio(tela, ctx);
     else await ABAS.find((a) => a.id === abaAtual).tela(tela, ctx);
   } catch (e) {
     console.error(e);

@@ -5,6 +5,7 @@ import { totaisDoDia, abrirNovaRefeicao } from "./comida.js";
 import { proximoTreino } from "./treino.js";
 import { proximoCheckin, completarInicial } from "./evolucao.js";
 import { instalar, deveSugerirInstalar, dispensarSugestao, ehIOS } from "../instalar.js";
+import { calcularRelatorio } from "./relatorio.js";
 import { hojeISO } from "../db.js";
 
 const DICAS = [
@@ -30,6 +31,7 @@ export async function telaHoje(el, ctx) {
   const hojeTreina = !E.plano.diasSemana || E.plano.diasSemana.includes(new Date().getDay());
   const ck = await proximoCheckin();
   const cks = await listar("checkins");
+  const [relDia, relSemana] = await Promise.all([calcularRelatorio("dia"), calcularRelatorio("semana")]);
   const ini = cks.find((c) => c.tipo === "inicial") || cks[0];
   const faltaMedidas = ini && !(ini.medidas && ini.medidas.cintura && ini.medidas.pescoco && (E.perfil.sexo !== "F" || ini.medidas.quadril));
   const faltaFotos = ini && !(ini.fotoFrente || ini.fotoLado);
@@ -87,6 +89,17 @@ export async function telaHoje(el, ctx) {
         <button class="acao" data-add="texto"><span>✍️</span>Digitar</button>
       </div>
 
+      <button class="card card--link card--relatorio" id="relatorio">
+        <div class="rel-mini">
+          <div class="rel-mini-num rel-nota--${relDia.nota >= 80 ? "bom" : relDia.nota >= 60 ? "medio" : "ruim"}"><b>${relDia.nota}%</b><small>hoje</small></div>
+          <div class="rel-mini-num rel-nota--${relSemana.nota >= 80 ? "bom" : relSemana.nota >= 60 ? "medio" : "ruim"}"><b>${relSemana.nota}%</b><small>semana</small></div>
+        </div>
+        <div class="rel-mini-txt">
+          <div class="card-tag">📊 Relatório de aderência</div>
+          <span>${relSemana.assim ? `Nesse ritmo, em 3 meses: <b>~${num(relSemana.assim[3].peso, 1)} kg</b> e <b>${num(relSemana.assim[3].gordura, 1)}%</b> de gordura` : "Registre suas refeições pra ver sua projeção"} ›</span>
+        </div>
+      </button>
+
       <div class="grade-2">
         <div class="card card--agua">
           <div class="card-tag">💧 Água</div>
@@ -126,6 +139,7 @@ export async function telaHoje(el, ctx) {
   el.querySelectorAll("[data-ir]").forEach((b) => b.onclick = () => ctx.ir(b.dataset.ir));
   el.querySelectorAll("[data-agente]").forEach((b) => b.onclick = () => ctx.ir("coach", { agente: b.dataset.agente }));
   el.querySelector("#perfil").onclick = () => ctx.ir("perfil");
+  el.querySelector("#relatorio").onclick = () => ctx.ir("relatorio", { periodo: "semana" });
   el.querySelector("#tema").onclick = (ev) => {
     aplicarTema(ehEscuro() ? "light" : "dark");
     ev.currentTarget.textContent = ehEscuro() ? "☀️" : "🌙";
