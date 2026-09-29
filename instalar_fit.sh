@@ -111,10 +111,16 @@ verde "     OK"
 
 echo "5/5  Reiniciando só a API da Ecoclim e testando..."
 systemctl restart "$SERVICO"
-sleep 5
+# A API leva alguns segundos pra carregar (pandas, Supabase...): espera até 40 s.
+DOCS=000
+for i in $(seq 1 40); do
+  sleep 1
+  DOCS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/docs)
+  [ "$DOCS" = "200" ] && break
+done
 systemctl is-active --quiet "$SERVICO" || desfazer
-DOCS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/docs)
 [ "$DOCS" = "200" ] || desfazer
+echo "     API respondeu em ${i}s"
 SAUDE=$(curl -s http://127.0.0.1:8000/fit/saude)
 verde "     API da Ecoclim no ar ✅"
 echo "     App fitness: $SAUDE"
