@@ -4,6 +4,7 @@ import { E, metasAtuais, metricasDoDia, salvarMetrica, listar } from "../estado.
 import { totaisDoDia, abrirNovaRefeicao } from "./comida.js";
 import { proximoTreino } from "./treino.js";
 import { proximoCheckin, completarInicial } from "./evolucao.js";
+import { instalar, deveSugerirInstalar, dispensarSugestao, ehIOS } from "../instalar.js";
 import { hojeISO } from "../db.js";
 
 const DICAS = [
@@ -64,6 +65,13 @@ export async function telaHoje(el, ctx) {
         <span>Sem elas não dá pra comparar sua evolução depois${faltaMedidas ? " e o % de gordura fica só estimado" : ""}. Leva 3 minutos — <b>toque para completar</b>.</span>
       </button>` : ""}
 
+      ${deveSugerirInstalar() ? `
+      <div class="card card--instalar">
+        <div class="inst-icone"><img src="./icons/icon-192.png" alt=""></div>
+        <div class="inst-txt"><b>Instale o Evolua no celular</b><small>Abre como app, funciona sem internet e se atualiza sozinho.</small></div>
+        <div class="inst-acoes"><button class="btn btn--peq" id="inst-sim">${ehIOS() ? "Como instalar" : "Instalar"}</button><button class="link link--fraco" id="inst-nao">Agora não</button></div>
+      </div>` : ""}
+
       <div class="card card--anel card--hero">
         ${anel(t.kcal, m.kcal, { rotulo: num(Math.max(0, m.kcal - t.kcal)), sub: t.kcal > m.kcal ? `${num(t.kcal - m.kcal)} acima` : "kcal restantes", tam: 150 })}
         <div class="hero-lado">
@@ -122,6 +130,11 @@ export async function telaHoje(el, ctx) {
     aplicarTema(ehEscuro() ? "light" : "dark");
     ev.currentTarget.textContent = ehEscuro() ? "☀️" : "🌙";
   };
+  const instSim = el.querySelector("#inst-sim");
+  if (instSim) {
+    instSim.onclick = instalar;
+    el.querySelector("#inst-nao").onclick = () => { dispensarSugestao(); el.querySelector(".card--instalar").remove(); };
+  }
   const comp = el.querySelector("#completar");
   if (comp) comp.onclick = () => completarInicial(ctx.rerender);
   el.querySelectorAll("[data-agua]").forEach((b) => b.onclick = async () => {

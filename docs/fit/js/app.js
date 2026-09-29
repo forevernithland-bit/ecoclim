@@ -11,6 +11,7 @@ import { telaTreino } from "./telas/treino.js";
 import { telaEvolucao } from "./telas/evolucao.js";
 import { telaCoach, abrirAgente } from "./telas/coach.js";
 import { telaPerfil } from "./telas/perfil.js";
+import { iniciarAtualizacaoAutomatica } from "./instalar.js";
 
 const raiz = document.getElementById("app");
 
@@ -125,12 +126,7 @@ function mostrarSync(status) {
 }
 
 async function iniciar() {
-  if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./sw.js").catch(() => {});
-    navigator.serviceWorker.addEventListener("controllerchange", () => {
-      if (!window.__recarregando) { window.__recarregando = true; location.reload(); }
-    });
-  }
+  iniciarAtualizacaoAutomatica();
   await carregarEstado();
   const user = E.modoLocal ? null : await usuarioAtual();
 

@@ -7,6 +7,7 @@ import { abrirSuplementos } from "./comida.js";
 import { limparTudo, kvSet } from "../db.js";
 import { VERSAO } from "../versao.js";
 import { editorGostos } from "../gostos.js";
+import { instalar, rodandoInstalado } from "../instalar.js";
 
 export async function telaPerfil(el, ctx) {
   const p = E.perfil;
@@ -56,6 +57,14 @@ export async function telaPerfil(el, ctx) {
       <button class="card card--link" id="supl"><span class="card-tag">💊 Suplementos recomendados</span><span class="nota">Com nível de evidência científica ›</span></button>
 
       <div class="card">
+        <div class="card-tag">📲 App no celular</div>
+        ${rodandoInstalado()
+          ? `<p class="nota">✅ Instalado. As atualizações chegam sozinhas sempre que você abre o app.</p>`
+          : `<p class="nota">Instale para abrir como app, com ícone na tela inicial. As atualizações chegam sozinhas.</p><button class="btn btn--peq" id="instalar">📲 Instalar app</button>`}
+        <button class="link link--fraco" id="buscar-atualizacao">Procurar atualização agora</button>
+      </div>
+
+      <div class="card">
         <div class="card-tag">🎨 Aparência</div>
         <div class="seg seg--mini">
           ${[["auto", "Automático"], ["light", "☀️ Claro"], ["dark", "🌙 Escuro"]].map(([k, t]) => `<button class="seg-b ${temaAtual() === k ? "seg-b--on" : ""}" data-tema="${k}">${t}</button>`).join("")}
@@ -80,6 +89,16 @@ export async function telaPerfil(el, ctx) {
   el.querySelectorAll("[data-fis]").forEach((b) => b.onclick = async () => { await salvarPerfil({ ...p, fisicoAlvo: b.dataset.fis }); ctx.rerender(); });
   el.querySelector("#pesoMeta").onchange = async (e) => { await salvarPerfil({ ...p, pesoMeta: +String(e.target.value).replace(",", ".") || null }); toast("Peso meta salvo"); };
   el.querySelector("#supl").onclick = abrirSuplementos;
+  const bInst = el.querySelector("#instalar");
+  if (bInst) bInst.onclick = instalar;
+  el.querySelector("#buscar-atualizacao").onclick = async () => {
+    toast("Procurando atualização…");
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg) await reg.update();
+      setTimeout(() => { if (!window.__recarregando) toast(`Você está na versão mais nova (${VERSAO}) ✅`); }, 3000);
+    } catch (e) { toast("Sem internet agora — tento de novo depois.", "erro"); }
+  };
   el.querySelectorAll("[data-tema]").forEach((b) => b.onclick = () => {
     aplicarTema(b.dataset.tema);
     el.querySelectorAll("[data-tema]").forEach((x) => x.classList.toggle("seg-b--on", x === b));
