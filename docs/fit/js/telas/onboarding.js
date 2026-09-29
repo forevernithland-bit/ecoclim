@@ -7,7 +7,7 @@ import { urlDe } from "../midia.js";
 import { fotografarCorpo } from "../camera.js";
 import { analisarFisico } from "../ia.js";
 import { E, salvarPerfil, salvarPlano, gravar } from "../estado.js";
-import { hojeISO } from "../db.js";
+import { hojeISO, kvSet } from "../db.js";
 import { editorGostos } from "../gostos.js";
 
 const PULAVEL = {
@@ -30,7 +30,7 @@ export function rodarOnboarding(raiz, aoConcluir) {
     raiz.innerHTML = `
       <div class="onb">
         <header class="onb-topo">
-          ${i > 0 ? `<button class="icone-btn" id="voltar" aria-label="Voltar">←</button>` : `<span></span>`}
+          ${i > 0 ? `<button class="icone-btn" id="voltar" aria-label="Voltar">←</button>` : `<button class="icone-btn" id="voltar-login" aria-label="Voltar para a tela de login">←</button>`}
           <div class="onb-progresso"><div style="width:${pct}%"></div></div>
           <span class="onb-passo">${i + 1}/${ETAPAS.length}</span>
         </header>
@@ -42,6 +42,13 @@ export function rodarOnboarding(raiz, aoConcluir) {
       </div>`;
     const v = raiz.querySelector("#voltar");
     if (v) v.onclick = () => { i--; pinta(); };
+    const vl = raiz.querySelector("#voltar-login");
+    if (vl) vl.onclick = async () => {
+      // volta pra tela inicial (login / criar conta / testar)
+      if (E.modoLocal) await kvSet("modoLocal", false);
+      else { const { sair } = await import("../nuvem.js"); await sair(); }
+      location.reload();
+    };
     const s = raiz.querySelector("#seguir");
     if (s) s.onclick = () => { if (VALIDA[etapa]()) { i++; pinta(); window.scrollTo(0, 0); } };
     const pular = raiz.querySelector("#pular");

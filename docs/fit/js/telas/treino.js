@@ -10,6 +10,7 @@ import { E, listar, salvarPlano, salvarPerfil } from "../estado.js";
 import { hojeISO } from "../db.js";
 import { iniciarSessao, sessaoAtual, abrirSessao } from "../sessao.js";
 import { conversar, resumoPerfil } from "../ia.js";
+import { abrirAdicionarExercicios } from "./adicionar-exercicio.js";
 
 export const cicloDoPlano = (pl) => cicloAtual(pl) + (pl.offset || 0);
 
@@ -17,7 +18,8 @@ export async function proximoTreino() {
   const pl = E.plano;
   const dias = treinosDoCiclo(pl, cicloDoPlano(pl));
   const logs = await listar("treinos");
-  const ult = logs[logs.length - 1];
+  const doPlano = logs.filter((l) => !l.livre && l.diaIndice >= 0);
+  const ult = doPlano[doPlano.length - 1];
   const idx = ult ? (ult.diaIndice + 1) % dias.length : 0;
   const feitoHoje = logs.some((l) => l.data === hojeISO());
   return { dia: dias[idx], dias, feitoHoje, logs };
@@ -68,7 +70,7 @@ export async function telaTreino(el, { rerender }) {
           <details class="ex ${x.foco ? "ex--foco" : ""} ${noPar ? "ex--biset" : ""}">
             <summary>
               <span class="ex-num">${k + 1}</span>
-              <span class="ex-txt"><b>${esc(x.nome)}</b>${selo ? `<em class="selo-biset">${selo}</em>` : ""}<small>${x.series} × ${x.reps} · ${x.biset ? "sem descanso → vá direto pro próximo" : `descanso ${x.descanso}`}${ultimo ? ` · última: ${esc(ultimo)}` : ""}</small></span>
+              <span class="ex-txt"><b>${esc(x.nome)}</b>${selo ? `<em class="selo-biset">${selo}</em>` : ""}${x.adicionado ? `<em class="selo-add">✍️ adicionado por você</em>` : ""}<small>${x.series} × ${x.reps} · ${x.biset ? "sem descanso → vá direto pro próximo" : `descanso ${x.descanso}`}${ultimo ? ` · última: ${esc(ultimo)}` : ""}</small></span>
             </summary>
             <div class="ex-corpo">
               <p class="nota">🎯 ${esc(x.grupo)}</p>
@@ -77,15 +79,18 @@ export async function telaTreino(el, { rerender }) {
               ${x.biset ? `<p class="nota">🔗 ${x.parTipo === "braco" ? "Bi-set" : "Superset"}: faça 1 série deste e já emende 1 série do próximo; descanse depois do par. Como os músculos são diferentes, um descansa enquanto o outro trabalha — mesmo resultado em menos tempo.</p>` : ""}
               <div class="linha-botoes">
                 <a class="btn btn--sec btn--peq" href="${x.video}" target="_blank" rel="noopener">▶ Vídeo</a>
-                <button class="btn btn--sec btn--peq" data-trocar="${k}">🔄 Trocar</button>
+                ${x.adicionado ? `<button class="btn btn--sec btn--peq" data-remover-add="${k}">✕ Tirar do treino</button>` : `<button class="btn btn--sec btn--peq" data-trocar="${k}">🔄 Trocar</button>`}
               </div>
             </div>
           </details>`;
         }).join("")}
       </div>
 
+      <button class="btn btn--sec" id="add-plano">➕ Adicionar exercício ao Treino ${d.letra} (digitar)</button>
+
       <button class="btn btn--grande" id="iniciar">${emAndamento ? `Continuar treino ${d.letra} ▶ (em andamento)` : `Iniciar treino ${d.letra} ▶`}</button>
       <p class="nota centro">Ao iniciar, o cronômetro começa sozinho e te aviso quando der ${pl.minutos || 60} min.</p>
+      <button class="btn btn--sec" id="livre">✍️ Treino livre — digitar os exercícios que vou fazer</button>
 
       <div class="card">
         <div class="card-tag">📊 Volume semanal por músculo</div>
@@ -131,6 +136,31 @@ export async function telaTreino(el, { rerender }) {
   el.querySelector("#iniciar").onclick = () => (emAndamento ? abrirSessao() : iniciarSessao(d, ciclo));
   el.querySelector("#ajustes").onclick = () => ajustesPlano(rerender);
   el.querySelectorAll("[data-trocar]").forEach((b) => b.onclick = () => trocarNoPlano(d.exercicios[+b.dataset.trocar], rerender));
+  el.querySelector("#add-plano").onclick = () => abrirAdicionarExercicios({
+    titulo: `➕ Adicionar ao Treino ${d.letra}`,
+    botao: `Adicionar ao Treino ${d.letra}`,
+    aoConfirmar: async (novos) => {
+      const adicionados = { ...(E.plano.adicionados || {}) };
+      adicionados[d.indice] = [...(adicionados[d.indice] || []), ...novos];
+      await salvarPlano({ ...E.plano, adicionados });
+      toast(`Adicionado ao Treino ${d.letra} — aparece em todo Treino ${d.letra} ✅`);
+      rerender();
+    },
+  });
+  el.querySelectorAll("[data-remover-add]").forEach((b) => b.onclick = async () => {
+    const x = d.exercicios[+b.dataset.removerAdd];
+    const adicionados = { ...(E.plano.adicionados || {}) };
+    adicionados[d.indice] = (adicionados[d.indice] || []).filter((a) => a.nome !== x.nome);
+    await salvarPlano({ ...E.plano, adicionados });
+    toast("Tirado do treino"); rerender();
+  });
+  el.querySelector("#livre").onclick = () => abrirAdicionarExercicios({
+    titulo: "✍️ Treino livre",
+    botao: "Começar treino livre ▶",
+    aoConfirmar: async (novos) => {
+      await iniciarSessao({ indice: -1, letra: "livre", nome: "Treino livre", exercicios: novos }, ciclo);
+    },
+  });
   el.querySelector("#avaliar").onclick = (ev) => avaliarComLeo(ev.target, el.querySelector("#avaliacao"), dias, vol);
 }
 

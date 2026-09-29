@@ -667,3 +667,17 @@ summary.card-tag { cursor: pointer; margin: 0; }
 .vol--baixo .vol-barra { background: var(--alerta); } .vol--alto .vol-barra { background: var(--ia); }
 .vol--baixo b { color: var(--alerta); }
 .tem-sessao .tela { padding-bottom: calc(170px + env(safe-area-inset-bottom)); }
+
+/* ---------- Exercícios digitados ---------- */
+.interp-lista { display: grid; gap: 8px; margin: 14px 0 6px; }
+.interp-item { display: flex; gap: 10px; align-items: flex-start; padding: 12px; border-radius: 16px; background: var(--card); border: 1.5px solid var(--linha); }
+.interp-item--ok { border-color: color-mix(in srgb, #16a34a 45%, var(--linha)); }
+.interp-item--duvida { border-color: var(--alerta); background: linear-gradient(0deg, var(--alerta-suave), var(--alerta-suave)), var(--card); }
+.interp-ic { font-size: 1.2rem; line-height: 1.3; }
+.interp-txt { flex: 1; min-width: 0; }
+.interp-txt b { display: block; } .interp-txt small { color: var(--muted); font-size: .8rem; }
+.interp-outras { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; font-size: .76rem; color: var(--muted); align-items: center; }
+.chip--mini { padding: 5px 10px; font-size: .78rem; }
+.chip--usar { border-style: dashed; }
+.icone-btn--mini { width: 30px; height: 30px; font-size: .85rem; flex-shrink: 0; }
+.selo-add { display: block; font-style: normal; font-size: .72rem; font-weight: 800; color: var(--lima-forte); margin-top: 2px; }

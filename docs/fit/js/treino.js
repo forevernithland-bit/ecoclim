@@ -11,7 +11,7 @@ export const EQUIPAMENTOS = {
 };
 
 // dica = o que mais importa na execução, em 1 frase simples.
-const PADROES = {
+export const PADROES = {
   agachamento: {
     grupo: "Pernas (quadríceps e glúteos)", composto: true,
     dica: "Pés na largura dos ombros, desça como se fosse sentar numa cadeira, joelhos na direção dos pés, coluna neutra.",
@@ -400,6 +400,10 @@ export function treinosDoCiclo(plano, ciclo = cicloAtual(plano)) {
       }
     }
   }
+
+  // Exercícios que a própria pessoa acrescentou a cada treino (digitados) — entram sempre
+  const adicionados = plano.adicionados || {};
+  sessoes.forEach((exs, i) => { for (const x of adicionados[i] || []) exs.push({ ...x, adicionado: true }); });
 
   return sessoes.map((exs, i) => ({
     indice: i, codigo: div.dias[i], nome: DIAS[div.dias[i]].nome, letra: String.fromCharCode(65 + i),

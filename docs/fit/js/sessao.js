@@ -25,6 +25,16 @@ function valoresAnteriores(logs, nome) {
   return [];
 }
 
+// Exercício do plano (ou digitado) → formato da sessão, com a carga da última vez
+function exercicioDaSessao(x, logs) {
+  const ant = valoresAnteriores(logs, x.nome);
+  return {
+    slot: x.slot, nome: x.nome, original: x.original || x.nome, grupo: x.grupo, dica: x.dica, video: x.video, reps: x.reps, rir: x.rir,
+    descanso: x.descanso, biset: !!x.biset, parTipo: x.parTipo || null, foco: !!x.foco, concluido: false, tipo: x.tipo || "forca",
+    series: Array.from({ length: x.series }, (_, i) => ({ kg: ant[i] ? ant[i].kg : (x.kgSugerido || ""), reps: ant[i] ? ant[i].reps : "", feito: false })),
+  };
+}
+
 // ---------- Início ----------
 export async function iniciarSessao(dia, ciclo) {
   const ativa = await sessaoAtual();
@@ -38,14 +48,8 @@ export async function iniciarSessao(dia, ciclo) {
   const s = {
     diaIndice: dia.indice, letra: dia.letra, nome: dia.nome, ciclo, inicio: agora, minutosPlano: minutos,
     avisoEm: agora + minutos * 60000, aguardando: false, perguntadoEm: null,
-    exercicios: dia.exercicios.map((x) => {
-      const ant = valoresAnteriores(logs, x.nome);
-      return {
-        slot: x.slot, nome: x.nome, original: x.original, grupo: x.grupo, dica: x.dica, video: x.video, reps: x.reps, rir: x.rir,
-        descanso: x.descanso, biset: !!x.biset, parTipo: x.parTipo || null, foco: !!x.foco, concluido: false,
-        series: Array.from({ length: x.series }, (_, i) => ({ kg: ant[i] ? ant[i].kg : "", reps: ant[i] ? ant[i].reps : "", feito: false })),
-      };
-    }),
+    livre: dia.indice < 0,
+    exercicios: dia.exercicios.map((x) => exercicioDaSessao(x, logs)),
   };
   await salvarSessao(s);
   pedirPermissaoAviso();
@@ -67,11 +71,12 @@ export async function abrirSessao() {
   const minutosAgora = () => Math.floor((Date.now() - s.inicio) / 1000);
   const sh = abrirSheet(`
     <div class="exec-topo">
-      <div><h2>Treino ${esc(s.letra)}</h2><small class="nota">${esc(s.nome)}</small></div>
+      <div><h2>${s.livre ? "✍️ Treino livre" : `Treino ${esc(s.letra)}`}</h2><small class="nota">${s.livre ? "exercícios digitados por você" : esc(s.nome)}</small></div>
       <div class="cron-caixa"><span id="cron" class="cron">0:00</span><small id="cron-meta">meta ${s.minutosPlano} min</small></div>
     </div>
     <div class="cron-trilho"><div id="cron-barra"></div></div>
     <div id="lista-sessao"></div>
+    <button class="btn btn--sec" id="add-ex">➕ Adicionar exercício (digitar ou falar)</button>
     <div id="descanso" class="descanso oculto"><span>Descanso</span><b id="desc-t">1:30</b><button id="pular">Pular</button></div>
     <div class="linha-botoes">
       <button class="btn btn--sec" id="minimizar">Minimizar</button>
@@ -177,6 +182,18 @@ export async function abrirSessao() {
   };
   pintaLista();
 
+  sh.el.querySelector("#add-ex").onclick = async () => {
+    const { abrirAdicionarExercicios } = await import("./telas/adicionar-exercicio.js");
+    abrirAdicionarExercicios({
+      titulo: "➕ Adicionar ao treino de hoje",
+      botao: "Adicionar ao treino",
+      aoConfirmar: async (novos) => {
+        for (const x of novos) s.exercicios.push(exercicioDaSessao(x, []));
+        await salvar(); pintaLista();
+        toast(`${novos.length} exercício(s) adicionado(s) ✅`);
+      },
+    });
+  };
   sh.el.querySelector("#minimizar").onclick = () => sh.fechar();
   sh.el.querySelector("#concluir").onclick = () => concluirComHorario();
 }
@@ -245,7 +262,7 @@ async function finalizar(s, fim, automatico) {
   const series = s.exercicios.reduce((a, e) => a + e.series.filter((x) => x.feito).length, 0);
   await gravar("treinos", {
     data: hojeISO(new Date(s.inicio)),
-    ciclo: s.ciclo, diaIndice: s.diaIndice, letra: s.letra, nome: `Treino ${s.letra} — ${s.nome}`,
+    ciclo: s.ciclo, diaIndice: s.diaIndice, letra: s.letra, nome: s.livre ? "Treino livre" : `Treino ${s.letra} — ${s.nome}`, livre: !!s.livre,
     exercicios: s.exercicios.map((e) => ({ nome: e.nome, series: e.series, concluido: e.concluido })),
     volume: Math.round(volume), series, inicio: s.inicio, fim, duracaoMin: Math.max(1, Math.round((fim - s.inicio) / 60000)), automatico,
   });
@@ -324,7 +341,7 @@ export async function atualizarBarraSessao() {
   }
   const pinta = () => {
     const seg = Math.floor((Date.now() - s.inicio) / 1000);
-    barra.innerHTML = `<span class="barra-pulso"></span><b>Treino ${esc(s.letra)} em andamento</b><span class="barra-tempo">${relogio(seg)}</span><span class="barra-abrir">Abrir ›</span>`;
+    barra.innerHTML = `<span class="barra-pulso"></span><b>${s.livre ? "Treino livre" : `Treino ${esc(s.letra)}`} em andamento</b><span class="barra-tempo">${relogio(seg)}</span><span class="barra-abrir">Abrir ›</span>`;
   };
   pinta();
   clearInterval(ivBarra);
