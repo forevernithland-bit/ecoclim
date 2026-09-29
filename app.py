@@ -229,6 +229,99 @@ def _painel_lembretes_erp():
             st.rerun(scope="fragment")
 
 
+# --- Popup periódico: clientes Em Andamento sem vencimento de boleto -------
+# Pedido do Breno (2026-09-29): lembrar de tempos em tempos (não toda vez que
+# abre o sistema) de preencher o "Vencimento Boleto (Cliente)" em projetos que
+# já estão Em Andamento, pra não esquecer e o pagamento pegar desprevenido.
+#
+# Reaproveita a MESMA tabela `lembretes` do ícone ⏰ (nenhuma tabela nova) —
+# mantém 1 lembrete "motor" com `repetir="semanal"`: cada vez que a Página
+# Inicial carrega, só olha se esse lembrete já venceu (`lembrar_em` no
+# passado). Se venceu, calcula a lista ATUAL (nunca um texto congelado de
+# quando o lembrete foi criado) e, só se tiver alguém faltando, mostra o
+# popup — sempre marca o lembrete como feito em seguida, o que já dispara a
+# criação automática da próxima ocorrência (mecanismo de `repetir` que já
+# existia em `lembretes_erp.marcar_feito`).
+_MARCADOR_LEMBRETE_BOLETO = "🧾 [Auto] Verificar boletos sem vencimento"
+
+
+def _checar_popup_boletos_pendentes(supabase):
+    import lembretes_erp as L
+    agora = L._agora_utc()
+    try:
+        existentes = (supabase.table('lembretes').select('*')
+                      .eq('texto', _MARCADOR_LEMBRETE_BOLETO).eq('feito', False).execute().data or [])
+    except Exception:
+        return
+
+    if not existentes:
+        # 1ª vez que essa checagem roda — planta o lembrete "motor" já
+        # vencido, pra rodar a checagem de verdade já na próxima carga (não
+        # nesta, pra não popar sem aviso na hora que a feature acabou de
+        # nascer).
+        try:
+            supabase.table('lembretes').insert({
+                "texto": _MARCADOR_LEMBRETE_BOLETO, "categoria": "ecoclim", "origem": "erp",
+                "lembrar_em": L._iso(agora), "repetir": "semanal",
+            }).execute()
+        except Exception:
+            pass
+        return
+
+    lem = existentes[0]
+    dt_venc = L._parse(lem.get('lembrar_em'))
+    if not dt_venc or dt_venc > agora:
+        return  # ainda não chegou a hora desta rodada
+
+    # Pedido do Breno (2026-09-29): não olhar só quem está Em Andamento — um
+    # cliente pode ter sido marcado Concluído PIX/CARTÃO rápido (cliente
+    # pagou na hora) e o boleto do FORNECEDOR ainda ficar esquecido, sem
+    # ninguém notar porque ele já saiu da aba "Em Andamento". Concluídos
+    # entram só se o fechamento (`data_conclusao`) foi neste mês ou no
+    # anterior — mais velho que isso não faz sentido cobrar de novo.
+    hoje_br = utils.obter_data_atual_br()
+    _mes_atual = hoje_br.strftime('%Y-%m')
+    _mes_passado = add_months_app(hoje_br, -1).strftime('%Y-%m')
+
+    try:
+        projs_andamento = (supabase.table('servicos_andamento')
+                           .select('nome_cliente,vencimento_boleto,pago_avista_fornecedor')
+                           .eq('status_projeto', 'Em Andamento').execute().data or [])
+    except Exception:
+        projs_andamento = []
+    try:
+        projs_finalizados = (supabase.table('servicos_andamento')
+                             .select('nome_cliente,vencimento_boleto,pago_avista_fornecedor,data_conclusao')
+                             .in_('status_projeto', ['Concluído PIX', 'Concluído CARTÃO']).execute().data or [])
+    except Exception:
+        projs_finalizados = []
+    projs_finalizados = [
+        p for p in projs_finalizados
+        if str(p.get('data_conclusao') or '')[:7] in (_mes_atual, _mes_passado)
+    ]
+
+    nomes = [str(p.get('nome_cliente') or 'Sem nome') for p in (projs_andamento + projs_finalizados)
+             if not p.get('vencimento_boleto') and not p.get('pago_avista_fornecedor')]
+
+    L.marcar_feito(lem, True)  # sempre avança pra próxima semana, tenha ou não gente na lista agora
+
+    if nomes:
+        st.session_state['_popup_boletos_pendentes_nomes'] = nomes
+
+
+@st.dialog("🧾 Boletos sem data de vencimento")
+def _popup_boletos_pendentes():
+    nomes = st.session_state.get('_popup_boletos_pendentes_nomes', [])
+    st.write("Estes clientes estão **Em Andamento** e ainda não têm a data de "
+             "vencimento do boleto preenchida:")
+    for n in nomes:
+        st.markdown(f"- {n}")
+    st.caption("Abra o projeto → aba 🧾 Fiscal/Boletos e preencha assim que souber a data.")
+    if st.button("OK, entendi", type="primary", use_container_width=True):
+        st.session_state.pop('_popup_boletos_pendentes_nomes', None)
+        st.rerun()
+
+
 # =============================================================================
 # 4. CONEXÃO COM O BANCO DE DADOS
 # =============================================================================
@@ -429,6 +522,10 @@ else:
     if st.session_state.menu_option == "Página Inicial":
 
         hoje_br = utils.obter_data_atual_br()
+
+        _checar_popup_boletos_pendentes(st.session_state.supabase)
+        if st.session_state.get('_popup_boletos_pendentes_nomes'):
+            _popup_boletos_pendentes()
 
         # ---------- Cabeçalho do painel (claro e clean) ----------
         st.markdown(

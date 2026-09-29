@@ -1133,7 +1133,18 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                                         "status": "Pendente"
                                     }
                                     try:
-                                        supabase.table('boletos_fornecedores').insert(novo_boleto).execute()
+                                        # Se já existe um placeholder deste serviço (criado
+                                        # só com a data, sem PDF — ver `garantir_lembrete_
+                                        # boleto`), este import de PDF real vira uma
+                                        # ATUALIZAÇÃO dele em vez de uma linha nova — senão
+                                        # duplicaria o lembrete (2026-09-29).
+                                        _existentes_bol = (supabase.table('boletos_fornecedores')
+                                                           .select('id,link_drive_id').eq('servico_id', id_projeto).execute().data or [])
+                                        _placeholder_bol = next((r for r in _existentes_bol if not r.get('link_drive_id')), None)
+                                        if _placeholder_bol:
+                                            supabase.table('boletos_fornecedores').update(novo_boleto).eq('id', _placeholder_bol['id']).execute()
+                                        else:
+                                            supabase.table('boletos_fornecedores').insert(novo_boleto).execute()
                                         utils.sincronizar_boletos_com_calendar()
                                     
                                         if pd.isna(venc_boleto_banco) or str(venc_boleto_banco).lower() in ['none', 'nan', 'nat', '']:
@@ -1953,6 +1964,21 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                         supabase.table('servicos_andamento').update(
                             {k: v for k, v in dados.items() if k != "pagamentos_recebidos"}
                         ).eq('id', id_projeto).execute()
+
+                    # Garante o lembrete de pagamento mesmo se o PDF do
+                    # boleto do fornecedor ainda não foi importado — só com
+                    # a data preenchida acima já precisa avisar (2026-09-29).
+                    # Isolado num try próprio: um problema aqui (Calendar
+                    # fora do ar, etc.) nunca pode derrubar o salvamento do
+                    # projeto, que já aconteceu com sucesso acima.
+                    try:
+                        utils.garantir_lembrete_boleto(
+                            supabase, id_projeto, novo_nome_cliente,
+                            dados.get("vencimento_boleto"), custo_total_produtos,
+                        )
+                        utils.sincronizar_boletos_com_calendar()
+                    except Exception:
+                        pass
 
                     if novo_status != _status_antes:
                         movimentacoes.registrar(

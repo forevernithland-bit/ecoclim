@@ -2126,6 +2126,51 @@ def extrair_dados_boleto(file_buffer):
         file_buffer.seek(0)
         return None, 0.0
 
+def garantir_lembrete_boleto(supabase, servico_id, cliente_nome, vencimento_iso, valor_estimado=0.0):
+    """Garante que todo serviço com 'Vencimento Boleto (Cliente)' preenchido
+    tenha um lembrete de pagamento — pedido do Breno (2026-09-29): antes o
+    lembrete só nascia pelo fluxo de "Importar Boleto de Fornecedor (PDF)"
+    (grava em `boletos_fornecedores`, que é o que `sincronizar_boletos_com_
+    calendar` lê); esquecer de importar o PDF = nunca aparecer lembrete
+    nenhum, mesmo com a data certinha salva na tela.
+
+    Cria/atualiza/remove uma linha "placeholder" (sem `link_drive_id`) nessa
+    mesma tabela pra cobrir esse buraco, sem interferir num boleto que já foi
+    importado de verdade (esse mantém `link_drive_id` preenchido e nunca é
+    tocado aqui). Quem chama ainda precisa rodar
+    `sincronizar_boletos_com_calendar()` depois pra empurrar pro Calendar —
+    esta função só mexe no Supabase.
+    """
+    try:
+        linhas = (supabase.table('boletos_fornecedores').select('id,link_drive_id,valor')
+                  .eq('servico_id', servico_id).execute().data or [])
+    except Exception:
+        return
+    placeholder = next((r for r in linhas if not r.get('link_drive_id')), None)
+    tem_boleto_real = any(r.get('link_drive_id') for r in linhas)
+
+    if not vencimento_iso:
+        # Data foi apagada (ou marcou "pago à vista") — remove só o
+        # placeholder; um boleto real já importado nunca é apagado daqui.
+        if placeholder:
+            supabase.table('boletos_fornecedores').delete().eq('id', placeholder['id']).execute()
+        return
+
+    if tem_boleto_real and not placeholder:
+        return  # já existe um lembrete de verdade cobrindo este serviço
+
+    if placeholder:
+        dados = {"cliente": cliente_nome, "vencimento": vencimento_iso}
+        if valor_estimado:
+            dados["valor"] = valor_estimado
+        supabase.table('boletos_fornecedores').update(dados).eq('id', placeholder['id']).execute()
+    else:
+        supabase.table('boletos_fornecedores').insert({
+            "cliente": cliente_nome, "servico_id": servico_id, "vencimento": vencimento_iso,
+            "valor": valor_estimado or 0.0, "link_drive_id": None, "status": "Pendente",
+        }).execute()
+
+
 # ==========================================
 # SINCRONIZAÇÃO INTELIGENTE COM GOOGLE CALENDAR
 # ==========================================
