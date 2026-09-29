@@ -7,12 +7,13 @@ import { esc, toast } from "./ui.js";
 import { rodarOnboarding } from "./telas/onboarding.js";
 import { telaHoje } from "./telas/hoje.js";
 import { telaComida, resetDiaComida } from "./telas/comida.js";
-import { telaTreino } from "./telas/treino.js";
+import { telaTreino, resetAbaTreino } from "./telas/treino.js";
 import { telaEvolucao } from "./telas/evolucao.js";
 import { telaCoach, abrirAgente } from "./telas/coach.js";
 import { telaPerfil } from "./telas/perfil.js";
 import { telaRelatorio, abrirRelatorio } from "./telas/relatorio.js";
 import { iniciarAtualizacaoAutomatica } from "./instalar.js";
+import { iniciarVerificadorSessao, atualizarBarraSessao } from "./sessao.js";
 
 const raiz = document.getElementById("app");
 
@@ -56,6 +57,7 @@ async function renderApp() {
     if (abaAtual === "perfil") await telaPerfil(tela, ctx);
     else if (abaAtual === "relatorio") await telaRelatorio(tela, ctx);
     else await ABAS.find((a) => a.id === abaAtual).tela(tela, ctx);
+    atualizarBarraSessao();
   } catch (e) {
     console.error(e);
     tela.innerHTML = `<div class="vazio"><span>😵</span><p>Algo deu errado nesta tela.<br><small>${esc(e.message)}</small></p><button class="btn" onclick="location.reload()">Recarregar</button></div>`;
@@ -140,6 +142,7 @@ async function iniciar() {
     } else {
       renderApp();
     }
+    iniciarVerificadorSessao(() => { resetAbaTreino(); if (E.perfil && E.plano) renderApp(); });
   };
 
   if (user || E.modoLocal) seguir();

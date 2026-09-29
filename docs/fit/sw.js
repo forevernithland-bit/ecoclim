@@ -1,11 +1,11 @@
 // Service Worker — cacheia o app pra abrir sem sinal. Não intercepta Supabase,
 // esm.sh nem a API (essas precisam de rede; os dados offline vêm do IndexedDB).
 // ⚠️ Suba a versão do CACHE (e js/versao.js) a cada publicação.
-const CACHE = "evolua-v9";
+const CACHE = "evolua-v10";
 const ARQUIVOS = [
   "./", "./index.html", "./manifest.json", "./css/app.css",
   "./js/app.js", "./js/versao.js", "./js/config.js", "./js/db.js", "./js/estado.js", "./js/nuvem.js", "./js/ia.js",
-  "./js/ui.js", "./js/midia.js", "./js/camera.js", "./js/ciencia.js", "./js/treino.js", "./js/alimentos.js", "./js/suplementos.js", "./js/gostos.js", "./js/fisico-arte.js", "./js/instalar.js",
+  "./js/ui.js", "./js/midia.js", "./js/camera.js", "./js/ciencia.js", "./js/treino.js", "./js/alimentos.js", "./js/suplementos.js", "./js/gostos.js", "./js/fisico-arte.js", "./js/instalar.js", "./js/sessao.js",
   "./js/telas/onboarding.js", "./js/telas/hoje.js", "./js/telas/comida.js", "./js/telas/treino.js",
   "./js/telas/evolucao.js", "./js/telas/coach.js", "./js/telas/perfil.js", "./js/telas/relatorio.js",
   "./data/alimentos.json", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/icon-192-maskable.png", "./icons/icon-512-maskable.png",
@@ -36,4 +36,14 @@ self.addEventListener("fetch", (e) => {
       })
       .catch(() => caches.match(e.request).then((r) => r || caches.match("./index.html")))
   );
+});
+
+// Toque na notificação ("deu o tempo do treino") → abre/foca o app
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  e.waitUntil((async () => {
+    const janelas = await clients.matchAll({ type: "window", includeUncontrolled: true });
+    for (const j of janelas) if (j.url.includes(self.registration.scope)) return j.focus();
+    return clients.openWindow("./index.html");
+  })());
 });

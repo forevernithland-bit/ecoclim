@@ -6,6 +6,7 @@ import { proximoTreino } from "./treino.js";
 import { proximoCheckin, completarInicial } from "./evolucao.js";
 import { instalar, deveSugerirInstalar, dispensarSugestao, ehIOS } from "../instalar.js";
 import { calcularRelatorio } from "./relatorio.js";
+import { sessaoAtual, abrirSessao } from "../sessao.js";
 import { hojeISO } from "../db.js";
 
 const DICAS = [
@@ -29,6 +30,7 @@ export async function telaHoje(el, ctx) {
   const met = await metricasDoDia();
   const { dia: prox, feitoHoje } = await proximoTreino();
   const hojeTreina = !E.plano.diasSemana || E.plano.diasSemana.includes(new Date().getDay());
+  const sessao = await sessaoAtual();
   const ck = await proximoCheckin();
   const cks = await listar("checkins");
   const [relDia, relSemana] = await Promise.all([calcularRelatorio("dia"), calcularRelatorio("semana")]);
@@ -116,7 +118,7 @@ export async function telaHoje(el, ctx) {
       </div>
 
       <button class="card card--treino card--link" data-ir="treino">
-        <div class="card-tag">${feitoHoje ? "✅ Treino de hoje feito!" : hojeTreina ? "🏋️ Hoje é dia de treino!" : "😴 Hoje é descanso — próximo treino"}</div>
+        <div class="card-tag">${sessao ? "⏱️ Treino em andamento — toque pra abrir" : feitoHoje ? "✅ Treino de hoje feito!" : hojeTreina ? "🏋️ Hoje é dia de treino!" : "😴 Hoje é descanso — próximo treino"}</div>
         <b>Treino ${prox.letra} — ${esc(prox.nome)}</b>
         <span class="nota">~${prox.minutos} min · ${prox.exercicios.length} exercícios · ${prox.exercicios.slice(0, 3).map((x) => esc(x.nome)).join(", ")}…</span>
       </button>
@@ -136,7 +138,7 @@ export async function telaHoje(el, ctx) {
     </div>`;
 
   el.querySelectorAll("[data-add]").forEach((b) => b.onclick = () => abrirNovaRefeicao(b.dataset.add, { aoSalvar: ctx.rerender }));
-  el.querySelectorAll("[data-ir]").forEach((b) => b.onclick = () => ctx.ir(b.dataset.ir));
+  el.querySelectorAll("[data-ir]").forEach((b) => b.onclick = () => (sessao && b.dataset.ir === "treino" ? abrirSessao() : ctx.ir(b.dataset.ir)));
   el.querySelectorAll("[data-agente]").forEach((b) => b.onclick = () => ctx.ir("coach", { agente: b.dataset.agente }));
   el.querySelector("#perfil").onclick = () => ctx.ir("perfil");
   el.querySelector("#relatorio").onclick = () => ctx.ir("relatorio", { periodo: "semana" });

@@ -158,17 +158,38 @@ const PADROES = {
   },
 };
 
+// Modelos de sessão (ordem = ordem de execução: o composto pesado de perna
+// vem primeiro, sozinho; os demais podem virar supersets se o tempo apertar).
+// Montados para cada grupo grande receber ~9–16 séries/semana (faixa com
+// melhor custo-benefício pra hipertrofia — Schoenfeld 2017; Pelland 2024) e
+// ser treinado 2x/semana sempre que a frequência permitir.
 const DIAS = {
-  FA: { nome: "Corpo inteiro A", slots: ["agachamento", "supino", "remada", "dobradica", "lateral", "core"] },
-  FB: { nome: "Corpo inteiro B", slots: ["dobradica", "desenvolvimento", "puxada", "extensora", "biceps", "triceps"] },
-  FC: { nome: "Corpo inteiro C", slots: ["gluteo", "supinoInc", "remada", "agachamento", "posteriorOmbro", "panturrilha"] },
-  UA: { nome: "Superiores A", slots: ["supino", "remada", "desenvolvimento", "puxada", "biceps", "triceps"] },
-  LA: { nome: "Inferiores A", slots: ["agachamento", "flexora", "extensora", "gluteo", "panturrilha", "core"] },
-  UB: { nome: "Superiores B", slots: ["supinoInc", "puxada", "lateral", "remada", "posteriorOmbro", "triceps"] },
-  LB: { nome: "Inferiores B", slots: ["dobradica", "agachamento", "gluteo", "flexora", "panturrilha", "core"] },
+  FA: { nome: "Corpo inteiro A", slots: ["agachamento", "supino", "remada", "flexora", "lateral"] },
+  FB: { nome: "Corpo inteiro B", slots: ["dobradica", "supinoInc", "puxada", "extensora", "desenvolvimento"] },
+  FC: { nome: "Corpo inteiro C", slots: ["agachamento", "supino", "remada", "gluteo", "posteriorOmbro"] },
+  UA: { nome: "Superiores A", slots: ["supino", "remada", "desenvolvimento", "puxada", "lateral"] },
+  LA: { nome: "Inferiores A", slots: ["agachamento", "flexora", "extensora", "gluteo", "panturrilha"] },
+  UB: { nome: "Superiores B", slots: ["supinoInc", "puxada", "supino", "remada", "lateral"] },
+  LB: { nome: "Inferiores B", slots: ["dobradica", "agachamento", "flexora", "gluteo", "panturrilha"] },
   PUSH: { nome: "Empurrar (peito, ombro, tríceps)", slots: ["supino", "desenvolvimento", "supinoInc", "lateral", "triceps"] },
   PULL: { nome: "Puxar (costas, bíceps)", slots: ["puxada", "remada", "posteriorOmbro", "biceps", "core"] },
   LEGS: { nome: "Pernas e glúteos", slots: ["agachamento", "dobradica", "extensora", "flexora", "gluteo", "panturrilha"] },
+};
+
+// Músculos trabalhados por padrão (1 = alvo principal, 0,5 = ajuda).
+// Usado pra: contar o volume semanal, e decidir quem pode formar superset
+// (só pares que NÃO dividem músculo principal — ex.: peito + costas).
+export const MUSCULOS_DO_PADRAO = {
+  agachamento: { quadriceps: 1, gluteos: 0.5 }, dobradica: { posterior: 1, gluteos: 0.5 }, flexora: { posterior: 1 },
+  extensora: { quadriceps: 1, gluteos: 0.3 }, gluteo: { gluteos: 1, posterior: 0.3 },
+  supino: { peito: 1, triceps: 0.5, ombros: 0.3 }, supinoInc: { peito: 1, triceps: 0.5, ombros: 0.3 },
+  remada: { costas: 1, biceps: 0.5 }, puxada: { costas: 1, biceps: 0.5 },
+  desenvolvimento: { ombros: 1, triceps: 0.5 }, lateral: { ombros: 1 }, posteriorOmbro: { ombros: 0.7, costas: 0.3 },
+  biceps: { biceps: 1 }, triceps: { triceps: 1 }, panturrilha: { panturrilha: 1 }, core: { abdomen: 1 },
+};
+export const NOMES_MUSCULOS = {
+  peito: "Peito", costas: "Costas", ombros: "Ombros", biceps: "Bíceps", triceps: "Tríceps",
+  quadriceps: "Quadríceps", posterior: "Posterior de coxa", gluteos: "Glúteos", panturrilha: "Panturrilha", abdomen: "Abdômen",
 };
 
 const DIVISOES = {
@@ -184,15 +205,16 @@ const DIVISOES = {
 export const DIAS_SEMANA = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 export const PADRAO_DIAS = { 1: [3], 2: [1, 4], 3: [1, 3, 5], 4: [1, 2, 4, 5], 5: [1, 2, 3, 4, 5], 6: [1, 2, 3, 4, 5, 6], 7: [0, 1, 2, 3, 4, 5, 6] };
 export const MINUTOS = [30, 45, 50, 60, 75, 90];
-// quantos exercícios cabem na sessão (aquecimento + séries + descanso)
-const EXERCICIOS_POR_TEMPO = { 30: 4, 45: 5, 50: 5, 60: 6, 75: 7, 90: 8 };
-const EXTRAS = ["core", "lateral", "panturrilha", "posteriorOmbro", "biceps", "triceps", "gluteo"];
 
+// Prescrição atual (hipertrofia/recomposição): 6–15 reps perto da falha
+// (RIR 1–2) rendem o mesmo músculo; descanso mais longo nos compostos (2 min)
+// gera mais ganho que 60–90 s (Schoenfeld 2016; Singer 2024).
 function prescricao(objetivo, nivel, composto) {
   const series = nivel === "iniciante" ? 3 : composto ? 4 : 3;
-  if (objetivo === "massa") return { series, reps: composto ? "6–10" : "10–15", descanso: composto ? "2 min" : "75 s", rir: "1–2" };
+  const descComp = nivel === "iniciante" ? "90 s" : "2 min";
+  if (objetivo === "massa") return { series, reps: composto ? "6–10" : "10–15", descanso: composto ? descComp : "75 s", rir: "1–2" };
   if (objetivo === "emagrecer") return { series: Math.min(series, 3), reps: composto ? "8–12" : "12–15", descanso: composto ? "90 s" : "60 s", rir: "1–3" };
-  return { series, reps: composto ? "8–12" : "10–15", descanso: composto ? "90 s" : "60 s", rir: "1–2" };
+  return { series, reps: composto ? "8–12" : "10–15", descanso: composto ? descComp : "75 s", rir: "1–2" };
 }
 
 export function linkVideo(nome) {
@@ -245,60 +267,169 @@ export const FOCOS = {
 };
 const DIAS_SUPERIORES = ["FA", "FB", "FC", "UA", "UB", "PUSH", "PULL"];
 
-const segundos = (d) => (String(d).includes("min") ? parseFloat(d) * 60 : parseInt(d, 10) || 0);
+export const segundos = (d) => (String(d).includes("min") ? parseFloat(d) * 60 : parseInt(d, 10) || 0);
+const principais = (slot) => Object.entries(MUSCULOS_DO_PADRAO[slot] || {}).filter(([, f]) => f >= 1).map(([m]) => m);
+const podemParear = (a, b) => {
+  const pa = principais(a.slot), pb = principais(b.slot);
+  const pesados = ["agachamento", "dobradica"];
+  return !pa.some((m) => pb.includes(m)) && !(pesados.includes(a.slot) && pesados.includes(b.slot));
+};
+
+// Tempo estimado da sessão (s): aquecimento 6 min + preparo 45 s por exercício
+// + séries (~45 s cada) + descansos. Em superset, as duas séries seguidas
+// dividem um único descanso.
+export function duracaoSessao(exs) {
+  let t = 360;
+  for (let k = 0; k < exs.length; k++) {
+    const a = exs[k];
+    if (a.biset && exs[k + 1]) {
+      const b = exs[k + 1];
+      const comum = Math.min(a.series, b.series);
+      const desc = Math.max(segundos(a.descanso), segundos(b.descanso), 60);
+      t += 90 + comum * (45 + 45 + 15 + desc);
+      t += (a.series - comum) * (45 + desc) + (b.series - comum) * (45 + desc);
+      k++;
+    } else {
+      t += 45 + a.series * (45 + segundos(a.descanso));
+    }
+  }
+  return t;
+}
+
+// Superset: 1º do par sem descanso ("vá direto pro próximo"); descanso depois do par.
+function parear(exs, desde = 1) {
+  for (let k = desde; k + 1 < exs.length; k++) {
+    const a = exs[k], b = exs[k + 1];
+    if (a.biset || (k > 0 && exs[k - 1].biset)) continue;
+    if (podemParear(a, b)) {
+      a.biset = true; a.parTipo = a.foco && b.foco ? "braco" : "superset";
+      a.descansoOriginal = a.descanso; a.descanso = "0 s";
+      b.descanso = segundos(b.descanso) >= 120 || segundos(a.descansoOriginal) >= 120 ? "2 min" : "90 s";
+      k++;
+    }
+  }
+}
 
 // Monta os treinos do ciclo atual (lista de dias com exercícios).
 export function treinosDoCiclo(plano, ciclo = cicloAtual(plano)) {
   const div = DIVISOES[plano.dias];
   const eq = plano.equipamento;
   const foco = FOCOS[plano.foco] || FOCOS.nenhum;
+  const minutos = plano.minutos || 60;
+  const limite = (minutos + 3) * 60;
+  const trocas = plano.trocas || {};
   const contagem = {}; // mesmo padrão 2x na semana → variação diferente
-  return div.dias.map((codigo, i) => {
-    const dia = DIAS[codigo];
-    let slots = [...dia.slots];
-    // Mulheres: um estímulo extra de glúteo nos dias de perna (pedido mais comum
-    // e o grupo que mais responde a volume nelas).
+  const monta = (slot, ehFoco) => {
+    const pad = PADROES[slot];
+    const variantes = pad.v[eq];
+    const n = contagem[slot] = (contagem[slot] ?? -1) + 1;
+    const original = variantes[(ciclo + n) % variantes.length];
+    const nome = trocas[original] || original;
+    const presc = prescricao(plano.objetivo, plano.nivel, pad.composto);
+    if (minutos <= 30) { presc.series = Math.min(presc.series, 3); presc.descanso = pad.composto ? "90 s" : "60 s"; }
+    if (/prancha/i.test(nome)) presc.reps = "30–45 s"; // isométrico: conta tempo
+    if (ehFoco) { presc.series = Math.min(4, presc.series + (plano.nivel === "iniciante" ? 0 : 1)); presc.reps = pad.composto ? presc.reps : "8–12"; }
+    return { slot, nome, original, grupo: pad.grupo, dica: pad.dica, video: linkVideo(nome), foco: ehFoco, composto: pad.composto, ...presc };
+  };
+
+  // Volume da semana até agora (pra decidir foco e extras)
+  const volume = (sessoes) => {
+    const v = {};
+    for (const exs of sessoes) for (const x of exs) for (const [m, f] of Object.entries(MUSCULOS_DO_PADRAO[x.slot] || {})) v[m] = (v[m] || 0) + x.series * f;
+    return v;
+  };
+
+  // 1ª passada: a base de cada dia
+  const sessoes = div.dias.map((codigo) => {
+    const slots = [...DIAS[codigo].slots];
     if (plano.sexo === "F" && ["LA", "LB", "LEGS"].includes(codigo) && !slots.includes("gluteo")) slots.push("gluteo");
-    // Ajusta ao tempo disponível: corta os acessórios do fim ou acrescenta extras.
-    const alvo = EXERCICIOS_POR_TEMPO[plano.minutos || 60] || 6;
-    if (slots.length > alvo) slots = slots.slice(0, alvo);
-    for (const x of EXTRAS) { if (slots.length >= alvo) break; if (!slots.includes(x)) slots.push(x); }
-    // Prioridade: o grupo do foco entra em TODO treino (no fim, como bloco extra).
-    // Nos dias de superiores ele aparece 2x (variações diferentes).
-    const blocoFoco = [...foco.slots];
-    if (plano.foco === "bracos" && DIAS_SUPERIORES.includes(codigo)) blocoFoco.push(...foco.slots); // 2º bi-set de braço
-    const monta = (slot, ehFoco) => {
-      const pad = PADROES[slot];
-      const variantes = pad.v[eq];
-      const n = contagem[slot] = (contagem[slot] ?? -1) + 1;
-      const nome = variantes[(ciclo + n) % variantes.length];
-      const presc = prescricao(plano.objetivo, plano.nivel, pad.composto);
-      if ((plano.minutos || 60) <= 30) { presc.series = Math.min(presc.series, 3); presc.descanso = pad.composto ? "75 s" : "45 s"; }
-      if (/prancha/i.test(nome)) presc.reps = "30–45 s"; // isométrico: conta tempo, não repetição
-      if (ehFoco) { presc.series = Math.min(4, presc.series + (plano.nivel === "iniciante" ? 0 : 1)); presc.reps = pad.composto ? presc.reps : "8–12"; }
-      return { slot, nome, grupo: pad.grupo, dica: pad.dica, video: linkVideo(nome), foco: ehFoco, ...presc };
-    };
-    let exercicios = slots.map((s) => monta(s, false));
-    const extras = blocoFoco.map((s) => monta(s, true));
-    // Bi-set: pares (ex.: rosca + tríceps) — o 1º do par não tem descanso.
-    for (let k = 0; k + 1 < extras.length; k += 2) {
-      extras[k].biset = true; extras[k].descanso = "0 s";
-      extras[k + 1].descanso = "75 s";
-    }
-    // aquecimento 6 min + (execução ~50 s + descanso) por série + ~1 min de troca por exercício
-    const duracao = () => 360 + [...exercicios, ...extras].reduce((a, x) => a + 60 + x.series * (50 + segundos(x.descanso)), 0);
-    // Não pode passar do tempo escolhido: tira primeiro os acessórios que NÃO são
-    // do foco (do fim pro começo); o bloco do foco é o último a ser mexido.
-    const limite = ((plano.minutos || 60) + 4) * 60;
-    while (duracao() > limite && exercicios.length > 3) exercicios.pop();
-    // ainda passou? tira 1 série dos exercícios que estão com 4 (do fim pro começo)
-    for (let k = exercicios.length - 1; k >= 0 && duracao() > limite; k--) if (exercicios[k].series > 3) exercicios[k].series = 3;
-    while (duracao() > limite && extras.length > 2) extras.splice(-2, 2);
-    const segs = duracao();
-    exercicios = [...exercicios, ...extras];
-    const diaSemana = (plano.diasSemana || [])[i];
-    return { indice: i, codigo, nome: dia.nome, letra: String.fromCharCode(65 + i), exercicios, minutos: Math.round(segs / 60), diaSemana };
+    return slots.map((s) => monta(s, false));
   });
+
+  // 2ª passada: foco distribuído pelos dias (dias de superiores primeiro pra braço)
+  // até o grupo prioritário chegar a ~17 séries/semana.
+  if (foco.slots.length) {
+    const alvoFoco = foco.slots.flatMap((sl) => principais(sl));
+    const falta = () => { const v = volume(sessoes); return alvoFoco.some((m) => (v[m] || 0) < 16); };
+    const ordemDias = div.dias.map((c, i) => i).sort((a, b) => (DIAS_SUPERIORES.includes(div.dias[b]) ? 1 : 0) - (DIAS_SUPERIORES.includes(div.dias[a]) ? 1 : 0));
+    for (let rodada = 0; rodada < 2 && falta(); rodada++) {
+      for (const i of ordemDias) {
+        if (!falta()) break;
+        const bloco = foco.slots.map((s) => monta(s, true));
+        if (bloco.length === 2 && podemParear(bloco[0], bloco[1])) {
+          bloco[0].biset = true; bloco[0].parTipo = plano.foco === "bracos" ? "braco" : "superset";
+          bloco[0].descansoOriginal = bloco[0].descanso; bloco[0].descanso = "0 s"; bloco[1].descanso = "75 s";
+        }
+        sessoes[i].push(...bloco);
+      }
+    }
+  }
+
+  // 3ª passada: encaixar cada sessão no tempo, preservando volume
+  for (const exs of sessoes) {
+    // a) supersets entre músculos que não competem (peito+costas, perna+ombro…)
+    if (duracaoSessao(exs) > limite) parear(exs, 1);
+    // b) 4ª série dos compostos → 3 (a 4ª rende pouco a mais)
+    for (let k = exs.length - 1; k >= 0 && duracaoSessao(exs) > limite; k--) if (!exs[k].foco && exs[k].series > 3) exs[k].series = 3;
+    // c) acessórios (isolados, fora do foco) 3 → 2 séries
+    for (let k = exs.length - 1; k >= 0 && duracaoSessao(exs) > limite; k--) if (!exs[k].foco && !exs[k].composto && exs[k].series > 2) exs[k].series = 2;
+    // d) foco 4 → 3 séries
+    for (let k = exs.length - 1; k >= 0 && duracaoSessao(exs) > limite; k--) if (exs[k].foco && exs[k].series > 3) exs[k].series = 3;
+    // e) último recurso: tira o acessório não-foco do fim (nunca o 1º composto)
+    while (duracaoSessao(exs) > limite && exs.length > 4) {
+      let k = exs.length - 1;
+      while (k > 0 && (exs[k].foco || exs[k].composto)) k--;
+      if (k <= 0) k = exs.length - 1;
+      if (k > 0 && exs[k - 1].biset) { exs[k - 1].biset = false; exs[k - 1].descanso = exs[k - 1].descansoOriginal || "75 s"; }
+      exs.splice(k, 1);
+    }
+  }
+
+  // 4ª passada: sobrou tempo? acrescenta exercício SÓ pra músculo abaixo de ~10 séries/semana
+  const CANDIDATOS = { peito: "supinoInc", costas: "puxada", ombros: "lateral", quadriceps: "extensora", posterior: "flexora", gluteos: "gluteo", biceps: "biceps", triceps: "triceps", panturrilha: "panturrilha", abdomen: "core" };
+  for (let rodada = 0; rodada < 3; rodada++) {
+    for (const exs of sessoes) {
+      const v = volume(sessoes);
+      const faltando = Object.keys(CANDIDATOS).filter((m) => (v[m] || 0) < (["panturrilha", "abdomen"].includes(m) ? 6 : 10)).sort((a, b) => (v[a] || 0) - (v[b] || 0));
+      for (const m of faltando) {
+        const slot = CANDIDATOS[m];
+        if (exs.some((e) => e.slot === slot)) continue;
+        const novo = monta(slot, false);
+        if (duracaoSessao([...exs, novo]) <= limite) { exs.push(novo); break; }
+        contagem[slot]--;
+      }
+    }
+  }
+
+  return sessoes.map((exs, i) => ({
+    indice: i, codigo: div.dias[i], nome: DIAS[div.dias[i]].nome, letra: String.fromCharCode(65 + i),
+    exercicios: exs, minutos: Math.round(duracaoSessao(exs) / 60), diaSemana: (plano.diasSemana || [])[i],
+  }));
+}
+
+// Volume semanal por músculo (séries; exercício "ajudante" conta fração).
+// Faixas: 10–20 séries = ótimo pra hipertrofia; foco pode ir a ~22.
+export function volumeSemanal(dias, foco = "nenhum") {
+  const v = {};
+  for (const d of dias) for (const x of d.exercicios) for (const [m, f] of Object.entries(MUSCULOS_DO_PADRAO[x.slot] || {})) v[m] = (v[m] || 0) + x.series * f;
+  const doFoco = new Set((FOCOS[foco] || FOCOS.nenhum).slots.flatMap((s) => principais(s)));
+  const grandes = ["peito", "costas", "ombros", "quadriceps", "posterior", "gluteos", "biceps", "triceps"];
+  return grandes.map((m) => {
+    const s = Math.round(v[m] || 0);
+    const alvo = doFoco.has(m) ? [14, 22] : ["biceps", "triceps"].includes(m) ? [6, 16] : [9, 20];
+    return { musculo: m, nome: NOMES_MUSCULOS[m], series: s, alvo, foco: doFoco.has(m), status: s < alvo[0] - 2 ? "baixo" : s > alvo[1] + 2 ? "alto" : "ok" };
+  });
+}
+
+// Alternativas pra trocar um exercício: outras variações do mesmo padrão
+// (primeiro as do equipamento do plano, depois as dos outros).
+export function alternativas(slot, equipamento, atual) {
+  const pad = PADROES[slot];
+  if (!pad) return [];
+  const ordem = [equipamento, ...Object.keys(pad.v).filter((e) => e !== equipamento)];
+  const lista = [];
+  for (const e of ordem) for (const n of pad.v[e]) if (n !== atual && !lista.some((x) => x.nome === n)) lista.push({ nome: n, equipamento: e });
+  return lista;
 }
 
 export function nomeDivisao(plano) {

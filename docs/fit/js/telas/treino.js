@@ -1,9 +1,15 @@
-// Tela de treino: plano do ciclo atual, execução com registro de cargas,
-// cronômetro de descanso e ajustes (dias, local, troca de exercícios).
-import { esc, num, toast, abrirSheet, confirmar, dataBR } from "../ui.js";
-import { treinosDoCiclo, cicloAtual, diasParaTroca, nomeDivisao, cardio, REGRAS_TREINO, EQUIPAMENTOS, gerarPlano, DIAS_SEMANA, MINUTOS, PADRAO_DIAS, FOCOS } from "../treino.js";
-import { E, gravar, listar, salvarPlano, salvarPerfil } from "../estado.js";
+// Tela de treino: plano do ciclo atual, volume semanal por músculo
+// ("avaliação do personal"), troca de exercícios, ajustes e início da sessão
+// (a sessão em si — cronômetro, avisos, séries — fica em ../sessao.js).
+import { esc, num, toast, abrirSheet, dataBR, carregando } from "../ui.js";
+import {
+  treinosDoCiclo, cicloAtual, diasParaTroca, nomeDivisao, cardio, REGRAS_TREINO, EQUIPAMENTOS, gerarPlano,
+  DIAS_SEMANA, MINUTOS, PADRAO_DIAS, FOCOS, volumeSemanal, alternativas,
+} from "../treino.js";
+import { E, listar, salvarPlano, salvarPerfil } from "../estado.js";
 import { hojeISO } from "../db.js";
+import { iniciarSessao, sessaoAtual, abrirSessao } from "../sessao.js";
+import { conversar, resumoPerfil } from "../ia.js";
 
 export const cicloDoPlano = (pl) => cicloAtual(pl) + (pl.offset || 0);
 
@@ -18,6 +24,7 @@ export async function proximoTreino() {
 }
 
 let abaDia = null;
+export const resetAbaTreino = () => { abaDia = null; };
 
 export async function telaTreino(el, { rerender }) {
   const pl = E.plano;
@@ -27,6 +34,9 @@ export async function telaTreino(el, { rerender }) {
   const d = dias[abaDia];
   const semana = logs.filter((l) => l.data >= inicioSemana()).length;
   const cardioInfo = cardio(E.perfil);
+  const vol = volumeSemanal(dias, pl.foco);
+  const sessao = await sessaoAtual();
+  const emAndamento = sessao && sessao.diaIndice === d.indice;
 
   el.innerHTML = `
     <div class="tela entra">
@@ -46,30 +56,54 @@ export async function telaTreino(el, { rerender }) {
       </div>
 
       <h2 class="titulo-dia">Treino ${d.letra} — ${esc(d.nome)}</h2>
-      <p class="nota">⏱️ ~${d.minutos} min · ${d.exercicios.length} exercícios</p>
+      <p class="nota">⏱️ ~${d.minutos} min · ${d.exercicios.length} exercícios${d.exercicios.some((x) => x.biset) ? " · 🔗 com supersets pra caber no tempo" : ""}</p>
       ${d.indice === prox.indice ? `<p class="nota">👉 Este é o seu próximo treino.</p>` : ""}
 
       <div class="lista-ex">
         ${d.exercicios.map((x, k) => {
           const ultimo = ultimaCarga(logs, x.nome);
-          const noBiset = x.biset || (k > 0 && d.exercicios[k - 1].biset);
+          const noPar = x.biset || (k > 0 && d.exercicios[k - 1].biset);
+          const selo = x.biset ? (x.parTipo === "braco" ? "🔗 bi-set com o próximo" : "🔗 superset com o próximo") : "";
           return `
-          <details class="ex ${x.foco ? "ex--foco" : ""} ${noBiset ? "ex--biset" : ""}">
+          <details class="ex ${x.foco ? "ex--foco" : ""} ${noPar ? "ex--biset" : ""}">
             <summary>
               <span class="ex-num">${k + 1}</span>
-              <span class="ex-txt"><b>${esc(x.nome)}</b>${x.biset ? `<em class="selo-biset">🔗 bi-set com o próximo</em>` : ""}<small>${x.series} × ${x.reps} · ${x.biset ? "sem descanso → vá direto pro próximo" : `descanso ${x.descanso}`}${ultimo ? ` · última: ${esc(ultimo)}` : ""}</small></span>
+              <span class="ex-txt"><b>${esc(x.nome)}</b>${selo ? `<em class="selo-biset">${selo}</em>` : ""}<small>${x.series} × ${x.reps} · ${x.biset ? "sem descanso → vá direto pro próximo" : `descanso ${x.descanso}`}${ultimo ? ` · última: ${esc(ultimo)}` : ""}</small></span>
             </summary>
             <div class="ex-corpo">
               <p class="nota">🎯 ${esc(x.grupo)}</p>
               <p>${esc(x.dica)}</p>
               <p class="nota">Pare com ~${x.rir} repetições "sobrando" (RIR ${x.rir}).</p>
-              <a class="btn btn--sec btn--peq" href="${x.video}" target="_blank" rel="noopener">▶ Ver vídeo de execução</a>
+              ${x.biset ? `<p class="nota">🔗 ${x.parTipo === "braco" ? "Bi-set" : "Superset"}: faça 1 série deste e já emende 1 série do próximo; descanse depois do par. Como os músculos são diferentes, um descansa enquanto o outro trabalha — mesmo resultado em menos tempo.</p>` : ""}
+              <div class="linha-botoes">
+                <a class="btn btn--sec btn--peq" href="${x.video}" target="_blank" rel="noopener">▶ Vídeo</a>
+                <button class="btn btn--sec btn--peq" data-trocar="${k}">🔄 Trocar</button>
+              </div>
             </div>
           </details>`;
         }).join("")}
       </div>
 
-      <button class="btn btn--grande" id="iniciar">Iniciar treino ${d.letra} ▶</button>
+      <button class="btn btn--grande" id="iniciar">${emAndamento ? `Continuar treino ${d.letra} ▶ (em andamento)` : `Iniciar treino ${d.letra} ▶`}</button>
+      <p class="nota centro">Ao iniciar, o cronômetro começa sozinho e te aviso quando der ${pl.minutos || 60} min.</p>
+
+      <div class="card">
+        <div class="card-tag">📊 Volume semanal por músculo</div>
+        <p class="nota">Séries por semana somando todos os treinos. Faixa ideal pra ganhar músculo: <b>10–20</b> (o grupo prioritário pode ir mais alto).</p>
+        <div class="vol-lista">
+          ${vol.map((v) => {
+            const max = 24;
+            return `<div class="vol-linha vol--${v.status}">
+              <span class="vol-nome">${v.foco ? "⭐ " : ""}${esc(v.nome)}</span>
+              <div class="vol-trilho"><div class="vol-faixa" style="left:${(v.alvo[0] / max) * 100}%;width:${((v.alvo[1] - v.alvo[0]) / max) * 100}%"></div><div class="vol-barra" style="width:${Math.min(100, (v.series / max) * 100)}%"></div></div>
+              <b>${v.series}</b>
+            </div>`;
+          }).join("")}
+        </div>
+        <p class="nota">${vol.some((v) => v.status === "baixo") ? `⚠️ ${vol.filter((v) => v.status === "baixo").map((v) => v.nome).join(", ")} abaixo do ideal — com mais tempo por treino ou mais dias na semana isso sobe.` : "✅ Todos os grupos dentro da faixa recomendada."}</p>
+        <button class="btn btn--sec btn--peq" id="avaliar">🏋️ Pedir avaliação do Léo (personal IA)</button>
+        <div id="avaliacao"></div>
+      </div>
 
       <div class="card">
         <div class="card-tag">🚶 Cardio e passos</div>
@@ -77,20 +111,27 @@ export async function telaTreino(el, { rerender }) {
       </div>
 
       <details class="card">
-        <summary class="card-tag">📚 Regras de ouro do treino</summary>
-        <ul class="regras">${REGRAS_TREINO.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>
+        <summary class="card-tag">📚 Como o seu treino foi montado (ciência)</summary>
+        <ul class="regras">${[...REGRAS_TREINO,
+          "Volume é o que mais importa: 10–20 séries por músculo por semana, divididas em 2+ treinos.",
+          "Treinar peito e costas juntos (antagonistas) em superset mantém o desempenho e economiza ~30% do tempo.",
+          "Descanso de ~2 min nos exercícios pesados rende mais músculo que descansos curtos.",
+          "Dividir por grupo (ABC) ou fazer corpo inteiro dá o mesmo resultado quando o volume é igual — o que muda é a frequência.",
+        ].map((r) => `<li>${esc(r)}</li>`).join("")}</ul>
       </details>
 
       ${logs.length ? `
       <div class="card">
         <div class="card-tag">🗓️ Últimos treinos</div>
-        ${logs.slice(-5).reverse().map((l) => `<div class="linha-hist"><span>${dataBR(l.data, { weekday: "short", day: "2-digit", month: "short" })}</span><b>${esc(l.nome)}</b><small>${num(l.volume)} kg · ${l.duracaoMin || "–"} min</small></div>`).join("")}
+        ${logs.slice(-5).reverse().map((l) => `<div class="linha-hist"><span>${dataBR(l.data, { weekday: "short", day: "2-digit", month: "short" })}</span><b>${esc(l.nome)}</b><small>${l.duracaoMin || "–"} min${l.automatico ? " (auto)" : ""}</small></div>`).join("")}
       </div>` : ""}
     </div>`;
 
   el.querySelectorAll("[data-aba]").forEach((b) => b.onclick = () => { abaDia = +b.dataset.aba; rerender(); });
-  el.querySelector("#iniciar").onclick = () => executarTreino(d, ciclo, logs, rerender);
+  el.querySelector("#iniciar").onclick = () => (emAndamento ? abrirSessao() : iniciarSessao(d, ciclo));
   el.querySelector("#ajustes").onclick = () => ajustesPlano(rerender);
+  el.querySelectorAll("[data-trocar]").forEach((b) => b.onclick = () => trocarNoPlano(d.exercicios[+b.dataset.trocar], rerender));
+  el.querySelector("#avaliar").onclick = (ev) => avaliarComLeo(ev.target, el.querySelector("#avaliacao"), dias, vol);
 }
 
 function inicioSemana() {
@@ -102,9 +143,9 @@ function inicioSemana() {
 
 function ultimaCarga(logs, nome) {
   for (let i = logs.length - 1; i >= 0; i--) {
-    const ex = logs[i].exercicios.find((e) => e.nome === nome);
+    const ex = (logs[i].exercicios || []).find((e) => e.nome === nome);
     if (ex) {
-      const feitas = ex.series.filter((s) => s.feito && (s.kg || s.reps));
+      const feitas = (ex.series || []).filter((s) => s.feito && (s.kg || s.reps));
       if (feitas.length) {
         const melhor = feitas.reduce((a, b) => ((+b.kg || 0) > (+a.kg || 0) ? b : a));
         return `${melhor.kg ? `${num(melhor.kg, 1)} kg × ` : ""}${melhor.reps || "?"}`;
@@ -114,97 +155,40 @@ function ultimaCarga(logs, nome) {
   return "";
 }
 
-function valoresAnteriores(logs, nome) {
-  for (let i = logs.length - 1; i >= 0; i--) {
-    const ex = logs[i].exercicios.find((e) => e.nome === nome);
-    if (ex) return ex.series;
-  }
-  return [];
+// Troca definitiva (vale até o próximo ciclo, quando os exercícios mudam)
+function trocarNoPlano(x, aoMudar) {
+  const alts = alternativas(x.slot, E.plano.equipamento, x.nome);
+  const sh = abrirSheet(`
+    <h2>🔄 Trocar "${esc(x.nome)}"</h2>
+    <p class="sub">Opções que trabalham o mesmo músculo (${esc(x.grupo)}). A troca vale até o próximo ciclo.</p>
+    <div class="lista-troca">${alts.map((a, i) => `<button class="troca-op" data-i="${i}"><b>${esc(a.nome)}</b><small>${a.equipamento === "academia" ? "academia" : a.equipamento === "casa" ? "halteres em casa" : "peso do corpo"}</small></button>`).join("")}</div>
+    ${E.plano.trocas && E.plano.trocas[x.original] ? `<button class="link" id="desfazer">Voltar para o original (${esc(x.original)})</button>` : ""}`);
+  sh.el.querySelectorAll("[data-i]").forEach((b) => b.onclick = async () => {
+    const a = alts[+b.dataset.i];
+    await salvarPlano({ ...E.plano, trocas: { ...(E.plano.trocas || {}), [x.original]: a.nome } });
+    sh.fechar(); toast("Exercício trocado ✅"); aoMudar();
+  });
+  const desf = sh.el.querySelector("#desfazer");
+  if (desf) desf.onclick = async () => {
+    const trocas = { ...(E.plano.trocas || {}) }; delete trocas[x.original];
+    await salvarPlano({ ...E.plano, trocas });
+    sh.fechar(); aoMudar();
+  };
 }
 
-function executarTreino(d, ciclo, logs, aoTerminar) {
-  const inicio = Date.now();
-  const estado = d.exercicios.map((x) => {
-    const ant = valoresAnteriores(logs, x.nome);
-    return { nome: x.nome, series: Array.from({ length: x.series }, (_, i) => ({ kg: ant[i] ? ant[i].kg : "", reps: ant[i] ? ant[i].reps : "", feito: false })) };
-  });
-  const s = abrirSheet(`
-    <div class="exec-topo"><h2>Treino ${d.letra}</h2><span id="cron" class="cron">00:00</span></div>
-    ${d.exercicios.map((x, k) => `
-      <div class="exec-ex">
-        <div class="exec-nome"><b>${k + 1}. ${esc(x.nome)}</b><a href="${x.video}" target="_blank" rel="noopener" aria-label="Vídeo">▶</a></div>
-        <small class="nota">${x.series} × ${x.reps} · ${x.biset ? "🔗 bi-set: sem descanso, vá pro próximo" : `descanso ${x.descanso}`} · RIR ${x.rir}</small>
-        <div class="series">
-          <div class="serie serie--cab"><span>Série</span><span>kg</span><span>reps</span><span>✓</span></div>
-          ${estado[k].series.map((se, j) => `
-            <div class="serie" data-ex="${k}" data-s="${j}">
-              <span>${j + 1}</span>
-              <input type="number" inputmode="decimal" step="0.5" class="campo campo--mini" data-campo="kg" value="${esc(se.kg)}" placeholder="–">
-              <input type="number" inputmode="numeric" class="campo campo--mini" data-campo="reps" value="${esc(se.reps)}" placeholder="${esc(x.reps.split("–")[0])}">
-              <button class="check" data-check aria-label="Série feita">✓</button>
-            </div>`).join("")}
-        </div>
-      </div>`).join("")}
-    <div id="descanso" class="descanso oculto"><span>Descanso</span><b id="desc-t">1:30</b><button id="pular">Pular</button></div>
-    <button class="btn btn--grande" id="concluir">Concluir treino 🏁</button>`, { cheia: true });
-
-  const cron = s.el.querySelector("#cron");
-  const iv = setInterval(() => {
-    const seg = Math.floor((Date.now() - inicio) / 1000);
-    cron.textContent = `${String(Math.floor(seg / 60)).padStart(2, "0")}:${String(seg % 60).padStart(2, "0")}`;
-  }, 1000);
-
-  let ivDesc = null;
-  const caixaDesc = s.el.querySelector("#descanso");
-  const iniciarDescanso = (texto) => {
-    let seg = texto.includes("min") ? parseFloat(texto) * 60 : parseInt(texto, 10) || 90;
-    clearInterval(ivDesc);
-    caixaDesc.classList.remove("oculto");
-    const t = s.el.querySelector("#desc-t");
-    const pinta = () => { t.textContent = `${Math.floor(seg / 60)}:${String(seg % 60).padStart(2, "0")}`; };
-    pinta();
-    ivDesc = setInterval(() => {
-      seg--; pinta();
-      if (seg <= 0) {
-        clearInterval(ivDesc); caixaDesc.classList.add("oculto");
-        if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
-        toast("Bora pra próxima série! 💪");
-      }
-    }, 1000);
-  };
-  s.el.querySelector("#pular").onclick = () => { clearInterval(ivDesc); caixaDesc.classList.add("oculto"); };
-
-  s.el.querySelectorAll(".serie[data-ex]").forEach((row) => {
-    const k = +row.dataset.ex, j = +row.dataset.s;
-    row.querySelectorAll("input").forEach((inp) => inp.oninput = () => { estado[k].series[j][inp.dataset.campo] = inp.value; });
-    row.querySelector("[data-check]").onclick = (ev) => {
-      const se = estado[k].series[j];
-      se.feito = !se.feito;
-      if (se.feito && !se.reps) se.reps = d.exercicios[k].reps.split("–")[0];
-      row.querySelector('[data-campo="reps"]').value = se.reps;
-      ev.currentTarget.classList.toggle("check--on", se.feito);
-      row.classList.toggle("serie--feita", se.feito);
-      if (se.feito) {
-        if (d.exercicios[k].biset) toast(`🔗 Bi-set: vá direto para ${d.exercicios[k + 1].nome}`);
-        else iniciarDescanso(d.exercicios[k].descanso);
-      }
-    };
-  });
-
-  s.el.querySelector("#concluir").onclick = async () => {
-    const feitas = estado.reduce((a, e) => a + e.series.filter((x) => x.feito).length, 0);
-    if (!feitas && !(await confirmar("Nenhuma série marcada. Concluir mesmo assim?", { ok: "Concluir" }))) return;
-    clearInterval(iv); clearInterval(ivDesc);
-    const volume = estado.reduce((a, e) => a + e.series.filter((x) => x.feito).reduce((b, x) => b + (+x.kg || 0) * (+x.reps || 0), 0), 0);
-    await gravar("treinos", {
-      data: hojeISO(), ciclo, diaIndice: d.indice, letra: d.letra, nome: `Treino ${d.letra} — ${d.nome}`,
-      exercicios: estado, volume: Math.round(volume), duracaoMin: Math.round((Date.now() - inicio) / 60000), series: feitas,
-    });
-    s.fechar();
-    abaDia = null;
-    toast("Treino concluído! 🔥 Registrado.");
-    aoTerminar();
-  };
+async function avaliarComLeo(botao, caixa, dias, vol) {
+  if (E.modoLocal) return toast("A avaliação do Léo precisa de uma conta.", "erro");
+  botao.disabled = true;
+  caixa.innerHTML = carregando("O Léo está analisando seu treino…");
+  try {
+    const plano = dias.map((d) => `Treino ${d.letra} (${d.nome}, ~${d.minutos} min): ` + d.exercicios.map((x) => `${x.nome} ${x.series}x${x.reps}${x.biset ? " [superset c/ próximo]" : ""}`).join("; ")).join("\n");
+    const pergunta = `Avalie meu plano de treino como personal, com base na ciência mais atual (volume semanal, frequência, ordem, descanso, supersets). Diga o que está bom e sugira no máximo 3 ajustes, se fizer sentido pro meu objetivo e meu tempo.\n\n${plano}\n\nVolume semanal: ${vol.map((v) => `${v.nome} ${v.series}`).join(", ")}`;
+    const r = await conversar({ agente: "coach", historico: [{ papel: "user", texto: pergunta }], contexto: { perfil: resumoPerfil(E.perfil), plano: { dias: E.plano.dias, minutos: E.plano.minutos, foco: E.plano.foco, equipamento: E.plano.equipamento } } });
+    caixa.innerHTML = `<div class="dica-ia">🏋️ <span>${esc(r.resposta).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/\n/g, "<br>")}</span></div>`;
+  } catch (e) {
+    caixa.innerHTML = `<p class="erro-txt">${esc(e.message)}</p>`;
+    botao.disabled = false;
+  }
 }
 
 function ajustesPlano(aoMudar) {
@@ -214,7 +198,7 @@ function ajustesPlano(aoMudar) {
   const s = abrirSheet(`
     <h2>Ajustar treino</h2>
     <label class="rotulo">Dias de treino</label>
-    <div class="semana-sel">${DIAS_SEMANA.map((d, k) => `<button class="sem-b ${semana.includes(k) ? "sem-b--on" : ""}" data-sem="${k}">${d}</button>`).join("")}</div>
+    <div class="semana-sel">${DIAS_SEMANA.map((d, k) => `<button class="sem-b ${semana.includes(k) ? "sem-b--on" : ""}" data-diasem="${k}">${d}</button>`).join("")}</div>
     <label class="rotulo">Tempo por dia</label>
     <div class="dias-sel">${MINUTOS.map((m) => `<button class="dia-b dia-b--larg ${min === m ? "dia-b--on" : ""}" data-min="${m}">${m} min</button>`).join("")}</div>
     <label class="rotulo">Prioridade muscular</label>
@@ -222,12 +206,12 @@ function ajustesPlano(aoMudar) {
     <label class="rotulo">Local</label>
     <div class="opcoes">${Object.entries(EQUIPAMENTOS).map(([k, o]) => `<button class="opcao opcao--linha ${pl.equipamento === k ? "opcao--on" : ""}" data-eq="${k}"><span class="opcao-emoji">${o.emoji}</span><span><b>${o.rotulo}</b></span></button>`).join("")}</div>
     <label class="rotulo">Trocar exercícios a cada</label>
-    <div class="dias-sel">${[4, 6, 8].map((w) => `<button class="dia-b dia-b--larg ${pl.semanasCiclo === w ? "dia-b--on" : ""}" data-sem="${w}">${w} sem</button>`).join("")}</div>
+    <div class="dias-sel">${[4, 6, 8].map((w) => `<button class="dia-b dia-b--larg ${pl.semanasCiclo === w ? "dia-b--on" : ""}" data-ciclo="${w}">${w} sem</button>`).join("")}</div>
     <button class="btn btn--sec" id="variar">🔄 Variar exercícios agora</button>
     <button class="btn btn--grande" id="salvar">Salvar</button>`);
   let eq = pl.equipamento, sem = pl.semanasCiclo, foco = pl.foco || "nenhum";
-  s.el.querySelectorAll("[data-sem]").forEach((b) => b.onclick = () => {
-    const d = +b.dataset.sem;
+  s.el.querySelectorAll("[data-diasem]").forEach((b) => b.onclick = () => {
+    const d = +b.dataset.diasem;
     const novo = semana.includes(d) ? semana.filter((x) => x !== d) : [...semana, d].sort();
     if (novo.length > 6) return toast("No máximo 6 dias por semana.", "erro");
     semana = novo;
@@ -240,16 +224,15 @@ function ajustesPlano(aoMudar) {
   liga("min", "dia-b--on", (v) => { min = +v; });
   liga("foco", "chip--on", (v) => { foco = v; });
   liga("eq", "opcao--on", (v) => { eq = v; });
-  liga("sem", "dia-b--on", (v) => { sem = +v; });
+  liga("ciclo", "dia-b--on", (v) => { sem = +v; });
   s.el.querySelector("#variar").onclick = async () => {
-    await salvarPlano({ ...pl, offset: (pl.offset || 0) + 1 });
+    await salvarPlano({ ...pl, offset: (pl.offset || 0) + 1, trocas: {} });
     s.fechar(); toast("Exercícios variados ✅"); aoMudar();
   };
   s.el.querySelector("#salvar").onclick = async () => {
     if (!semana.length) return toast("Escolha pelo menos 1 dia.", "erro");
-    const mudouBase = semana.length !== pl.dias || eq !== pl.equipamento || min !== (pl.minutos || 60) || semana.join() !== (pl.diasSemana || []).join();
     await salvarPerfil({ ...E.perfil, diasTreino: semana.length, diasSemana: semana, minutosTreino: min, equipamento: eq, focoMuscular: foco });
-    const novo = mudouBase ? { ...gerarPlano(E.perfil, { semanasCiclo: sem }), offset: pl.offset || 0 } : { ...pl, semanasCiclo: sem, foco };
+    const novo = { ...gerarPlano(E.perfil, { inicio: pl.inicio, semanasCiclo: sem }), offset: pl.offset || 0, trocas: eq === pl.equipamento ? (pl.trocas || {}) : {} };
     await salvarPlano(novo);
     abaDia = null;
     s.fechar(); toast("Plano atualizado ✅"); aoMudar();
