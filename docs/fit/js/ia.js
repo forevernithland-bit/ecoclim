@@ -1,9 +1,9 @@
 // Chamadas à IA (backend /fit/* na VPS). Cada função tem um "plano B" local
 // para o app nunca travar quando estiver sem internet.
 import { API_BASE } from "./config.js";
-import { token } from "./nuvem.js";
+import { token, salvarAlimentoNoBanco } from "./nuvem.js";
 import { blobParaBase64, comprimirImagem } from "./midia.js";
-import { estimarLocal } from "./alimentos.js";
+import { estimarLocal, carregarBase, aprenderDaIA, totalizar } from "./alimentos.js";
 
 async function chamar(rota, corpo, { timeout = 90000 } = {}) {
   const ctrl = new AbortController();
@@ -36,22 +36,47 @@ async function paraIA(blob) {
   return blobParaBase64(menor);
 }
 
+// Refeição: a BASE vem primeiro (instantâneo e grátis). A IA só entra para o
+// que a base não conhece — ou para fotos — e o que ela descobre vira base.
 export async function analisarRefeicao({ texto, foto, perfil }) {
+  await carregarBase();
+  const contexto = perfil ? { objetivo: perfil.objetivo, sexo: perfil.sexo, peso: perfil.peso, nao_gosta: perfil.naoGosta || [], tipo_alimentacao: perfil.dietas || ["tudo"], alergias: perfil.alergias || "" } : null;
+  const local = texto ? estimarLocal(texto) : { itens: [], naoEncontrados: [] };
+
+  // 1) Só texto e a base reconheceu tudo → nem chama a IA
+  if (!foto && local.itens.length && !local.naoEncontrados.length) {
+    return { ...local, titulo: local.itens.map((i) => i.nome).join(", "), fonte: "tabela" };
+  }
+
+  // 2) Chama a IA: com foto manda tudo; só texto manda SÓ o que faltou
+  const pedido = foto ? (texto || "") : (local.itens.length ? local.naoEncontrados.join(", ") : texto);
   try {
-    const r = await chamar("/ia/refeicao", {
-      texto: texto || "",
-      imagem_b64: await paraIA(foto),
-      contexto: perfil ? { objetivo: perfil.objetivo, sexo: perfil.sexo, peso: perfil.peso, nao_gosta: perfil.naoGosta || [], tipo_alimentacao: perfil.dietas || ["tudo"], alergias: perfil.alergias || "" } : null,
-    });
-    return { ...r, fonte: "ia" };
+    const r = await chamar("/ia/refeicao", { texto: pedido, imagem_b64: await paraIA(foto), contexto });
+    // ensina a base com cada item novo (em segundo plano)
+    ensinarBase(r.itens || [], foto ? "" : pedido);
+    if (foto || !local.itens.length) return { ...r, fonte: "ia" };
+    const itens = [...local.itens, ...(r.itens || []).map((i) => ({ ...i, fonte: "ia" }))];
+    return { ...totalizar(itens, "Base TACO + IA só para o que faltava."), titulo: itens.map((i) => i.nome).join(", "), dica: r.dica, fonte: "tabela+ia" };
   } catch (e) {
-    if (texto) {
-      const local = estimarLocal(texto);
-      if (local.itens.length) return { ...local, fonte: "local", aviso: "IA indisponível agora — usei a tabela de alimentos. Confira os valores." };
+    if (local.itens.length) {
+      return {
+        ...local, fonte: "tabela",
+        aviso: local.naoEncontrados.length ? `Não achei na base: ${local.naoEncontrados.join(", ")}. A IA está indisponível agora — ajuste ou adicione depois.` : "",
+      };
     }
     throw new Error(foto && !texto
       ? "Não consegui analisar a foto agora (sem conexão com a IA). Descreva o prato por texto ou voz que eu calculo pela tabela."
-      : "Não reconheci os alimentos. Tente algo como: '2 ovos, 1 pão francês e café com leite'.");
+      : `Não reconheci os alimentos${String(e.message).includes("login") ? " (a IA precisa de login)" : ""}. Tente algo como: '2 ovos, 1 pão francês e café com leite'.`);
+  }
+}
+
+async function ensinarBase(itensIA, textoPedido) {
+  const partes = textoPedido ? textoPedido.split(",").map((s) => s.trim()) : [];
+  for (let i = 0; i < itensIA.length; i++) {
+    try {
+      const novo = await aprenderDaIA(itensIA[i], itensIA.length === partes.length ? partes[i] : "");
+      if (novo) salvarAlimentoNoBanco(novo);
+    } catch (e) { /* aprender é bônus, nunca atrapalha o registro */ }
   }
 }
 

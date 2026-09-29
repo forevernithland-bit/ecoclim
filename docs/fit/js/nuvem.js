@@ -193,8 +193,40 @@ export async function urlFotoRemota(caminho) {
   return data ? data.signedUrl : "";
 }
 
+// ---------- Base de alimentos compartilhada (fit_alimentos) ----------
+// Baixa a tabela inteira (algumas centenas de linhas) no máx. a cada 12 h e
+// guarda no aparelho — é ela que evita chamar a IA para alimentos conhecidos.
+export async function baixarAlimentos({ forcar = false } = {}) {
+  try {
+    const atual = await kvGet("alimentosDB", null);
+    if (!forcar && atual && Date.now() - (atual.em || 0) < 12 * 3600 * 1000) return;
+    const lista = [];
+    for (let de = 0; de < 5000; de += 1000) {
+      const { data, error } = await sb().from("fit_alimentos").select("nome,chaves,kcal,p,c,g,porcao,unidade,fonte").range(de, de + 999);
+      if (error) return; // tabela ainda não criada: segue com a base embarcada
+      lista.push(...data.map((x) => ({ ...x, kcal: +x.kcal, p: +x.p, c: +x.c, g: +x.g, porcao: +x.porcao })));
+      if (data.length < 1000) break;
+    }
+    const { atualizarBaseDoBanco } = await import("./alimentos.js");
+    await atualizarBaseDoBanco(lista);
+  } catch (e) { /* offline */ }
+}
+
+// A IA descobriu um alimento novo → vira base pra todo mundo (só insere; a
+// base TACO não pode ser alterada pelo app — regra no Supabase).
+export async function salvarAlimentoNoBanco(item) {
+  try {
+    if (!(await usuarioAtual())) return;
+    await sb().from("fit_alimentos").insert({
+      nome: item.nome, chaves: item.chaves, kcal: item.kcal, p: item.p, c: item.c, g: item.g,
+      porcao: item.porcao, unidade: item.unidade, fonte: "ia",
+    });
+  } catch (e) { /* já existe ou offline: tudo bem */ }
+}
+
 export function iniciarSyncAutomatico() {
   window.addEventListener("online", () => sincronizar());
   setInterval(() => sincronizar(), 60000);
   sincronizar();
+  baixarAlimentos();
 }

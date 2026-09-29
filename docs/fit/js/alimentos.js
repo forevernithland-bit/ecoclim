@@ -1,148 +1,180 @@
-// Base local de alimentos comuns no Brasil (valores por 100 g, arredondados da
-// Tabela TACO/UNICAMP e rótulos médios). Serve de "plano B" quando a IA não
-// está disponível (sem internet ou backend fora) — o texto digitado ou falado
-// é quebrado em itens e somado aqui. Com a IA ligada, a análise é dela.
+// Base de alimentos + leitor de refeições em texto.
 //
-// porcao = quantos gramas tem "1 unidade/porção" quando a pessoa não diz o peso.
-const A = (nome, chaves, kcal, p, c, g, porcao, unidade = "porção") => ({ nome, chaves, kcal, p, c, g, porcao, unidade });
+// Ordem de busca (do mais barato pro mais caro):
+//  1. Base TACO embarcada (data/alimentos.json — funciona offline)
+//  2. Base do Supabase (fit_alimentos) — inclui o que a IA já aprendeu
+//  3. Só o que não foi encontrado vai pra IA; a resposta dela é salva na base
+//     (fonte = 'ia') pra próxima vez sair na hora e sem gastar crédito.
+import { kvGet, kvSet } from "./db.js";
 
-export const ALIMENTOS = [
-  A("Arroz branco cozido", ["arroz"], 128, 2.5, 28, 0.2, 150, "escumadeira cheia"),
-  A("Arroz integral cozido", ["arroz integral"], 124, 2.6, 26, 1, 150, "escumadeira cheia"),
-  A("Feijão cozido", ["feijao", "feijão", "feijoada"], 77, 4.8, 14, 0.5, 140, "concha"),
-  A("Macarrão cozido", ["macarrao", "macarrão", "espaguete", "massa", "lasanha"], 158, 5.8, 31, 0.9, 200, "prato raso"),
-  A("Batata cozida", ["batata"], 52, 1.2, 12, 0.1, 150, "unidade média"),
-  A("Batata frita", ["batata frita", "fritas"], 312, 3.4, 41, 15, 120, "porção pequena"),
-  A("Batata-doce cozida", ["batata doce", "batata-doce"], 77, 0.6, 18, 0.1, 150, "unidade média"),
-  A("Mandioca cozida", ["mandioca", "aipim", "macaxeira"], 125, 0.6, 30, 0.3, 150, "pedaço"),
-  A("Farofa", ["farofa"], 406, 2.1, 80, 9, 30, "colher de sopa cheia"),
-  A("Cuscuz de milho", ["cuscuz"], 113, 2.2, 25, 0.7, 150, "fatia"),
-  A("Tapioca (massa)", ["tapioca"], 240, 0, 60, 0, 60, "unidade"),
-  A("Pão francês", ["pao frances", "pão francês", "pao", "pão", "pãozinho", "paozinho"], 300, 8, 58, 3.1, 50, "unidade"),
-  A("Pão de forma", ["pao de forma", "pão de forma", "torrada"], 253, 12, 44, 2.7, 25, "fatia"),
-  A("Pão de queijo", ["pao de queijo", "pão de queijo"], 363, 5.1, 34, 24, 40, "unidade média"),
-  A("Aveia em flocos", ["aveia"], 394, 14, 67, 8.5, 30, "3 colheres de sopa"),
-  A("Granola", ["granola"], 420, 9, 66, 14, 40, "porção"),
-  A("Peito de frango grelhado", ["frango", "peito de frango", "file de frango", "filé de frango"], 159, 32, 0, 2.5, 120, "filé"),
-  A("Coxa de frango assada", ["coxa", "sobrecoxa"], 215, 27, 0, 11, 100, "unidade"),
-  A("Carne bovina magra (patinho)", ["patinho", "carne moida", "carne moída", "bife", "carne"], 219, 36, 0, 7.3, 120, "bife"),
-  A("Picanha / carne gorda", ["picanha", "costela", "cupim", "fraldinha", "churrasco"], 289, 26, 0, 20, 150, "porção"),
-  A("Carne de porco (lombo)", ["porco", "lombo", "bisteca"], 210, 32, 0, 8, 120, "bife"),
-  A("Linguiça", ["linguica", "linguiça", "salsicha"], 296, 16, 1, 25, 60, "gomo"),
-  A("Peixe (tilápia grelhada)", ["peixe", "tilapia", "tilápia", "merluza"], 128, 26, 0, 2.7, 120, "filé"),
-  A("Salmão grelhado", ["salmao", "salmão"], 243, 26, 0, 15, 120, "posta"),
-  A("Atum em água", ["atum"], 116, 26, 0, 1, 80, "lata drenada"),
-  A("Ovo cozido/mexido", ["ovo", "ovos", "omelete"], 146, 13, 0.6, 9.5, 50, "unidade"),
-  A("Queijo muçarela", ["mussarela", "muçarela", "queijo"], 330, 23, 3, 25, 20, "fatia"),
-  A("Queijo minas frescal", ["minas", "frescal", "queijo branco"], 264, 17, 3.2, 20, 30, "fatia"),
-  A("Requeijão", ["requeijao", "requeijão"], 257, 9.6, 2.4, 23, 30, "colher de sopa"),
-  A("Presunto", ["presunto", "peito de peru"], 110, 17, 2, 4, 15, "fatia"),
-  A("Leite integral", ["leite"], 61, 3.2, 4.7, 3.3, 200, "copo"),
-  A("Leite desnatado", ["leite desnatado"], 35, 3.4, 5, 0.1, 200, "copo"),
-  A("Iogurte natural", ["iogurte"], 61, 4, 5, 3, 170, "pote"),
-  A("Iogurte grego", ["grego"], 120, 5, 9, 7, 100, "pote"),
-  A("Whey protein", ["whey"], 390, 78, 8, 6, 30, "scoop"),
-  A("Banana", ["banana"], 98, 1.3, 26, 0.1, 90, "unidade"),
-  A("Maçã", ["maca", "maçã"], 56, 0.3, 15, 0, 130, "unidade"),
-  A("Laranja", ["laranja", "mexerica", "tangerina"], 46, 1, 11, 0.1, 150, "unidade"),
-  A("Mamão", ["mamao", "mamão"], 40, 0.5, 10, 0.1, 150, "fatia"),
-  A("Manga", ["manga"], 64, 0.4, 17, 0.3, 150, "unidade pequena"),
-  A("Abacate", ["abacate"], 96, 1.2, 6, 8.4, 100, "meia unidade pequena"),
-  A("Morango", ["morango", "morangos"], 30, 0.9, 7, 0.3, 100, "xícara"),
-  A("Uva", ["uva", "uvas"], 53, 0.7, 14, 0.2, 100, "cacho pequeno"),
-  A("Açaí com xarope (tigela)", ["acai", "açaí"], 110, 1, 21, 3, 300, "tigela média"),
-  A("Salada verde (folhas)", ["salada", "alface", "rucula", "rúcula", "folhas"], 15, 1.3, 2.4, 0.2, 60, "prato de sobremesa"),
-  A("Tomate", ["tomate"], 15, 1.1, 3.1, 0.2, 80, "unidade"),
-  A("Legumes cozidos", ["legumes", "brocolis", "brócolis", "cenoura", "abobrinha", "chuchu", "vagem", "couve"], 30, 1.8, 5.5, 0.3, 100, "porção"),
-  A("Azeite", ["azeite", "oleo", "óleo"], 884, 0, 0, 100, 8, "colher de sopa"),
-  A("Manteiga / margarina", ["manteiga", "margarina"], 720, 0.4, 0, 81, 10, "ponta de faca"),
-  A("Pasta de amendoim", ["pasta de amendoim", "amendoim"], 590, 25, 20, 49, 15, "colher de sopa"),
-  A("Castanhas", ["castanha", "castanhas", "nozes", "amendoas", "amêndoas"], 640, 15, 13, 60, 20, "punhado"),
-  A("Chocolate", ["chocolate", "bombom"], 540, 7, 58, 31, 25, "barrinha"),
-  A("Bolo simples", ["bolo"], 330, 5, 53, 11, 60, "fatia"),
-  A("Biscoito recheado", ["biscoito", "bolacha"], 472, 5.5, 70, 20, 30, "3 unidades"),
-  A("Pizza (fatia)", ["pizza"], 270, 11, 30, 11, 110, "fatia"),
-  A("Hambúrguer de lanchonete", ["hamburguer", "hambúrguer", "x-burguer", "x burguer", "lanche", "sanduiche", "sanduíche"], 250, 13, 24, 11, 220, "unidade"),
-  A("Coxinha / salgado frito", ["coxinha", "pastel", "salgado", "kibe", "quibe", "esfiha"], 290, 9, 30, 15, 100, "unidade"),
-  A("Sushi / japonês", ["sushi", "temaki", "sashimi", "hot roll"], 150, 6, 25, 2.5, 30, "peça"),
-  A("Refrigerante", ["refrigerante", "coca", "guarana", "guaraná"], 42, 0, 10.6, 0, 350, "lata"),
-  A("Refrigerante zero", ["zero", "diet"], 1, 0, 0, 0, 350, "lata"),
-  A("Suco de laranja natural", ["suco"], 45, 0.7, 10, 0.2, 250, "copo"),
-  A("Cerveja", ["cerveja", "chopp", "chope"], 43, 0.5, 3.6, 0, 350, "lata"),
-  A("Vinho", ["vinho"], 85, 0.1, 2.6, 0, 150, "taça"),
-  A("Café com açúcar", ["cafe com acucar", "café com açúcar"], 40, 0.3, 9.5, 0, 100, "xícara"),
-  A("Café sem açúcar", ["cafe", "café"], 2, 0.1, 0, 0, 100, "xícara"),
-  A("Açúcar", ["acucar", "açúcar"], 387, 0, 100, 0, 5, "colher de chá"),
-  A("Mel", ["mel"], 309, 0.3, 84, 0, 15, "colher de sopa"),
-  A("Sorvete", ["sorvete"], 200, 3.5, 24, 10, 100, "bola dupla"),
-  A("Tofu", ["tofu"], 76, 8, 2, 4.8, 100, "porção"),
-  A("Lentilha / grão-de-bico", ["lentilha", "grao de bico", "grão de bico", "grão-de-bico"], 116, 9, 20, 0.4, 130, "concha"),
-];
+let BASE = [];          // [{nome, chaves[], kcal, p, c, g, porcao, unidade, fonte}]
+let INDICE = [];        // [{chave, re, item}] ordenado da chave mais longa pra mais curta
+let carregada = null;
 
-const NUMEROS = { um: 1, uma: 1, dois: 2, duas: 2, "três": 3, tres: 3, quatro: 4, cinco: 5, seis: 6, meio: 0.5, meia: 0.5 };
-const PORCOES_TEXTO = [
-  [/prato (fundo|cheio)/, 1.6], [/prato/, 1.2], [/(concha|escumadeira) cheia/, 1.3],
-  [/(pouco|pouquinho)/, 0.6], [/(grande|bastante)/, 1.5],
-];
-
-function normalizar(s) {
-  return String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+export function normalizar(s) {
+  return String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim();
 }
+const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-function acharAlimento(trecho) {
-  const t = normalizar(trecho);
-  let melhor = null, tam = 0;
-  for (const a of ALIMENTOS) {
-    for (const ch of a.chaves) {
-      const c = normalizar(ch);
-      if (t.includes(c) && c.length > tam) { melhor = a; tam = c.length; }
+function montarIndice() {
+  const porNome = new Map();
+  for (const it of BASE) porNome.set(normalizar(it.nome), it); // último vence (Supabase/IA sobre o JSON)
+  const itens = [...porNome.values()];
+  const idx = [];
+  for (const it of itens) {
+    for (const ch of new Set([...(it.chaves || []), normalizar(it.nome)].map(normalizar))) {
+      if (ch.length < 2) continue;
+      idx.push({ chave: ch, re: new RegExp(`(^|[^a-z0-9])(${escRe(ch)})s?(?=$|[^a-z0-9])`, "g"), item: it });
     }
   }
-  return melhor;
+  idx.sort((a, b) => b.chave.length - a.chave.length);
+  INDICE = idx;
 }
 
-// "2 ovos, 150g de frango e 1 concha de feijão" → itens com calorias
+export async function carregarBase() {
+  if (carregada) return carregada;
+  carregada = (async () => {
+    let json = [];
+    try { json = (await (await fetch("./data/alimentos.json")).json()).alimentos || []; } catch (e) { /* offline no 1º uso */ }
+    const doBanco = (await kvGet("alimentosDB", { lista: [] })).lista || [];
+    const aprendidosLocal = (await kvGet("alimentosIA", [])) || [];
+    BASE = [...json, ...doBanco, ...aprendidosLocal];
+    montarIndice();
+    return BASE.length;
+  })();
+  return carregada;
+}
+
+// Chamado pelo sync (nuvem.js) quando baixa a tabela fit_alimentos.
+export async function atualizarBaseDoBanco(lista) {
+  await kvSet("alimentosDB", { lista, em: Date.now() });
+  carregada = null;
+  await carregarBase();
+}
+
+// Guarda localmente o que a IA ensinou (e devolve o registro pra ir pro banco)
+export async function aprenderDaIA(itemIA, textoOriginal) {
+  const m = String(itemIA.quantidade || "").match(/(\d+[.,]?\d*)\s*(g|gr|gramas|ml)\b/i);
+  const gramas = m ? parseFloat(m[1].replace(",", ".")) : 0;
+  if (!gramas || !itemIA.nome || !(itemIA.kcal >= 0)) return null;
+  const f = 100 / gramas;
+  const chaves = [normalizar(itemIA.nome)];
+  const txt = limparFragmento(textoOriginal || "");
+  if (txt && txt.split(" ").length <= 4) chaves.push(txt);
+  const novo = {
+    nome: itemIA.nome, chaves: [...new Set(chaves)],
+    kcal: Math.round(itemIA.kcal * f), p: +(itemIA.proteina * f).toFixed(1), c: +(itemIA.carboidrato * f).toFixed(1), g: +(itemIA.gordura * f).toFixed(1),
+    porcao: Math.round(gramas), unidade: itemIA.quantidade.replace(/\(.*?\)/g, "").trim() || "porção", fonte: "ia",
+  };
+  const lista = (await kvGet("alimentosIA", [])) || [];
+  if (!lista.some((x) => normalizar(x.nome) === normalizar(novo.nome))) {
+    lista.push(novo);
+    await kvSet("alimentosIA", lista);
+    BASE.push(novo);
+    montarIndice();
+  }
+  return novo;
+}
+
+// ---------- Leitor de texto ----------
+const NUMEROS = { um: 1, uma: 1, dois: 2, duas: 2, tres: 3, quatro: 4, cinco: 5, seis: 6, sete: 7, oito: 8, dez: 10, meio: 0.5, meia: 0.5 };
+const PALAVRAS_VAZIAS = new Set(("de do da dos das com e um uma o a os as no na nos nas em pra para por sem mais pouco pouquinho bastante muito " +
+  "grande pequeno pequena medio media cheio cheia fundo raso rasa colher colheres sopa cha prato pratos concha conchas copo copos xicara xicaras " +
+  "fatia fatias pedaco pedacos unidade unidades porcao porcoes lata latas pote potes scoop scoops dose doses taca tacas g gr gramas ml litro litros kg " +
+  "um uma dois duas tres quatro cinco seis sete oito nove dez meio meia metade " +
+  "cozido cozidos cozida cozidas frito fritos frita fritas assado assados assada assadas grelhado grelhados grelhada grelhadas " +
+  "mexido mexidos refogado refogados refogada cru crua caseiro caseira quente gelado gelada natural pequenos grandes medios " +
+  "colheresdesopa colheresdecha comi tomei bebi almocei jantei lanchei hoje ontem agora eu tambem ai que ja so metade inteiro inteira mais ou menos tipo acho umas uns " +
+  "manha almoco janta jantar lanche ceia refeicao").split(" "));
+const ALIAS_CAFE_MANHA = /cafe da manha/g;
+
+function limparFragmento(s) {
+  return normalizar(s).replace(/\d+[.,]?\d*/g, " ").split(/[^a-z]+/).filter((w) => w.length > 1 && !PALAVRAS_VAZIAS.has(w)).join(" ").trim();
+}
+
+function quantidadeGramas(trecho, item) {
+  const t = trecho;
+  const mg = t.match(/(\d+[.,]?\d*)\s*(g|gr|gramas|ml)\b/);
+  if (mg) return parseFloat(mg[1].replace(",", "."));
+  const mkg = t.match(/(\d+[.,]?\d*)\s*(kg|l|litros?)\b/);
+  if (mkg) return parseFloat(mkg[1].replace(",", ".")) * 1000;
+  let qtd = 1;
+  const mn = t.match(/(\d+[.,]?\d*)\s*[a-z]*\s*$/) || t.match(/(\d+[.,]?\d*)/);
+  if (mn) qtd = parseFloat(mn[1].replace(",", "."));
+  else {
+    const palavras = t.split(/\s+/).filter(Boolean);
+    for (let i = palavras.length - 1; i >= 0; i--) if (NUMEROS[palavras[i]] != null) { qtd = NUMEROS[palavras[i]]; break; }
+  }
+  if (/colheresdesopa/.test(t)) return 15 * qtd;
+  if (/colheresdecha/.test(t)) return 5 * qtd;
+  let fator = 1;
+  if (/prato (fundo|cheio)/.test(t)) fator = 1.6;
+  else if (/prato/.test(t) && !/prato/.test(item.unidade || "")) fator = 1.2;
+  else if (/(concha|escumadeira) cheia/.test(t)) fator = 1.3;
+  else if (/(pouco|pouquinho|metade)/.test(t)) fator = 0.6;
+  else if (/(grande|bastante|cheio)/.test(t)) fator = 1.5;
+  else if (/(pequen)/.test(t)) fator = 0.7;
+  return item.porcao * qtd * fator;
+}
+
+// "2 ovos mexidos, 150g de frango e café com leite" →
+//   { itens: [...], naoEncontrados: ["..."] , kcal, proteina, ... }
 export function estimarLocal(texto) {
-  const partes = normalizar(texto).split(/,|\s+e\s+|\s+com\s+|\+|\n|;/).map((s) => s.trim()).filter(Boolean);
-  const itens = [];
-  for (const parte of partes) {
-    const a = acharAlimento(parte);
-    if (!a) continue;
-    let gramas = null;
-    const mg = parte.match(/(\d+[.,]?\d*)\s*(g|gr|gramas|ml)\b/);
-    const mkg = parte.match(/(\d+[.,]?\d*)\s*(kg|l|litro)/);
-    if (mg) gramas = parseFloat(mg[1].replace(",", "."));
-    else if (mkg) gramas = parseFloat(mkg[1].replace(",", ".")) * 1000;
-    else {
-      let qtd = 1;
-      const mn = parte.match(/^(\d+[.,]?\d*)/);
-      if (mn) qtd = parseFloat(mn[1].replace(",", "."));
-      else {
-        const pal = parte.split(/\s+/)[0];
-        if (NUMEROS[pal] != null) qtd = NUMEROS[pal];
-      }
-      if (/colher(es)? de sopa/.test(parte)) gramas = 15 * qtd;
-      else if (/colher(es)? de cha/.test(parte)) gramas = 5 * qtd;
-      else {
-        let fator = 1;
-        for (const [re, f] of PORCOES_TEXTO) if (re.test(parte)) { fator = f; break; }
-        gramas = a.porcao * qtd * fator;
-      }
+  let t = " " + normalizar(texto)
+    .replace(ALIAS_CAFE_MANHA, " ")
+    // medidas caseiras viram uma palavra só (senão "colher de SOPA" vira sopa, "de CHA" vira chá)
+    .replace(/colher(es)? de sopa/g, "colheresdesopa").replace(/colher(es)? de cha/g, "colheresdecha")
+    // plurais irregulares: pães→pão, pastéis→pastel, limões→limão
+    .replace(/\b([a-z]+)aes\b/g, "$1ao").replace(/\b([a-z]+)oes\b/g, "$1ao").replace(/\b([a-z]+)eis\b/g, (m, r) => (m === "seis" ? m : `${r}el`)) + " ";
+  const ocupado = new Array(t.length).fill(false);
+  const achados = [];
+  for (const { re, item } of INDICE) {
+    re.lastIndex = 0;
+    let m;
+    while ((m = re.exec(t))) {
+      const ini = m.index + m[1].length, fim = ini + m[2].length;
+      let livre = true;
+      for (let k = ini; k < fim; k++) if (ocupado[k]) { livre = false; break; }
+      if (!livre) continue;
+      for (let k = ini; k < fim; k++) ocupado[k] = true;
+      achados.push({ ini, fim, item });
     }
+  }
+  achados.sort((a, b) => a.ini - b.ini);
+
+  const itens = [];
+  let fimAnterior = 0;
+  for (const a of achados) {
+    // quantidade: texto entre o separador anterior e o alimento
+    let trecho = t.slice(fimAnterior, a.ini);
+    const sep = Math.max(trecho.lastIndexOf(","), trecho.lastIndexOf(";"), trecho.lastIndexOf("+"), trecho.lastIndexOf(" e "), trecho.lastIndexOf("\n"));
+    if (sep >= 0) trecho = trecho.slice(sep + 1);
+    // "150g de frango" ou "frango 150g"
+    const depois = t.slice(a.fim, a.fim + 12);
+    const gDepois = depois.match(/^\s*(\d+[.,]?\d*)\s*(g|gr|gramas|ml)\b/);
+    const gramas = gDepois ? parseFloat(gDepois[1].replace(",", ".")) : quantidadeGramas(trecho, a.item);
     const f = gramas / 100;
     itens.push({
-      nome: a.nome,
-      quantidade: `${Math.round(gramas)} g`,
-      kcal: Math.round(a.kcal * f),
-      proteina: Math.round(a.p * f * 10) / 10,
-      carboidrato: Math.round(a.c * f * 10) / 10,
-      gordura: Math.round(a.g * f * 10) / 10,
+      nome: a.item.nome, quantidade: `${Math.round(gramas)} g`,
+      kcal: Math.round(a.item.kcal * f), proteina: +(a.item.p * f).toFixed(1),
+      carboidrato: +(a.item.c * f).toFixed(1), gordura: +(a.item.g * f).toFixed(1), fonte: a.item.fonte || "taco",
     });
+    fimAnterior = a.fim;
   }
-  return totalizar(itens, itens.length ? "Estimativa pela tabela TACO (modo offline)." : "");
+
+  // O que sobrou do texto (sem alimentos reconhecidos nem palavras de quantidade)
+  let resto = "";
+  for (let k = 0; k < t.length; k++) resto += ocupado[k] ? "|" : t[k];
+  const naoEncontrados = resto.split(/[|,;+\n]| e /).map(limparFragmento).filter((x) => x.length >= 3);
+
+  const r = totalizar(itens, itens.length ? "Calculado pela tabela TACO." : "");
+  r.naoEncontrados = [...new Set(naoEncontrados)];
+  return r;
 }
 
 export function totalizar(itens, observacao = "") {
   const soma = (k) => Math.round(itens.reduce((s, i) => s + (Number(i[k]) || 0), 0) * 10) / 10;
   return { itens, kcal: Math.round(soma("kcal")), proteina: soma("proteina"), carboidrato: soma("carboidrato"), gordura: soma("gordura"), observacao };
 }
+
+export function tamanhoBase() { return BASE.length; }

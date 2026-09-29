@@ -1,2 +1,2 @@
 // Sobe junto com o CACHE do sw.js a cada publicação.
-export const VERSAO = "0.5.0";
+export const VERSAO = "0.6.0";

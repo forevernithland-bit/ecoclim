@@ -1,7 +1,7 @@
 // Tela de treino: plano do ciclo atual, execução com registro de cargas,
 // cronômetro de descanso e ajustes (dias, local, troca de exercícios).
 import { esc, num, toast, abrirSheet, confirmar, dataBR } from "../ui.js";
-import { treinosDoCiclo, cicloAtual, diasParaTroca, nomeDivisao, cardio, REGRAS_TREINO, EQUIPAMENTOS, gerarPlano, DIAS_SEMANA, MINUTOS, PADRAO_DIAS } from "../treino.js";
+import { treinosDoCiclo, cicloAtual, diasParaTroca, nomeDivisao, cardio, REGRAS_TREINO, EQUIPAMENTOS, gerarPlano, DIAS_SEMANA, MINUTOS, PADRAO_DIAS, FOCOS } from "../treino.js";
 import { E, gravar, listar, salvarPlano, salvarPerfil } from "../estado.js";
 import { hojeISO } from "../db.js";
 
@@ -34,6 +34,7 @@ export async function telaTreino(el, { rerender }) {
         <div>
           <div class="card-tag">🏋️ ${esc(nomeDivisao(pl))}</div>
           <p class="nota">${(pl.diasSemana || PADRAO_DIAS[pl.dias]).map((x) => DIAS_SEMANA[x]).join(", ")} · ${pl.minutos || 60} min</p>
+          ${pl.foco && pl.foco !== "nenhum" ? `<p class="nota"><b>${FOCOS[pl.foco].emoji} Prioridade: ${FOCOS[pl.foco].nome}</b></p>` : ""}
           <p class="nota">Ciclo ${ciclo + 1} · exercícios mudam em <b>${diasParaTroca(pl)} dias</b></p>
         </div>
         <div class="semana-bolinhas" aria-label="Treinos na semana">${Array.from({ length: pl.dias }, (_, i) => `<span class="${i < semana ? "on" : ""}"></span>`).join("")}<small>${semana}/${pl.dias} na semana</small></div>
@@ -51,11 +52,12 @@ export async function telaTreino(el, { rerender }) {
       <div class="lista-ex">
         ${d.exercicios.map((x, k) => {
           const ultimo = ultimaCarga(logs, x.nome);
+          const noBiset = x.biset || (k > 0 && d.exercicios[k - 1].biset);
           return `
-          <details class="ex">
+          <details class="ex ${x.foco ? "ex--foco" : ""} ${noBiset ? "ex--biset" : ""}">
             <summary>
               <span class="ex-num">${k + 1}</span>
-              <span class="ex-txt"><b>${esc(x.nome)}</b><small>${x.series} × ${x.reps} · descanso ${x.descanso}${ultimo ? ` · última: ${esc(ultimo)}` : ""}</small></span>
+              <span class="ex-txt"><b>${esc(x.nome)}</b>${x.biset ? `<em class="selo-biset">🔗 bi-set com o próximo</em>` : ""}<small>${x.series} × ${x.reps} · ${x.biset ? "sem descanso → vá direto pro próximo" : `descanso ${x.descanso}`}${ultimo ? ` · última: ${esc(ultimo)}` : ""}</small></span>
             </summary>
             <div class="ex-corpo">
               <p class="nota">🎯 ${esc(x.grupo)}</p>
@@ -131,7 +133,7 @@ function executarTreino(d, ciclo, logs, aoTerminar) {
     ${d.exercicios.map((x, k) => `
       <div class="exec-ex">
         <div class="exec-nome"><b>${k + 1}. ${esc(x.nome)}</b><a href="${x.video}" target="_blank" rel="noopener" aria-label="Vídeo">▶</a></div>
-        <small class="nota">${x.series} × ${x.reps} · descanso ${x.descanso} · RIR ${x.rir}</small>
+        <small class="nota">${x.series} × ${x.reps} · ${x.biset ? "🔗 bi-set: sem descanso, vá pro próximo" : `descanso ${x.descanso}`} · RIR ${x.rir}</small>
         <div class="series">
           <div class="serie serie--cab"><span>Série</span><span>kg</span><span>reps</span><span>✓</span></div>
           ${estado[k].series.map((se, j) => `
@@ -182,7 +184,10 @@ function executarTreino(d, ciclo, logs, aoTerminar) {
       row.querySelector('[data-campo="reps"]').value = se.reps;
       ev.currentTarget.classList.toggle("check--on", se.feito);
       row.classList.toggle("serie--feita", se.feito);
-      if (se.feito) iniciarDescanso(d.exercicios[k].descanso);
+      if (se.feito) {
+        if (d.exercicios[k].biset) toast(`🔗 Bi-set: vá direto para ${d.exercicios[k + 1].nome}`);
+        else iniciarDescanso(d.exercicios[k].descanso);
+      }
     };
   });
 
@@ -212,13 +217,15 @@ function ajustesPlano(aoMudar) {
     <div class="semana-sel">${DIAS_SEMANA.map((d, k) => `<button class="sem-b ${semana.includes(k) ? "sem-b--on" : ""}" data-sem="${k}">${d}</button>`).join("")}</div>
     <label class="rotulo">Tempo por dia</label>
     <div class="dias-sel">${MINUTOS.map((m) => `<button class="dia-b dia-b--larg ${min === m ? "dia-b--on" : ""}" data-min="${m}">${m} min</button>`).join("")}</div>
+    <label class="rotulo">Prioridade muscular</label>
+    <div class="chips-quebra">${Object.entries(FOCOS).map(([k, f]) => `<button class="chip ${(pl.foco || "nenhum") === k ? "chip--on" : ""}" data-foco="${k}">${f.emoji} ${f.nome}</button>`).join("")}</div>
     <label class="rotulo">Local</label>
     <div class="opcoes">${Object.entries(EQUIPAMENTOS).map(([k, o]) => `<button class="opcao opcao--linha ${pl.equipamento === k ? "opcao--on" : ""}" data-eq="${k}"><span class="opcao-emoji">${o.emoji}</span><span><b>${o.rotulo}</b></span></button>`).join("")}</div>
     <label class="rotulo">Trocar exercícios a cada</label>
     <div class="dias-sel">${[4, 6, 8].map((w) => `<button class="dia-b dia-b--larg ${pl.semanasCiclo === w ? "dia-b--on" : ""}" data-sem="${w}">${w} sem</button>`).join("")}</div>
     <button class="btn btn--sec" id="variar">🔄 Variar exercícios agora</button>
     <button class="btn btn--grande" id="salvar">Salvar</button>`);
-  let eq = pl.equipamento, sem = pl.semanasCiclo;
+  let eq = pl.equipamento, sem = pl.semanasCiclo, foco = pl.foco || "nenhum";
   s.el.querySelectorAll("[data-sem]").forEach((b) => b.onclick = () => {
     const d = +b.dataset.sem;
     const novo = semana.includes(d) ? semana.filter((x) => x !== d) : [...semana, d].sort();
@@ -231,6 +238,7 @@ function ajustesPlano(aoMudar) {
     s.el.querySelectorAll(`[data-${attr}]`).forEach((x) => x.classList.toggle(cls, x === b));
   });
   liga("min", "dia-b--on", (v) => { min = +v; });
+  liga("foco", "chip--on", (v) => { foco = v; });
   liga("eq", "opcao--on", (v) => { eq = v; });
   liga("sem", "dia-b--on", (v) => { sem = +v; });
   s.el.querySelector("#variar").onclick = async () => {
@@ -240,8 +248,8 @@ function ajustesPlano(aoMudar) {
   s.el.querySelector("#salvar").onclick = async () => {
     if (!semana.length) return toast("Escolha pelo menos 1 dia.", "erro");
     const mudouBase = semana.length !== pl.dias || eq !== pl.equipamento || min !== (pl.minutos || 60) || semana.join() !== (pl.diasSemana || []).join();
-    await salvarPerfil({ ...E.perfil, diasTreino: semana.length, diasSemana: semana, minutosTreino: min, equipamento: eq });
-    const novo = mudouBase ? { ...gerarPlano(E.perfil, { semanasCiclo: sem }), offset: pl.offset || 0 } : { ...pl, semanasCiclo: sem };
+    await salvarPerfil({ ...E.perfil, diasTreino: semana.length, diasSemana: semana, minutosTreino: min, equipamento: eq, focoMuscular: foco });
+    const novo = mudouBase ? { ...gerarPlano(E.perfil, { semanasCiclo: sem }), offset: pl.offset || 0 } : { ...pl, semanasCiclo: sem, foco };
     await salvarPlano(novo);
     abaDia = null;
     s.fechar(); toast("Plano atualizado ✅"); aoMudar();

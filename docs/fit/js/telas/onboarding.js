@@ -1,7 +1,7 @@
 // Cadastro inicial em etapas (uma pergunta por tela — rápido e sem assustar).
 import { esc, num, toast, carregando } from "../ui.js";
 import { OBJETIVOS, NIVEIS, FISICOS, MEDIDAS, imc, faixaImc, gorduraEstimada, metas, projecaoObjetivo, estimarTempoFisico, formatarMeses, ffmi, objetivoSugerido } from "../ciencia.js";
-import { EQUIPAMENTOS, gerarPlano, nomeDivisao, DIAS_SEMANA, PADRAO_DIAS, MINUTOS, treinosDoCiclo } from "../treino.js";
+import { EQUIPAMENTOS, gerarPlano, nomeDivisao, DIAS_SEMANA, PADRAO_DIAS, MINUTOS, treinosDoCiclo, FOCOS } from "../treino.js";
 import { desenharFisico, figuraComFoto } from "../fisico-arte.js";
 import { urlDe } from "../midia.js";
 import { fotografarCorpo } from "../camera.js";
@@ -149,6 +149,9 @@ export function rodarOnboarding(raiz, aoConcluir) {
       <label class="rotulo">Quanto tempo por dia?</label>
       <div class="dias-sel">${MINUTOS.map((m) => `<button class="dia-b dia-b--larg ${+r.minutosTreino === m ? "dia-b--on" : ""}" data-min="${m}">${m} min</button>`).join("")}</div>
       <p class="nota" id="dica-min">${dicaMin(r.minutosTreino)}</p>
+      <label class="rotulo">Quer dar prioridade a algum músculo?</label>
+      <div class="chips-quebra">${Object.entries(FOCOS).map(([k, f]) => `<button class="chip ${(r.focoMuscular || "nenhum") === k ? "chip--on" : ""}" data-foco="${k}">${f.emoji} ${f.nome}</button>`).join("")}</div>
+      <p class="nota" id="dica-foco">${dicaFoco(r.focoMuscular)}</p>
       <div id="previa-rotina"></div>
       <label class="rotulo">Onde você vai treinar?</label>
       <div class="opcoes">
@@ -267,6 +270,11 @@ export function rodarOnboarding(raiz, aoConcluir) {
         b.classList.toggle("sem-b--on", r.diasSemana.includes(d));
         campo("dica-dias").textContent = dicaDias(r.diasSemana.length);
         previa();
+      });
+      raiz.querySelectorAll("[data-foco]").forEach((b) => b.onclick = () => {
+        r.focoMuscular = b.dataset.foco;
+        raiz.querySelectorAll("[data-foco]").forEach((x) => x.classList.toggle("chip--on", x === b));
+        campo("dica-foco").textContent = dicaFoco(r.focoMuscular);
       });
       raiz.querySelectorAll("[data-min]").forEach((b) => b.onclick = () => {
         r.minutosTreino = +b.dataset.min;
@@ -405,10 +413,17 @@ export function pintaAnaliseIA(el, a) {
     </div>`;
 }
 
+export function dicaFoco(f) {
+  if (!f || f === "nenhum") return "Treino equilibrado: todos os músculos com o mesmo volume.";
+  if (f === "bracos") return "Braços em todo treino, em bi-set (rosca + tríceps colados, sem descanso entre eles): mais volume de braço sem aumentar o tempo.";
+  return `${FOCOS[f].nome} recebem um bloco extra em todo treino — mais volume onde você mais quer crescer.`;
+}
+
 function dicaMin(m) {
   return {
     30: "30 min: treino enxuto, só o essencial (4 exercícios). Funciona!",
     45: "45 min: ótimo custo-benefício (5 exercícios).",
+    50: "50 min: ótimo custo-benefício, com espaço pro seu foco.",
     60: "60 min: o tempo ideal para a maioria (6 exercícios).",
     75: "75 min: mais volume, bom para quem quer ganhar massa (7 exercícios).",
     90: "90 min: volume alto — só vale com sono e comida em dia (8 exercícios).",

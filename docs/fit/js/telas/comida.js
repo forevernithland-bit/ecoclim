@@ -219,7 +219,7 @@ function mostrarResultado(el, r, aoSalvar) {
 function detalheRefeicao(r, aoMudar) {
   const s = abrirSheet(`
     <h2>${esc(r.titulo || "Refeição")}</h2>
-    <p class="nota">${dataBR(r.data, { day: "2-digit", month: "long" })} · ${r.hora || ""} · ${r.fonte === "local" ? "tabela TACO" : "estimado por IA"}</p>
+    <p class="nota">${dataBR(r.data, { day: "2-digit", month: "long" })} · ${r.hora || ""} · ${{ tabela: "tabela TACO", local: "tabela TACO", "tabela+ia": "tabela TACO + IA", ia: "estimado por IA" }[r.fonte] || "estimado"}</p>
     ${r.foto ? `<img class="foto-prev" src="${urlDe(r.foto, `ref-${r.id}`)}" alt="">` : r.fotoPath ? `<img class="foto-prev" id="fr" alt="">` : ""}
     <div class="total-ref"><b>${num(r.kcal)}</b> kcal <span>P ${num(r.proteina)}g · C ${num(r.carboidrato)}g · G ${num(r.gordura)}g</span></div>
     ${r.itens.map((i) => `<div class="item-ref"><div><b>${esc(i.nome)}</b><small>${esc(i.quantidade || "")}</small></div><span>${num(i.kcal)} kcal</span></div>`).join("")}

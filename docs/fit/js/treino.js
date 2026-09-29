@@ -183,9 +183,9 @@ const DIVISOES = {
 
 export const DIAS_SEMANA = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 export const PADRAO_DIAS = { 1: [3], 2: [1, 4], 3: [1, 3, 5], 4: [1, 2, 4, 5], 5: [1, 2, 3, 4, 5], 6: [1, 2, 3, 4, 5, 6], 7: [0, 1, 2, 3, 4, 5, 6] };
-export const MINUTOS = [30, 45, 60, 75, 90];
+export const MINUTOS = [30, 45, 50, 60, 75, 90];
 // quantos exercícios cabem na sessão (aquecimento + séries + descanso)
-const EXERCICIOS_POR_TEMPO = { 30: 4, 45: 5, 60: 6, 75: 7, 90: 8 };
+const EXERCICIOS_POR_TEMPO = { 30: 4, 45: 5, 50: 5, 60: 6, 75: 7, 90: 8 };
 const EXTRAS = ["core", "lateral", "panturrilha", "posteriorOmbro", "biceps", "triceps", "gluteo"];
 
 function prescricao(objetivo, nivel, composto) {
@@ -225,13 +225,33 @@ export function gerarPlano(perfil, { inicio = new Date().toISOString().slice(0, 
     objetivo: perfil.objetivo,
     nivel: perfil.nivel,
     sexo: perfil.sexo,
+    foco: perfil.focoMuscular || "nenhum",
   };
 }
+
+// Prioridade muscular ("especialização"): o grupo escolhido ganha mais volume
+// na semana (~14–20 séries, faixa de maior hipertrofia — Schoenfeld 2017,
+// Pelland 2024) sem estourar o tempo, usando bi-sets (dois exercícios
+// seguidos sem descanso entre eles).
+export const FOCOS = {
+  nenhum: { nome: "Equilibrado", emoji: "⚖️", slots: [] },
+  bracos: { nome: "Braços", emoji: "💪", slots: ["biceps", "triceps"] },
+  ombros: { nome: "Ombros", emoji: "🥥", slots: ["lateral", "posteriorOmbro"] },
+  peito: { nome: "Peito", emoji: "🛡️", slots: ["supinoInc", "supino"] },
+  costas: { nome: "Costas", emoji: "🦅", slots: ["puxada", "remada"] },
+  pernas: { nome: "Pernas", emoji: "🦵", slots: ["agachamento", "extensora"] },
+  gluteos: { nome: "Glúteos", emoji: "🍑", slots: ["gluteo", "dobradica"] },
+  abdomen: { nome: "Abdômen", emoji: "🔥", slots: ["core"] },
+};
+const DIAS_SUPERIORES = ["FA", "FB", "FC", "UA", "UB", "PUSH", "PULL"];
+
+const segundos = (d) => (String(d).includes("min") ? parseFloat(d) * 60 : parseInt(d, 10) || 0);
 
 // Monta os treinos do ciclo atual (lista de dias com exercícios).
 export function treinosDoCiclo(plano, ciclo = cicloAtual(plano)) {
   const div = DIVISOES[plano.dias];
   const eq = plano.equipamento;
+  const foco = FOCOS[plano.foco] || FOCOS.nenhum;
   const contagem = {}; // mesmo padrão 2x na semana → variação diferente
   return div.dias.map((codigo, i) => {
     const dia = DIAS[codigo];
@@ -243,7 +263,11 @@ export function treinosDoCiclo(plano, ciclo = cicloAtual(plano)) {
     const alvo = EXERCICIOS_POR_TEMPO[plano.minutos || 60] || 6;
     if (slots.length > alvo) slots = slots.slice(0, alvo);
     for (const x of EXTRAS) { if (slots.length >= alvo) break; if (!slots.includes(x)) slots.push(x); }
-    let exercicios = slots.map((slot) => {
+    // Prioridade: o grupo do foco entra em TODO treino (no fim, como bloco extra).
+    // Nos dias de superiores ele aparece 2x (variações diferentes).
+    const blocoFoco = [...foco.slots];
+    if (plano.foco === "bracos" && DIAS_SUPERIORES.includes(codigo)) blocoFoco.push(...foco.slots); // 2º bi-set de braço
+    const monta = (slot, ehFoco) => {
       const pad = PADROES[slot];
       const variantes = pad.v[eq];
       const n = contagem[slot] = (contagem[slot] ?? -1) + 1;
@@ -251,13 +275,27 @@ export function treinosDoCiclo(plano, ciclo = cicloAtual(plano)) {
       const presc = prescricao(plano.objetivo, plano.nivel, pad.composto);
       if ((plano.minutos || 60) <= 30) { presc.series = Math.min(presc.series, 3); presc.descanso = pad.composto ? "75 s" : "45 s"; }
       if (/prancha/i.test(nome)) presc.reps = "30–45 s"; // isométrico: conta tempo, não repetição
-      return { slot, nome, grupo: pad.grupo, dica: pad.dica, video: linkVideo(nome), ...presc };
-    });
+      if (ehFoco) { presc.series = Math.min(4, presc.series + (plano.nivel === "iniciante" ? 0 : 1)); presc.reps = pad.composto ? presc.reps : "8–12"; }
+      return { slot, nome, grupo: pad.grupo, dica: pad.dica, video: linkVideo(nome), foco: ehFoco, ...presc };
+    };
+    let exercicios = slots.map((s) => monta(s, false));
+    const extras = blocoFoco.map((s) => monta(s, true));
+    // Bi-set: pares (ex.: rosca + tríceps) — o 1º do par não tem descanso.
+    for (let k = 0; k + 1 < extras.length; k += 2) {
+      extras[k].biset = true; extras[k].descanso = "0 s";
+      extras[k + 1].descanso = "75 s";
+    }
     // aquecimento 6 min + (execução ~50 s + descanso) por série + ~1 min de troca por exercício
-    const duracao = () => 360 + exercicios.reduce((a, x) => a + 60 + x.series * (50 + (x.descanso.includes("min") ? parseFloat(x.descanso) * 60 : parseInt(x.descanso, 10))), 0);
-    // Não pode passar do tempo escolhido: tira acessórios do fim (mínimo 4 exercícios)
-    while (duracao() > ((plano.minutos || 60) + 4) * 60 && exercicios.length > 4) exercicios.pop();
+    const duracao = () => 360 + [...exercicios, ...extras].reduce((a, x) => a + 60 + x.series * (50 + segundos(x.descanso)), 0);
+    // Não pode passar do tempo escolhido: tira primeiro os acessórios que NÃO são
+    // do foco (do fim pro começo); o bloco do foco é o último a ser mexido.
+    const limite = ((plano.minutos || 60) + 4) * 60;
+    while (duracao() > limite && exercicios.length > 3) exercicios.pop();
+    // ainda passou? tira 1 série dos exercícios que estão com 4 (do fim pro começo)
+    for (let k = exercicios.length - 1; k >= 0 && duracao() > limite; k--) if (exercicios[k].series > 3) exercicios[k].series = 3;
+    while (duracao() > limite && extras.length > 2) extras.splice(-2, 2);
     const segs = duracao();
+    exercicios = [...exercicios, ...extras];
     const diaSemana = (plano.diasSemana || [])[i];
     return { indice: i, codigo, nome: dia.nome, letra: String.fromCharCode(65 + i), exercicios, minutos: Math.round(segs / 60), diaSemana };
   });
