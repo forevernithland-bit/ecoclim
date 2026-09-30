@@ -718,3 +718,22 @@ summary.card-tag { cursor: pointer; margin: 0; }
 .foto-prev--ilustra.ref-ilustra--3 .ri-0 { font-size: 60px; left: 20%; top: 14%; } .foto-prev--ilustra.ref-ilustra--3 .ri-1 { font-size: 44px; right: 20%; top: 20%; } .foto-prev--ilustra.ref-ilustra--3 .ri-2 { font-size: 44px; left: 45%; bottom: 10%; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ref-ilustra { background: radial-gradient(circle at 30% 25%, #2a3344 0%, #1a2130 75%); } }
 :root[data-theme="dark"] .ref-ilustra { background: radial-gradient(circle at 30% 25%, #2a3344 0%, #1a2130 75%); }
+
+/* ---------- Confirmação de itens da refeição ---------- */
+.item-ref { display: block; }
+.item-ref-linha { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.item-ref--duvida { background: var(--alerta-suave); border-radius: 12px; padding: 10px; border-bottom: none; margin: 6px 0; }
+.confirmar-item { margin-top: 8px; }
+.confirmar-item small { display: block; color: var(--texto); font-size: .8rem; margin-bottom: 6px; }
+.confirmar-item .linha-botoes { flex-wrap: wrap; gap: 6px; }
+.confirmar-item .chip { flex: 0 0 auto; }
+
+.item-ref-nome { min-width: 0; flex: 1; }
+.item-ref-nome small { display: block; }
+.qtd-g { display: grid; grid-template-columns: 30px 74px 30px; grid-template-rows: auto auto; gap: 2px 4px; align-items: center; flex-shrink: 0; }
+.qtd-g button { width: 30px; height: 30px; border-radius: 50%; background: var(--campo); border: 1px solid var(--linha); font-weight: 800; }
+.qtd-g label { position: relative; }
+.qtd-g input { width: 74px; padding: 7px 22px 7px 8px; border-radius: 10px; border: 1.5px solid var(--linha); background: var(--card); color: var(--texto); font: inherit; font-weight: 700; text-align: right; }
+.qtd-g input:focus { outline: none; border-color: var(--lima-forte); }
+.qtd-g label span { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font-size: .75rem; color: var(--muted); }
+.qtd-pct { grid-column: 1 / -1; text-align: center; color: var(--muted); font-size: .7rem; }

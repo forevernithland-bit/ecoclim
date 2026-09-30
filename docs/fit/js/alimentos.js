@@ -24,7 +24,7 @@ function montarIndice() {
   for (const it of itens) {
     for (const ch of new Set([...(it.chaves || []), normalizar(it.nome)].map(normalizar))) {
       if (ch.length < 2) continue;
-      idx.push({ chave: ch, re: new RegExp(`(^|[^a-z0-9])(${escRe(ch)})s?(?=$|[^a-z0-9])`, "g"), item: it });
+      idx.push({ chave: ch, re: new RegExp(`(^|[^a-z0-9])(${escRe(ch)})(?:e?s)?(?=$|[^a-z0-9])`, "g"), item: it });
     }
   }
   idx.sort((a, b) => b.chave.length - a.chave.length);
@@ -119,8 +119,18 @@ function quantidadeGramas(trecho, item) {
 
 // "2 ovos mexidos, 150g de frango e café com leite" →
 //   { itens: [...], naoEncontrados: ["..."] , kcal, proteina, ... }
+// Palavras de PREPARO/forma: descrevem o alimento, não são outro alimento
+const DESCRITORES = new Set(("moido moida moidos desfiado desfiada picado picada cubos tiras fatiado fatiada ralado ralada " +
+  "air fry fryer airfryer airfry forno panela pressao chapa brasa churrasqueira micro ondas microondas vapor " +
+  "hamburguer hamburger burguer burger bife bifes almondega almondegas espeto espetinho file files posta medalhao " +
+  "sem pele osso tempero temperado temperada azeite sal limao molho alho cebola caseiro caseira feito feita").split(" "));
+// alimentos que, junto de uma carne no MESMO trecho, viram só a forma de preparo dela
+const FORMAS_DE_CARNE = ["hamburguer", "burger", "almondega", "bife", "espeto", "espetinho", "carne moida", "moida"];
+
 export function estimarLocal(texto) {
-  let t = " " + normalizar(texto)
+  // cada linha do texto é um trecho (a normalização juntaria tudo numa linha só)
+  const linhas = String(texto || "").split(/\n+/).map((l) => normalizar(l)).filter(Boolean);
+  let t = " " + linhas.join(" ; ")
     .replace(ALIAS_CAFE_MANHA, " ")
     // medidas caseiras viram uma palavra só (senão "colher de SOPA" vira sopa, "de CHA" vira chá)
     .replace(/colher(es)? de sopa/g, "colheresdesopa").replace(/colher(es)? de cha/g, "colheresdecha")
@@ -142,30 +152,71 @@ export function estimarLocal(texto) {
   }
   achados.sort((a, b) => a.ini - b.ini);
 
-  const itens = [];
-  let fimAnterior = 0;
-  for (const a of achados) {
-    // quantidade: texto entre o separador anterior e o alimento
-    let trecho = t.slice(fimAnterior, a.ini);
-    const sep = Math.max(trecho.lastIndexOf(","), trecho.lastIndexOf(";"), trecho.lastIndexOf("+"), trecho.lastIndexOf(" e "), trecho.lastIndexOf("\n"));
-    if (sep >= 0) trecho = trecho.slice(sep + 1);
-    // "150g de frango" ou "frango 150g"
+  // --- Trechos: separados por linha, vírgula, ";", "+", " e ", " com " — mas
+  // nunca no meio de um alimento reconhecido ("café com leite" é um só) ---
+  const cortes = [0];
+  const reSep = /[,;+]| e | com /g;
+  let ms;
+  while ((ms = reSep.exec(t))) if (!ocupado[ms.index + 1]) cortes.push(ms.index);
+  cortes.push(t.length);
+  const trechos = [];
+  for (let k = 0; k + 1 < cortes.length; k++) trechos.push({ ini: cortes[k], fim: cortes[k + 1], texto: t.slice(cortes[k], cortes[k + 1]) });
+
+  const monta = (item, gramas, extra = {}) => {
+    const f = gramas / 100;
+    return {
+      nome: item.nome, quantidade: `${Math.round(gramas)} g`,
+      kcal: Math.round(item.kcal * f), proteina: +(item.p * f).toFixed(1),
+      carboidrato: +(item.c * f).toFixed(1), gordura: +(item.g * f).toFixed(1), fonte: item.fonte || "taco", ...extra,
+    };
+  };
+  const gramasDe = (a, trechoAntes) => {
     const depois = t.slice(a.fim, a.fim + 12);
     const gDepois = depois.match(/^\s*(\d+[.,]?\d*)\s*(g|gr|gramas|ml)\b/);
-    const gramas = gDepois ? parseFloat(gDepois[1].replace(",", ".")) : quantidadeGramas(trecho, a.item);
-    const f = gramas / 100;
-    itens.push({
-      nome: a.item.nome, quantidade: `${Math.round(gramas)} g`,
-      kcal: Math.round(a.item.kcal * f), proteina: +(a.item.p * f).toFixed(1),
-      carboidrato: +(a.item.c * f).toFixed(1), gordura: +(a.item.g * f).toFixed(1), fonte: a.item.fonte || "taco",
-    });
-    fimAnterior = a.fim;
-  }
+    return gDepois ? parseFloat(gDepois[1].replace(",", ".")) : quantidadeGramas(trechoAntes, a.item);
+  };
+  const ehCarne = (it) => /carne|patinho|alcatra|picanha|frango|peito|porco|lombo|file|maminha|acem|musculo|costela|fraldinha|cupim|hamburguer bovino|peru|linguica/.test(normalizar(it.nome)) && !/lanchonete|x-/.test(normalizar(it.nome));
+  const ehForma = (a) => FORMAS_DE_CARNE.some((f) => t.slice(a.ini, a.fim).includes(f)) || /lanchonete|almondega|hamburguer bovino/.test(normalizar(a.item.nome));
 
-  // O que sobrou do texto (sem alimentos reconhecidos nem palavras de quantidade)
-  let resto = "";
-  for (let k = 0; k < t.length; k++) resto += ocupado[k] ? "|" : t[k];
-  const naoEncontrados = resto.split(/[|,;+\n]| e /).map(limparFragmento).filter((x) => x.length >= 3);
+  const itens = [];
+  const naoEncontrados = [];
+  for (const tr of trechos) {
+    const nesse = achados.filter((a) => a.ini >= tr.ini && a.fim <= tr.fim);
+    if (!nesse.length) {
+      // nenhum alimento conhecido nesse trecho → vai pra IA (sem palavras de preparo/quantidade)
+      const resto = limparFragmento(tr.texto).split(" ").filter((w) => !DESCRITORES.has(w)).join(" ");
+      if (resto.length >= 3) naoEncontrados.push(resto);
+      continue;
+    }
+    const qtdExplicitas = (tr.texto.match(/\d+[.,]?\d*\s*(g|gr|gramas|ml|kg)?\b/g) || []).length;
+    // Vários alimentos num trecho com UMA quantidade (ou nenhuma): é um alimento
+    // só com descrição ("patinho moído hambúrguer na air fry"). Fica o principal
+    // (a carne, se houver; senão o 1º) e a pessoa confirma.
+    // mesmo alimento citado 2x ("bife de patinho" → bife = patinho): é um só, sem dúvida
+    if (nesse.length > 1 && nesse.every((a) => a.item === nesse[0].item)) {
+      itens.push(monta(nesse[0].item, quantidadeGramas(tr.texto, nesse[0].item)));
+      continue;
+    }
+    if (nesse.length > 1 && qtdExplicitas <= 1) {
+      // alimento "pronto" com porção própria (almôndega, hambúrguer bovino) vence a carne genérica
+      const pronto = nesse.find((a) => /almondega|hamburguer bovino/.test(normalizar(a.item.nome)));
+      const carne = nesse.find((a) => ehCarne(a.item));
+      const principal = pronto || (carne && nesse.some((a) => a !== carne && ehForma(a)) ? carne : nesse[0]);
+      const descricao = limparFragmento(tr.texto).split(" ").filter((w) => !normalizar(principal.item.nome).split(" ").includes(w)).join(" ");
+      const gramas = quantidadeGramas(tr.texto, principal.item);
+      const separados = nesse.map((a) => monta(a.item, gramasDe(a, t.slice(tr.ini, a.ini))));
+      itens.push(monta(principal.item, gramas, {
+        nome: descricao ? `${principal.item.nome} (${descricao})` : principal.item.nome,
+        duvida: true, motivo: `Entendi "${tr.texto.trim()}" como um alimento só.`, separados,
+      }));
+      continue;
+    }
+    let inicio = tr.ini;
+    for (const a of nesse) {
+      itens.push(monta(a.item, gramasDe(a, t.slice(inicio, a.ini))));
+      inicio = a.fim;
+    }
+  }
 
   const r = totalizar(itens, itens.length ? "Calculado pela tabela TACO." : "");
   r.naoEncontrados = [...new Set(naoEncontrados)];

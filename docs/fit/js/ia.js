@@ -54,8 +54,11 @@ export async function analisarRefeicao({ texto, foto, perfil }) {
     const r = await chamar("/ia/refeicao", { texto: pedido, imagem_b64: await paraIA(foto), contexto });
     // ensina a base com cada item novo (em segundo plano)
     ensinarBase(r.itens || [], foto ? "" : pedido);
-    if (foto || !local.itens.length) return { ...r, fonte: "ia" };
-    const itens = [...local.itens, ...(r.itens || []).map((i) => ({ ...i, fonte: "ia" }))];
+    // Texto que a base não conhecia: a IA estimou → a pessoa confirma
+    const conferir = (i) => ({ ...i, fonte: "ia", duvida: true, motivo: `Não achei "${pedido}" na base — a IA estimou assim. Está certo?` });
+    if (foto) return { ...r, fonte: "ia" };
+    if (!local.itens.length) return { ...r, itens: (r.itens || []).map(conferir), fonte: "ia" };
+    const itens = [...local.itens, ...(r.itens || []).map(conferir)];
     return { ...totalizar(itens, "Base TACO + IA só para o que faltava."), titulo: itens.map((i) => i.nome).join(", "), dica: r.dica, fonte: "tabela+ia" };
   } catch (e) {
     if (local.itens.length) {

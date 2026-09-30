@@ -195,38 +195,88 @@ export async function abrirNovaRefeicao(modo, { data = hojeISO(), aoSalvar } = {
 }
 
 // Mostra os itens encontrados, deixa ajustar porções e remover itens.
+// gramas de uma quantidade ("150 g", "1 unidade (50 g)", "200 ml") — null se não der pra saber
+const gramasDaQtd = (q) => { const m = String(q || "").match(/([0-9]+[.,]?[0-9]*)[ ]*(g|gr|gramas|ml)(?![a-z])/i); return m ? parseFloat(m[1].replace(",", ".")) : null; };
+const comGramas = (i) => { const g0 = gramasDaQtd(i.quantidade); return { ...i, fator: 1, g0, gramas: g0 }; };
+
 function mostrarResultado(el, r, aoSalvar) {
-  const itens = r.itens.map((i) => ({ ...i, fator: 1 }));
+  let itens = r.itens.map(comGramas);
   const pinta = () => {
+    // quantidade em gramas → todos os nutrientes recalculados na mesma proporção
     const ajustados = itens.filter((i) => i.fator > 0).map((i) => ({
       ...i, kcal: Math.round(i.kcal * i.fator), proteina: +(i.proteina * i.fator).toFixed(1),
       carboidrato: +(i.carboidrato * i.fator).toFixed(1), gordura: +(i.gordura * i.fator).toFixed(1),
+      quantidade: i.g0 ? `${Math.round(i.gramas)} g` : i.quantidade,
     }));
+    ajustados.forEach((i) => { delete i.fator; delete i.g0; delete i.gramas; });
+    ajustados.forEach((i) => { delete i.duvida; delete i.separados; delete i.motivo; });
     const tot = totalizar(ajustados);
+    const pendentes = itens.filter((i) => i.duvida && i.fator > 0).length;
     el.innerHTML = `
       <div class="resultado-ref entra">
         ${r.aviso ? `<p class="aviso">${esc(r.aviso)}</p>` : ""}
+        <p class="rotulo">Entendi assim:</p>
         <div class="total-ref"><b>${num(tot.kcal)}</b> kcal <span>P ${num(tot.proteina)}g · C ${num(tot.carboidrato)}g · G ${num(tot.gordura)}g</span></div>
         ${itens.map((i, k) => `
-          <div class="item-ref ${i.fator === 0 ? "item-ref--off" : ""}">
-            <div><b>${esc(i.nome)}</b><small>${esc(i.quantidade || "")} · ${num(i.kcal * i.fator)} kcal</small></div>
-            <div class="porcao">
-              <button data-k="${k}" data-d="-0.25" aria-label="Menos">−</button>
-              <span>${i.fator === 0 ? "0" : `${num(i.fator * 100)}%`}</span>
-              <button data-k="${k}" data-d="0.25" aria-label="Mais">+</button>
+          <div class="item-ref ${i.fator === 0 ? "item-ref--off" : ""} ${i.duvida && i.fator > 0 ? "item-ref--duvida" : ""}">
+            <div class="item-ref-linha">
+              <div class="item-ref-nome"><b>${i.duvida && i.fator > 0 ? "❓ " : ""}${esc(i.nome)}</b><small>${num(i.kcal * i.fator)} kcal · P ${num(i.proteina * i.fator, 1)} · C ${num(i.carboidrato * i.fator, 1)} · G ${num(i.gordura * i.fator, 1)}</small></div>
+              ${i.g0 ? `
+              <div class="qtd-g">
+                <button data-k="${k}" data-d="-10" aria-label="Menos 10 gramas">−</button>
+                <label><input type="number" inputmode="decimal" min="0" step="5" value="${Math.round(i.gramas)}" data-g="${k}" aria-label="Gramas"><span>g</span></label>
+                <button data-k="${k}" data-d="10" aria-label="Mais 10 gramas">+</button>
+                <small class="qtd-pct">${Math.round(i.fator * 100)}%</small>
+              </div>` : `
+              <div class="porcao">
+                <button data-k="${k}" data-d="-0.25" aria-label="Menos">−</button>
+                <span>${i.fator === 0 ? "0" : `${num(i.fator * 100)}%`}</span>
+                <button data-k="${k}" data-d="0.25" aria-label="Mais">+</button>
+              </div>`}
             </div>
+            ${i.duvida && i.fator > 0 ? `
+              <div class="confirmar-item">
+                <small>${esc(i.motivo || "Confira este item.")} É isso mesmo?</small>
+                <div class="linha-botoes">
+                  <button class="chip chip--mini chip--on" data-sim="${k}">✓ Sim, é isso</button>
+                  ${i.separados && i.separados.length > 1 ? `<button class="chip chip--mini" data-sep="${k}">Contar separado (${i.separados.map((s) => esc(s.nome)).join(" + ")})</button>` : ""}
+                  <button class="chip chip--mini" data-nao="${k}">✕ Não, tirar</button>
+                </div>
+              </div>` : ""}
           </div>`).join("")}
         ${r.observacao ? `<p class="nota">${esc(r.observacao)}</p>` : ""}
         ${r.dica ? `<div class="dica-ia">🥗 <span>${esc(r.dica)}</span></div>` : ""}
-        <p class="nota">Ajuste as porções se a estimativa não bateu com o que você comeu.</p>
-        <button class="btn btn--grande" id="salvar-ref">Salvar refeição</button>
+        <p class="nota">Ajuste a quantidade em gramas (ou com − / +) — calorias, proteína, carboidrato e gordura são recalculados na hora. Se algo saiu errado, reescreva mais detalhado (ex.: "150 g de hambúrguer caseiro de patinho").</p>
+        ${pendentes ? `<p class="aviso">Confirme ${pendentes === 1 ? "o item com ❓" : `os ${pendentes} itens com ❓`} pra salvar.</p>` : ""}
+        <button class="btn btn--grande" id="salvar-ref" ${pendentes ? "disabled" : ""}>Salvar refeição</button>
       </div>`;
     el.querySelectorAll("[data-k]").forEach((b) => b.onclick = () => {
       const it = itens[+b.dataset.k];
-      it.fator = Math.max(0, Math.min(4, +(it.fator + +b.dataset.d).toFixed(2)));
+      if (it.g0) { it.gramas = Math.max(0, Math.round((it.gramas || 0) + +b.dataset.d)); it.fator = it.gramas / it.g0; }
+      else it.fator = Math.max(0, Math.min(4, +(it.fator + +b.dataset.d).toFixed(2)));
       pinta();
     });
-    el.querySelector("#salvar-ref").onclick = () => aoSalvar({ ...tot, itens: ajustados, titulo: r.titulo || "", fonte: r.fonte });
+    el.querySelectorAll("[data-g]").forEach((inp) => {
+      const aplica = () => {
+        const it = itens[+inp.dataset.g];
+        const v = parseFloat(String(inp.value).replace(",", "."));
+        if (!(v >= 0)) return;
+        it.gramas = Math.min(it.g0 * 10, v); it.fator = it.gramas / it.g0;
+        pinta();
+        const novo = el.querySelector(`[data-g="${inp.dataset.g}"]`);
+        if (novo) { novo.focus(); novo.setSelectionRange && novo.select(); }
+      };
+      inp.onchange = aplica;
+      inp.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); aplica(); } };
+    });
+    el.querySelectorAll("[data-sim]").forEach((b) => b.onclick = () => { itens[+b.dataset.sim].duvida = false; pinta(); });
+    el.querySelectorAll("[data-nao]").forEach((b) => b.onclick = () => { itens[+b.dataset.nao].fator = 0; itens[+b.dataset.nao].duvida = false; pinta(); });
+    el.querySelectorAll("[data-sep]").forEach((b) => b.onclick = () => {
+      const k = +b.dataset.sep;
+      itens = [...itens.slice(0, k), ...itens[k].separados.map(comGramas), ...itens.slice(k + 1)];
+      pinta();
+    });
+    el.querySelector("#salvar-ref").onclick = () => aoSalvar({ ...tot, itens: ajustados, titulo: r.titulo || ajustados.map((i) => i.nome.replace(/\s*\(.*\)$/, "")).join(", "), fonte: r.fonte });
   };
   pinta();
 }
