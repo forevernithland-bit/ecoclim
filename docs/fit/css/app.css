@@ -765,3 +765,13 @@ summary.card-tag { cursor: pointer; margin: 0; }
 .int-b span { font-size: 1.4rem; }
 .int-b--on { border-color: var(--lima-forte); background: linear-gradient(0deg, var(--lima-suave), var(--lima-suave)), var(--card); }
 .meta-bonus { display: block; font-size: .68rem; color: var(--lima-forte); font-weight: 700; }
+
+/* ---------- Medicamento / suplementos ---------- */
+.card--med { border-left: 4px solid var(--lima-forte); text-align: left; }
+.card--med p { margin: 6px 0 0; }
+.card--med-alerta { border-left-color: #e5484d; }
+.lista-simples { margin: 6px 0 10px; padding-left: 20px; font-size: .9rem; line-height: 1.45; }
+.lista-simples li { margin: 4px 0; }
+.lista-perigo li::marker { content: "⛔ "; }
+.supl--cautela summary b { color: #c2410c; }
+.chip small { font-weight: 500; opacity: .7; }

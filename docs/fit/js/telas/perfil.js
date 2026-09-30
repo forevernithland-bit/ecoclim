@@ -8,6 +8,7 @@ import { limparTudo, kvSet } from "../db.js";
 import { VERSAO } from "../versao.js";
 import { editorGostos } from "../gostos.js";
 import { instalar, rodandoInstalado } from "../instalar.js";
+import { editorMedicamento } from "../medicamentos.js";
 
 export async function telaPerfil(el, ctx) {
   const p = E.perfil;
@@ -55,7 +56,8 @@ export async function telaPerfil(el, ctx) {
             <li><b>Gasto total considerado:</b> ${num(m.gasto)} kcal/dia.</li>
             <li><b>Meta de calorias:</b> ${num(m.kcal)} kcal (${m.deficit > 0 ? "+" : ""}${num(m.deficit)} kcal/dia pro seu objetivo).</li>
             <li><b>Proteína:</b> ${m.prot} g = ${String(m.protPorKg).replace(".", ",")} g/kg de peso ou ${String(m.protPorMagra).replace(".", ",")} g/kg da sua massa magra (${num(m.magra, 1)} kg). Faixa científica pra você: ${m.protFaixa[0]}–${m.protFaixa[1]} g.</li>
-            <li><b>Gordura:</b> ${m.gord} g (27% das calorias — faixa saudável 20–35%). <b>Carboidrato:</b> o restante, ${m.carb} g (energia pro treino).</li>
+            ${m.medicamento ? `<li><b>💉 Ajuste pelo ${esc(m.medicamento.nome)}:</b> piso mínimo de ${num(m.pisoKcal)} kcal, déficit limitado a ~25%, proteína ≥ 1,6 g/kg do peso de referência (${m.protRefeicao} g por refeição), gordura 25%, fibra ${m.fibra} g e +0,5 L de água (aviso conjunto ACLM/ASN/OMA/TOS 2025).</li>` : ""}
+            <li><b>Gordura:</b> ${m.gord} g (${m.medicamento ? 25 : 27}% das calorias — faixa saudável 20–35%). <b>Carboidrato:</b> o restante, ${m.carb} g (energia pro treino).</li>
           </ol>
           <p class="nota">Tudo se recalcula sozinho quando seu peso, seus passos ou seus registros mudam.</p>
           <button class="btn btn--sec btn--peq" id="revisar-metas">💬 Pedir pra Nina revisar minhas metas</button>
@@ -66,6 +68,12 @@ export async function telaPerfil(el, ctx) {
         <div class="card-tag">🍽️ Gostos alimentares</div>
         <p class="nota">A Nina nunca sugere o que você não gosta e troca por algo equivalente. Se você contar pra ela no chat, ela anota aqui sozinha.</p>
         <div id="editor-gostos"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-tag">💉 Remédio para emagrecer</div>
+        <p class="nota">Usa Mounjaro, Ozempic, Wegovy, Saxenda ou similar? O app adapta proteína, calorias, fibra, água e treino pro que a ciência recomenda pra quem usa.</p>
+        <div id="editor-med"></div>
       </div>
 
       <button class="card card--link" id="supl"><span class="card-tag">💊 Suplementos recomendados</span><span class="nota">Com nível de evidência científica ›</span></button>
@@ -126,6 +134,15 @@ export async function telaPerfil(el, ctx) {
       await salvarPerfil({ ...E.perfil, ...gostos, gostosPerguntados: true });
       toast("Preferências salvas ✅");
     }, 700);
+  });
+  const med = { medicamento: p.medicamento ? { ...p.medicamento } : null };
+  let tMed = null;
+  editorMedicamento(el.querySelector("#editor-med"), med, () => {
+    clearTimeout(tMed);
+    tMed = setTimeout(async () => {
+      await salvarPerfil({ ...E.perfil, medicamento: med.medicamento });
+      toast("Salvo — metas recalculadas ✅");
+    }, 800);
   });
   const bs = el.querySelector("#sync");
   if (bs) bs.onclick = async () => { await sincronizar(); toast("Sincronizado"); ctx.rerender(); };

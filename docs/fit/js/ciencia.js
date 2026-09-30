@@ -8,6 +8,7 @@
 // - Proteína: 1,6–2,2 g/kg (Morton et al., 2018; Helms 2014 p/ déficit).
 // - Ganho de músculo por nível de treino: modelo de Alan Aragon / Lyle McDonald.
 // - Volume de treino: 10–20 séries/músculo/semana (Schoenfeld et al., 2017).
+import { ajustarMetas } from "./medicamentos.js";
 
 export const OBJETIVOS = {
   emagrecer: { rotulo: "Emagrecer", emoji: "🔥", desc: "Perder gordura mantendo os músculos" },
@@ -149,6 +150,10 @@ export function gastoDiario(p) {
 
 // Metas diárias de calorias e macros de acordo com o objetivo.
 export function metas(p) {
+  return ajustarMetas(p, metasBase(p));
+}
+
+function metasBase(p) {
   const gasto = gastoDiario(p);
   const obj = p.objetivo || "saude";
   let kcal, protKg, explic;

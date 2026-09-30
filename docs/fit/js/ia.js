@@ -109,6 +109,8 @@ export async function conversar({ agente, historico, contexto }) {
   return chamar("/ia/chat", { agente, mensagens: historico.slice(-20), contexto }, { timeout: 120000 });
 }
 
+import { orientacaoIA } from "./medicamentos.js";
+
 export function resumoPerfil(p) {
   if (!p) return null;
   return {
@@ -117,5 +119,6 @@ export function resumoPerfil(p) {
     gordura_estimada: p.gordura, medidas: p.medidas, peso_meta: p.pesoMeta, restricoes: p.restricoes || "",
     nao_gosta: p.naoGosta || [], tipo_alimentacao: p.dietas || ["tudo"], alergias: p.alergias || "",
     gostos_ja_perguntados: !!p.gostosPerguntados,
+    medicamento_obesidade: orientacaoIA(p),
   };
 }

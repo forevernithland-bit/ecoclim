@@ -6,7 +6,7 @@ import { totalizar } from "../alimentos.js";
 import { E, gravar, apagar, metasAtuais } from "../estado.js";
 import { porData, todos, hojeISO } from "../db.js";
 import { urlFotoRemota } from "../nuvem.js";
-import { sugerirSuplementos, NAO_VALE, AVISO_SUPLEMENTOS } from "../suplementos.js";
+import { sugerirSuplementos, NAO_VALE, AVISO_SUPLEMENTOS, CHAS, ioimbina } from "../suplementos.js";
 import { analisarAlimentacao, sugerirFecharDia } from "../nutri-insights.js";
 import { miniaturaRefeicao } from "../emoji-comida.js";
 import { bonusDoDia } from "../esportes.js";
@@ -324,6 +324,27 @@ export function abrirSuplementos() {
         <p>${esc(s.porque)}</p>
         <p class="nota"><b>Como usar:</b> ${esc(s.dose)}</p>
       </details>`).join("")}
+    <h3>🍵 Chás — o que fazem de verdade</h3>
+    ${CHAS.map((c) => `
+      <details class="supl">
+        <summary><span>${c.emoji}</span><b>${esc(c.nome)}</b><span class="nivel nivel--${c.nivel}">Evidência ${c.nivel}</span></summary>
+        <p>${esc(c.efeito)}</p>
+        <p class="nota"><b>Como usar:</b> ${esc(c.uso)}</p>
+        <p class="nota"><b>Cuidado:</b> ${esc(c.cuidado)}</p>
+      </details>`).join("")}
+    <h3>⚠️ Com cautela</h3>
+    ${(() => { const y = ioimbina((E.perfil && E.perfil.peso) || 75); return `
+      <details class="supl supl--cautela">
+        <summary><span>${y.emoji}</span><b>${y.nome}</b><span class="nivel nivel--${y.nivel}">Evidência ${y.nivel}</span></summary>
+        <p>${esc(y.oque)}</p>
+        <p class="nota"><b>O que a ciência mostra:</b> ${esc(y.evidencia)}</p>
+        <p class="nota"><b>Protocolo usado nos estudos:</b></p>
+        <ul class="lista-simples">${y.protocolo.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+        <p class="nota"><b>NÃO use se tiver:</b></p>
+        <ul class="lista-simples lista-perigo">${y.contra.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+        <p class="nota"><b>Efeitos colaterais:</b> ${esc(y.efeitos)}</p>
+        <p class="aviso">${esc(y.brasil)} Só use com avaliação médica (aferir pressão e frequência cardíaca antes).</p>
+      </details>`; })()}
     <h3>🚫 Não gaste dinheiro com</h3>
     ${NAO_VALE.map((n) => `<p class="nota"><b>${esc(n.nome)}:</b> ${esc(n.porque)}</p>`).join("")}
     <p class="aviso">${esc(AVISO_SUPLEMENTOS)}</p>`, { cheia: true });

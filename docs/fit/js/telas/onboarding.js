@@ -9,6 +9,7 @@ import { analisarFisico } from "../ia.js";
 import { E, salvarPerfil, salvarPlano, gravar } from "../estado.js";
 import { hojeISO, kvSet } from "../db.js";
 import { editorGostos } from "../gostos.js";
+import { editorMedicamento, medicamento } from "../medicamentos.js";
 
 const PULAVEL = {
   medidas: "Não tenho fita agora — preencher depois",
@@ -131,7 +132,9 @@ export function rodarOnboarding(raiz, aoConcluir) {
         <label class="rotulo">Peso que você quer chegar (opcional)</label>
         <div class="campo-unid"><input id="pesoMeta" class="campo" type="number" inputmode="decimal" step="0.1" value="${esc(r.pesoMeta || "")}" placeholder="${r.objetivo === "massa" ? num(r.peso * 1.08) : num(r.peso * 0.9)}"><span>kg</span></div>
       </div>
-      <div id="estimativa-obj"></div>`,
+      <div id="estimativa-obj"></div>
+      <label class="rotulo">Usa algum remédio para emagrecer?</label>
+      <div id="editor-med"></div>`,
     fisico: () => `
       <h1>Selecione o estilo de físico que você gostaria de obter</h1>
       <p class="sub">Toque no corpo que é a sua meta. Vamos calcular quanto tempo leva pra chegar lá saindo de onde você está hoje.</p>
@@ -239,6 +242,7 @@ export function rodarOnboarding(raiz, aoConcluir) {
           <div class="card card--ciencia entra">
             <div class="card-tag">🔬 O que a ciência diz</div>
             <p>${esc(pr.texto)}</p>
+            ${r.medicamento && medicamento(r.medicamento.id) ? `<p class="nota">💉 Com ${esc(medicamento(r.medicamento.id).nome)} o emagrecimento costuma ser mais rápido que esta estimativa. ${esc(medicamento(r.medicamento.id).estudo)} O app vai cuidar pra que a perda seja de gordura, não de músculo.</p>` : ""}
             ${pr.semanas ? `<p class="destaque">Tempo médio até ${num(meta, 1)} kg: <b>${formatarMeses(Math.round(pr.semanas / 4.35))}</b> <small>(${pr.semanas} semanas)</small></p>` : ""}
           </div>
           ${meta && imc(meta, r.altura) < 18.5 ? `<p class="aviso">⚠️ ${num(meta, 1)} kg deixaria seu IMC abaixo de 18,5 (abaixo do peso saudável). Recomendamos uma meta a partir de ${num(Math.ceil(18.5 * (r.altura / 100) ** 2), 0)} kg, ou acompanhamento profissional.</p>` : ""}` : "";
@@ -252,6 +256,7 @@ export function rodarOnboarding(raiz, aoConcluir) {
       });
       const pm = campo("pesoMeta");
       if (pm) pm.oninput = mostra;
+      editorMedicamento(campo("editor-med"), r, mostra);
       mostra();
     },
     fisico: () => raiz.querySelectorAll("[data-fis]").forEach((b) => b.onclick = () => {

@@ -40,9 +40,18 @@ export async function calibrar({ forcar = false } = {}) {
     }
   }
 
+  // Ritmo de perda/ganho (kg/semana) pelas pesagens dos últimos 21 dias — usado nos alertas
+  const ini21 = somarDias(hoje, -21);
+  const p21 = mets.filter((m) => m.data >= ini21 && m.data <= hoje && +m.peso > 0).map((m) => ({ t: new Date(`${m.data}T12:00:00`).getTime() / 864e5, p: +m.peso }));
+  let ritmoSemana = null;
+  if (p21.length >= 4 && p21[p21.length - 1].t - p21[0].t >= 10) {
+    const n = p21.length, mx = p21.reduce((a, x) => a + x.t, 0) / n, my = p21.reduce((a, x) => a + x.p, 0) / n;
+    ritmoSemana = Math.round((p21.reduce((a, x) => a + (x.t - mx) * (x.p - my), 0) / p21.reduce((a, x) => a + (x.t - mx) ** 2, 0)) * 7 * 100) / 100;
+  }
+
   const antes = E.perfil.calibracao || {};
-  const nova = { passosMedia, gastoReal, dias, em: Date.now() };
-  if (antes.passosMedia !== passosMedia || Math.abs((antes.gastoReal || 0) - (gastoReal || 0)) > 30) {
+  const nova = { passosMedia, gastoReal, dias, ritmoSemana, em: Date.now() };
+  if (antes.passosMedia !== passosMedia || Math.abs((antes.gastoReal || 0) - (gastoReal || 0)) > 30 || antes.ritmoSemana !== ritmoSemana) {
     await salvarPerfil({ ...E.perfil, calibracao: nova });
   }
   return nova;

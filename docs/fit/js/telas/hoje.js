@@ -1,5 +1,5 @@
 // Tela inicial: resumo do dia, registro rápido e o que fazer agora.
-import { esc, num, anel, saudacao, toast, dataBR, temaAtual, aplicarTema } from "../ui.js";
+import { esc, num, anel, saudacao, toast, dataBR, temaAtual, aplicarTema, abrirSheet } from "../ui.js";
 import { E, metasAtuais, metricasDoDia, salvarMetrica, listar } from "../estado.js";
 import { totaisDoDia, abrirNovaRefeicao } from "./comida.js";
 import { proximoTreino } from "./treino.js";
@@ -7,6 +7,7 @@ import { proximoCheckin, completarInicial } from "./evolucao.js";
 import { instalar, deveSugerirInstalar, dispensarSugestao, ehIOS } from "../instalar.js";
 import { calcularRelatorio } from "./relatorio.js";
 import { bonusDoDia } from "../esportes.js";
+import { alertasMedicamento, htmlGuia } from "../medicamentos.js";
 import { sessaoAtual, abrirSessao } from "../sessao.js";
 import { analisarAlimentacao, sugerirFecharDia } from "../nutri-insights.js";
 import { hojeISO } from "../db.js";
@@ -37,6 +38,7 @@ export async function telaHoje(el, ctx) {
   const sessao = await sessaoAtual();
   const fechar = sugerirFecharDia(E.perfil, { kcal: m.kcal - t.kcal, prot: m.prot - t.proteina });
   const analise = await analisarAlimentacao(E.perfil, metasAtuais());
+  const alertasMed = E.perfil.medicamento ? await alertasMedicamento(E.perfil, m) : [];
   const insight = analise.insights.find((x) => x.nivel !== "bom") || analise.insights[0];
   const ck = await proximoCheckin();
   const cks = await listar("checkins");
@@ -141,6 +143,13 @@ export async function telaHoje(el, ctx) {
         <span>${ck.dias <= 0 ? "<b>Liberado hoje!</b> Tire as fotos e compare com o início." : `Próximo em <b>${ck.dias} dias</b> — aí você vê o antes × depois.`}</span>
       </button>
 
+      ${m.medicamento ? `
+      <button class="card card--link card--med ${alertasMed.some((x) => x.nivel === "alerta") ? "card--med-alerta" : ""}" id="med">
+        <div class="card-tag">💉 Seu tratamento · ${esc(m.medicamento.nome)}</div>
+        ${t.kcal > 0 && t.kcal < m.pisoKcal && new Date().getHours() >= 17 ? `<p><b>Hoje você comeu ${num(t.kcal)} kcal — o piso seguro é ${num(m.pisoKcal)}.</b> Faltam ${num(m.pisoKcal - t.kcal)} kcal, priorize proteína.</p>` : ""}
+        ${alertasMed.slice(0, 2).map((x) => `<p class="nota">${esc(x.texto)}</p>`).join("") || `<p class="nota">Proteína em toda refeição (~${m.protRefeicao} g), nunca abaixo de ${num(m.pisoKcal)} kcal, água e treino de força. <u>Ver o guia ›</u></p>`}
+      </button>` : ""}
+
       ${t.kcal > 0 && !fechar.fechado && fechar.opcoes.length ? `
       <button class="card card--link card--fechar-mini" id="fechar-dia">
         <div class="card-tag">🍽️ Faltam ${num(fechar.restante.kcal)} kcal e ${num(fechar.restante.prot)} g de proteína</div>
@@ -162,6 +171,13 @@ export async function telaHoje(el, ctx) {
   el.querySelectorAll("[data-ir]").forEach((b) => b.onclick = () => (sessao && b.dataset.ir === "treino" ? abrirSessao() : ctx.ir(b.dataset.ir)));
   el.querySelectorAll("[data-agente]").forEach((b) => b.onclick = () => ctx.ir("coach", { agente: b.dataset.agente }));
   el.querySelector("#perfil").onclick = () => ctx.ir("perfil");
+  const bmed = el.querySelector("#med");
+  if (bmed) bmed.onclick = () => {
+    const sh = abrirSheet(`${htmlGuia(E.perfil, m)}
+    ${alertasMed.length ? `<h3>Pra você agora</h3>${alertasMed.map((x) => `<p class="nota">• ${esc(x.texto)}</p>`).join("")}` : ""}
+    <button class="btn btn--sec" id="med-perfil">Editar remédio / fase / efeitos</button>`, { cheia: true });
+    sh.el.querySelector("#med-perfil").onclick = () => { sh.fechar(); ctx.ir("perfil"); };
+  };
   const bf = el.querySelector("#fechar-dia");
   if (bf) bf.onclick = () => ctx.ir("comida");
   const bi = el.querySelector("#insight");
