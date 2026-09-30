@@ -115,15 +115,17 @@ export async function sincronizar() {
       const perfil = await kvGet("perfil");
       const plano = await kvGet("plano");
       const prefs = await kvGet("prefs");
-      const { error } = await sb().from("fit_perfis").upsert({ usuario_id: user.id, dados: { perfil, plano, prefs }, atualizado_em: new Date().toISOString() });
+      const em = new Date().toISOString();
+      const { error } = await sb().from("fit_perfis").upsert({ usuario_id: user.id, dados: { perfil, plano, prefs }, atualizado_em: em });
       if (error) throw error;
       await kvSet("perfilSujo", false);
+      await kvSet("perfilRemotoEm", em);
     }
     const fila = (await todos("outbox")).sort((a, b) => a.em - b.em);
     for (const item of fila) {
       const tabela = TABELA[item.store];
       if (item.op === "delete") {
-        const { error } = await sb().from(tabela).delete().eq("id", item.registroId);
+        const { error } = await sb().from(tabela).update({ dados: { excluido: true }, atualizado_em: new Date().toISOString() }).eq("id", item.registroId);
         if (error) throw error;
       } else {
         const reg = await ler(item.store, item.registroId);
@@ -171,6 +173,7 @@ export async function puxarTudo() {
     const { data, error } = await sb().from(tabela).select("id,data,dados").eq("usuario_id", user.id).order("data", { ascending: true }).limit(5000);
     if (error || !data) continue;
     for (const row of data) {
+      if (row.dados && row.dados.excluido) continue;
       const reg = { ...row.dados, id: row.id, data: row.data };
       const fotos = reg.fotos || {};
       delete reg.fotos;
@@ -184,7 +187,101 @@ export async function puxarTudo() {
       await salvar(store, reg);
     }
   }
+  // a partir daqui, puxarNovidades() só busca o que mudar
+  const agora = new Date(Date.now()).toISOString();
+  for (const store of Object.keys(TABELA)) await kvSet(`puxadoEm:${store}`, agora);
+  await kvSet("perfilRemotoEm", agora);
   return !!perfilRow;
+}
+
+// ---------- Receber o que outros aparelhos enviaram ----------
+// Busca, em cada tabela, as linhas alteradas desde a última vez (com 10 min
+// de folga pra relógios diferentes entre celular e computador). Registro com
+// alteração local ainda na fila não é sobrescrito. Na 1ª vez (sem carimbo),
+// compara tudo e remove daqui o que já não existe na nuvem.
+let puxando = false;
+const FOLGA = 10 * 60 * 1000;
+export async function puxarNovidades() {
+  if (!SYNC_ATIVO || puxando || !navigator.onLine) return false;
+  const user = await usuarioAtual();
+  if (!user) return false;
+  puxando = true;
+  let mudou = false;
+  try {
+    // Perfil/plano: vale o mais novo (se aqui não tem alteração esperando envio)
+    if (!(await kvGet("perfilSujo"))) {
+      const { data: row } = await sb().from("fit_perfis").select("dados,atualizado_em").eq("usuario_id", user.id).maybeSingle();
+      const local = await kvGet("perfilRemotoEm", null);
+      if (row && row.dados && (!local || Date.parse(row.atualizado_em) > Date.parse(local))) {
+        const { perfil, plano, prefs } = row.dados;
+        if (perfil) await kvSet("perfil", perfil);
+        if (plano) await kvSet("plano", plano);
+        if (prefs) await kvSet("prefs", prefs);
+        await kvSet("perfilRemotoEm", row.atualizado_em);
+        mudou = true;
+      }
+    }
+    for (const [store, tabela] of Object.entries(TABELA)) {
+      const pend = new Set((await todos("outbox")).filter((o) => o.store === store).map((o) => o.registroId));
+      const desde = await kvGet(`puxadoEm:${store}`, null);
+      const linhas = [];
+      for (let de = 0; de < 20000; de += 1000) {
+        let q = sb().from(tabela).select("id,data,dados,atualizado_em").eq("usuario_id", user.id);
+        if (desde) q = q.gt("atualizado_em", new Date(Date.parse(desde) - FOLGA).toISOString());
+        const { data, error } = await q.order("atualizado_em", { ascending: true }).range(de, de + 999);
+        if (error) throw error;
+        linhas.push(...data);
+        if (data.length < 1000) break;
+      }
+      let maior = desde;
+      const naNuvem = new Set();
+      for (const row of linhas) {
+        if (!maior || Date.parse(row.atualizado_em) > Date.parse(maior)) maior = row.atualizado_em;
+        if (pend.has(row.id)) continue;
+        const local = await ler(store, row.id);
+        if (row.dados && row.dados.excluido) {
+          if (local) { await excluir(store, row.id); mudou = true; }
+          continue;
+        }
+        naNuvem.add(row.id);
+        const reg = { ...row.dados, id: row.id, data: row.data };
+        const fotos = reg.fotos || {};
+        delete reg.fotos;
+        for (const [campo, caminho] of Object.entries(fotos)) {
+          reg[`${campo}Path`] = caminho;
+          if (local && local[campo] instanceof Blob) reg[campo] = local[campo];
+          else if (store === "checkins") {
+            const { data: blob } = await sb().storage.from(BUCKET_FOTOS).download(caminho);
+            if (blob) reg[campo] = blob;
+          }
+        }
+        if (!local || (reg.atualizadoEm || 0) > (local.atualizadoEm || 0) || (!reg.atualizadoEm && JSON.stringify({ ...local, ...reg }) !== JSON.stringify(local))) {
+          await salvar(store, { ...(local || {}), ...reg });
+          mudou = true;
+        }
+      }
+      if (!desde) {
+        // 1ª comparação completa: o que só existe aqui (e não está na fila) foi apagado em outro aparelho
+        for (const r of await todos(store)) {
+          if (!naNuvem.has(r.id) && !pend.has(r.id)) { await excluir(store, r.id); mudou = true; }
+        }
+      }
+      if (maior) await kvSet(`puxadoEm:${store}`, maior);
+      else if (!desde) await kvSet(`puxadoEm:${store}`, new Date().toISOString());
+    }
+  } catch (e) {
+    console.warn("puxar", e);
+  } finally {
+    puxando = false;
+  }
+  if (mudou) avisar("atualizado");
+  return mudou;
+}
+
+// Envia o que é daqui e depois recebe o que veio de outros aparelhos.
+export async function sincronizarTudo() {
+  await sincronizar();
+  if (!(await pendentes())) await puxarNovidades();
 }
 
 // Foto que só existe na nuvem (refeição de outro aparelho): URL temporária.
@@ -225,8 +322,8 @@ export async function salvarAlimentoNoBanco(item) {
 }
 
 export function iniciarSyncAutomatico() {
-  window.addEventListener("online", () => sincronizar());
-  setInterval(() => sincronizar(), 60000);
-  sincronizar();
+  window.addEventListener("online", () => sincronizarTudo());
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") sincronizarTudo(); });
+  setInterval(() => sincronizarTudo(), 60000);
   baixarAlimentos();
 }

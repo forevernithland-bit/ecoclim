@@ -2,7 +2,7 @@
 // com as abas (Hoje, Comida, Treino, Evolução, Coach).
 import { carregarEstado, E } from "./estado.js";
 import { kvSet, todos } from "./db.js";
-import { cadastrar, entrar, usuarioAtual, puxarTudo, iniciarSyncAutomatico, aoMudarSync, enfileirar } from "./nuvem.js";
+import { cadastrar, entrar, usuarioAtual, puxarTudo, iniciarSyncAutomatico, aoMudarSync, enfileirar, sincronizarTudo } from "./nuvem.js";
 import { esc, toast } from "./ui.js";
 import { rodarOnboarding } from "./telas/onboarding.js";
 import { telaHoje } from "./telas/hoje.js";
@@ -124,10 +124,21 @@ function telaBoasVindas(aoEntrar) {
 }
 
 function mostrarSync(status) {
+  if (status === "atualizado") { aplicarNovidades(); return; }
   const f = document.getElementById("faixa-sync");
   if (!f) return;
   if (status === "erro" && !navigator.onLine) { f.className = "faixa-sync"; f.textContent = "Sem internet — seus registros ficam salvos e sobem sozinhos depois."; }
   else f.className = "faixa-sync oculto";
+}
+
+// Chegaram dados de outro aparelho: recarrega o estado e redesenha — mas sem
+// atrapalhar quem está digitando ou com uma janela aberta (tenta de novo depois).
+async function aplicarNovidades() {
+  await carregarEstado();
+  if (!E.perfil || !E.plano) return;
+  const ocupado = () => document.querySelector(".sheet-fundo") || ["INPUT", "TEXTAREA"].includes(document.activeElement && document.activeElement.tagName);
+  const tenta = () => { if (ocupado()) return setTimeout(tenta, 5000); renderApp(); };
+  tenta();
 }
 
 async function iniciar() {
@@ -142,7 +153,11 @@ async function iniciar() {
     } else {
       renderApp();
     }
-    import("./calibracao.js").then((c) => c.calibrar()).catch(() => {});
+    // calibra só depois de receber o perfil mais novo da nuvem (senão um perfil
+    // antigo deste aparelho poderia sobrescrever o que veio do outro)
+    const calibra = () => import("./calibracao.js").then((c) => c.calibrar()).catch(() => {});
+    if (E.modoLocal) calibra();
+    else sincronizarTudo().catch(() => {}).then(async () => { await carregarEstado(); calibra(); });
     iniciarVerificadorSessao(() => { resetAbaTreino(); if (E.perfil && E.plano) renderApp(); });
   };
 
