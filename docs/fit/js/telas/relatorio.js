@@ -34,7 +34,8 @@ export async function calcularRelatorio(qual = periodo) {
       prot: Math.round(rs.reduce((a, r) => a + (r.proteina || 0), 0)),
       refs: rs,
       agua: +mt.agua || 0, passos: +mt.passos || 0, sono: +mt.sono || 0, peso: +mt.peso || 0,
-      treinou: treinos.some((t) => t.data === d),
+      treinou: treinos.some((t) => t.data === d && t.tipo !== "esporte"),
+      esporte: treinos.filter((t) => t.data === d && t.tipo === "esporte"),
       planejado: (E.plano.diasSemana || PADRAO_DIAS[E.plano.dias] || []).includes(new Date(`${d}T12:00:00`).getDay()),
     };
   });
@@ -137,9 +138,9 @@ export function gerarDicas(r) {
   if (r.protMedia < m.prot * 0.9) {
     const falta = Math.round(m.prot - r.protMedia);
     const opcoes = FONTES_PROTEINA.filter(([nome]) => podeComer(nome)).slice(0, 3).map(([, t]) => t).join(", ");
-    d.push({ e: "🥩", t: `Faltaram em média ${falta} g de proteína por dia (meta ${m.prot} g). É ela que segura e constrói músculo${p.focoMuscular === "bracos" ? " — inclusive o braço" : ""}. Fácil de completar: ${opcoes}.` });
+    d.push({ e: "🥩", t: `Faltaram em média ${falta} g de proteína por dia (meta ${m.prot} g). É ela que segura e constrói músculo${[].concat(p.focoMuscular || []).includes("bracos") ? " — inclusive o braço" : ""}. Fácil de completar: ${opcoes}.` });
   } else {
-    d.push({ e: "💪", t: `Proteína em dia (média ${r.protMedia} g). Ótimo pra construir músculo${p.focoMuscular === "bracos" ? " e fazer o braço crescer" : ""}.` });
+    d.push({ e: "💪", t: `Proteína em dia (média ${r.protMedia} g). Ótimo pra construir músculo${[].concat(p.focoMuscular || []).includes("bracos") ? " e fazer o braço crescer" : ""}.` });
   }
   // Calorias
   const dif = r.kcalMedia - m.kcal;

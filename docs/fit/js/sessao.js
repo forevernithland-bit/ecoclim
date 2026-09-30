@@ -6,6 +6,7 @@ import { esc, num, toast, abrirSheet, confirmar } from "./ui.js";
 import { kvGet, kvSet, hojeISO } from "./db.js";
 import { E, gravar, listar, salvarPlano } from "./estado.js";
 import { alternativas, linkVideo, segundos, duracaoSessao } from "./treino.js";
+import { gastoAtividade } from "./esportes.js";
 
 const CHAVE = "sessaoTreino";
 const UMA_HORA = 60 * 60 * 1000;
@@ -228,6 +229,8 @@ async function concluirComHorario() {
   const sh = abrirSheet(`
     <h2>🏁 Concluir treino ${esc(s.letra)}</h2>
     <p class="nota">Começou às <b>${hhmm(s.inicio)}</b> · ${feitas} séries marcadas</p>
+    <label class="rotulo">Como foi a intensidade do treino?</label>
+    <div class="int-sel">${[["leve", "🙂", "Leve"], ["moderado", "😅", "Moderado"], ["intenso", "🥵", "Intenso"], ["muito", "💀", "No limite"]].map(([k, e, n]) => `<button type="button" class="int-b" data-int="${k}"><span>${e}</span>${n}</button>`).join("")}</div>
     <label class="rotulo">Terminou que horas?</label>
     <input type="time" class="campo" id="fim" value="${hhmm(Date.now())}">
     <p class="nota" id="dur"></p>
@@ -240,10 +243,13 @@ async function concluirComHorario() {
     if (d.getTime() < s.inicio) d.setDate(d.getDate() + 1);
     return Math.min(d.getTime(), Date.now() + 60000);
   };
+  let intensidade = null;
+  sh.el.querySelectorAll("[data-int]").forEach((b) => b.onclick = () => { intensidade = b.dataset.int; sh.el.querySelectorAll("[data-int]").forEach((x) => x.classList.toggle("int-b--on", x === b)); });
   const mostra = () => { dur.textContent = `Duração: ${Math.max(1, Math.round((fimMs() - s.inicio) / 60000))} min`; };
   inp.oninput = mostra; mostra();
   sh.el.querySelector("#ok").onclick = async () => {
-    await finalizar(s, fimMs(), false);
+    if (!intensidade) return toast("Diga como foi a intensidade 🙂", "erro");
+    await finalizar(s, fimMs(), false, intensidade);
     sh.fechar();
     if (sheetAberto) sheetAberto.fechar();
     toast("Treino concluído! 🔥 Registrado.");
@@ -257,7 +263,20 @@ async function concluirComHorario() {
   };
 }
 
-async function finalizar(s, fim, automatico) {
+// cardio digitado no treino ("20 min de esteira") → esporte equivalente pro cálculo
+function esporteDoCardio(nome) {
+  const n = nome.toLowerCase();
+  const mapa = [["corr", "corrida"], ["esteira", "caminhada"], ["caminh", "caminhada"], ["spinning", "spinning"], ["ergom", "spinning"], ["bike", "spinning"], ["bicicl", "bike"], ["elípt", "eliptico"], ["elipt", "eliptico"], ["nata", "natacao"], ["corda", "corda"], ["zumba", "danca"], ["dan", "danca"], ["remo", "remo"], ["hiit", "crossfit"], ["funcional", "crossfit"], ["lut", "luta"], ["boxe", "luta"], ["futebol", "futebol"], ["escada", "crossfit"]];
+  for (const [k, id] of mapa) if (n.includes(k)) return id;
+  return "outro";
+}
+
+async function finalizar(s, fim, automatico, intensidade = "moderado") {
+  const peso = (E.perfil && E.perfil.peso) || 75;
+  const kcalCardio = s.exercicios.filter((e) => e.tipo === "cardio").reduce((a, e) => {
+    const min = parseInt(String(e.reps), 10) || 20;
+    return a + gastoAtividade({ id: esporteDoCardio(e.nome), minutos: min, intensidade: intensidade === "muito" ? "intenso" : intensidade, peso }).liquida;
+  }, 0);
   const volume = s.exercicios.reduce((a, e) => a + e.series.filter((x) => x.feito).reduce((b, x) => b + (+x.kg || 0) * (+x.reps || 0), 0), 0);
   const series = s.exercicios.reduce((a, e) => a + e.series.filter((x) => x.feito).length, 0);
   await gravar("treinos", {
@@ -265,6 +284,7 @@ async function finalizar(s, fim, automatico) {
     ciclo: s.ciclo, diaIndice: s.diaIndice, letra: s.letra, nome: s.livre ? "Treino livre" : `Treino ${s.letra} — ${s.nome}`, livre: !!s.livre,
     exercicios: s.exercicios.map((e) => ({ nome: e.nome, series: e.series, concluido: e.concluido })),
     volume: Math.round(volume), series, inicio: s.inicio, fim, duracaoMin: Math.max(1, Math.round((fim - s.inicio) / 60000)), automatico,
+    intensidade: automatico ? null : intensidade, kcalCardio,
   });
   await kvSet(CHAVE, null);
   atualizarBarraSessao();

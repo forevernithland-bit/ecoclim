@@ -749,3 +749,19 @@ summary.card-tag { cursor: pointer; margin: 0; }
 .hero-macro-topo b span { color: var(--muted); font-weight: 600; font-size: .75rem; }
 .hero-macro .mini-trilho { margin-top: 3px; height: 5px; }
 .hero-macro .mini-trilho div.m-c { background: var(--m-c); } .hero-macro .mini-trilho div.m-g { background: var(--m-g); }
+
+/* ---------- Esportes ---------- */
+.esp-grade { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.esp-op { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 6px; border-radius: 14px; border: 1.5px solid var(--linha); background: var(--card); text-align: center; transition: all .2s var(--ease); }
+.esp-op span { font-size: 1.5rem; } .esp-op small { font-size: .72rem; font-weight: 600; line-height: 1.2; }
+.esp-op--on { border-color: var(--lima-forte); background: linear-gradient(0deg, var(--lima-suave), var(--lima-suave)), var(--card); }
+.esp-min { margin-top: 8px; max-width: 160px; }
+#esp-outro { margin-top: 8px; }
+.esp-gasto { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 14px 0 6px; }
+.esp-gasto div { background: var(--ink); color: #fff; border-radius: 14px; padding: 12px; }
+.esp-gasto small { color: #a9b6ca; font-size: .75rem; display: block; } .esp-gasto b { font-family: var(--f-titulo); font-size: 1.3rem; color: var(--lima); }
+.int-sel { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.int-b { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 4px; border-radius: 14px; border: 1.5px solid var(--linha); background: var(--card); font-size: .78rem; font-weight: 700; }
+.int-b span { font-size: 1.4rem; }
+.int-b--on { border-color: var(--lima-forte); background: linear-gradient(0deg, var(--lima-suave), var(--lima-suave)), var(--card); }
+.meta-bonus { display: block; font-size: .68rem; color: var(--lima-forte); font-weight: 700; }

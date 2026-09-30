@@ -9,6 +9,7 @@ import { urlFotoRemota } from "../nuvem.js";
 import { sugerirSuplementos, NAO_VALE, AVISO_SUPLEMENTOS } from "../suplementos.js";
 import { analisarAlimentacao, sugerirFecharDia } from "../nutri-insights.js";
 import { miniaturaRefeicao } from "../emoji-comida.js";
+import { bonusDoDia } from "../esportes.js";
 
 export const TIPOS = [
   { id: "cafe", nome: "Café da manhã", emoji: "☕", ate: 10 },
@@ -29,8 +30,10 @@ let diaVisto = hojeISO();
 
 export async function telaComida(el, ctx) {
   const { rerender } = ctx;
-  const m = metasAtuais();
+  const m = { ...metasAtuais() };
   const t = await totaisDoDia(diaVisto);
+  const atividade = bonusDoDia(await todos("treinos"), diaVisto);
+  if (atividade.bonus) { m.kcal += atividade.bonus; m.carb += Math.round(atividade.bonus / 4); }
   const ehHoje = diaVisto === hojeISO();
 
   // semana para o gráfico
@@ -43,7 +46,7 @@ export async function telaComida(el, ctx) {
   const comRegistro = semana.filter((s) => s.y > 0);
   const mediaSemana = comRegistro.length ? Math.round(comRegistro.reduce((a, s) => a + s.y, 0) / comRegistro.length) : 0;
   const fechar = ehHoje ? sugerirFecharDia(E.perfil, { kcal: m.kcal - t.kcal, prot: m.prot - t.proteina }) : null;
-  const analise = await analisarAlimentacao(E.perfil, m);
+  const analise = await analisarAlimentacao(E.perfil, metasAtuais());
 
   el.innerHTML = `
     <div class="tela entra">
@@ -61,6 +64,8 @@ export async function telaComida(el, ctx) {
           ${barraMacro("Gordura", t.gordura, m.gord, "m-g")}
         </div>
       </div>
+
+      ${atividade.bonus ? `<p class="nota centro">🏅 Meta de hoje +${num(atividade.bonus)} kcal pela atividade física (metade do gasto extra estimado).</p>` : ""}
 
       <div class="acoes-rapidas">
         <button class="acao" data-add="foto"><span>📸</span>Foto do prato</button>

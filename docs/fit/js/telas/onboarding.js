@@ -1,7 +1,7 @@
 // Cadastro inicial em etapas (uma pergunta por tela — rápido e sem assustar).
 import { esc, num, toast, carregando } from "../ui.js";
 import { OBJETIVOS, NIVEIS, FISICOS, MEDIDAS, imc, faixaImc, gorduraEstimada, metas, projecaoObjetivo, estimarTempoFisico, formatarMeses, ffmi, objetivoSugerido } from "../ciencia.js";
-import { EQUIPAMENTOS, gerarPlano, nomeDivisao, DIAS_SEMANA, PADRAO_DIAS, MINUTOS, treinosDoCiclo, FOCOS } from "../treino.js";
+import { EQUIPAMENTOS, gerarPlano, nomeDivisao, DIAS_SEMANA, PADRAO_DIAS, MINUTOS, treinosDoCiclo, FOCOS, htmlChipsFoco, alternarFoco, listaFocos } from "../treino.js";
 import { desenharFisico, figuraComFoto } from "../fisico-arte.js";
 import { urlDe } from "../midia.js";
 import { fotografarCorpo } from "../camera.js";
@@ -156,8 +156,8 @@ export function rodarOnboarding(raiz, aoConcluir) {
       <label class="rotulo">Quanto tempo por dia?</label>
       <div class="dias-sel">${MINUTOS.map((m) => `<button class="dia-b dia-b--larg ${+r.minutosTreino === m ? "dia-b--on" : ""}" data-min="${m}">${m} min</button>`).join("")}</div>
       <p class="nota" id="dica-min">${dicaMin(r.minutosTreino)}</p>
-      <label class="rotulo">Quer dar prioridade a algum músculo?</label>
-      <div class="chips-quebra">${Object.entries(FOCOS).map(([k, f]) => `<button class="chip ${(r.focoMuscular || "nenhum") === k ? "chip--on" : ""}" data-foco="${k}">${f.emoji} ${f.nome}</button>`).join("")}</div>
+      <label class="rotulo">Quer dar prioridade a algum músculo? (até 2)</label>
+      <div class="chips-quebra" id="chips-foco">${htmlChipsFoco(r.focoMuscular)}</div>
       <p class="nota" id="dica-foco">${dicaFoco(r.focoMuscular)}</p>
       <div id="previa-rotina"></div>
       <label class="rotulo">Onde você vai treinar?</label>
@@ -278,11 +278,15 @@ export function rodarOnboarding(raiz, aoConcluir) {
         campo("dica-dias").textContent = dicaDias(r.diasSemana.length);
         previa();
       });
-      raiz.querySelectorAll("[data-foco]").forEach((b) => b.onclick = () => {
-        r.focoMuscular = b.dataset.foco;
-        raiz.querySelectorAll("[data-foco]").forEach((x) => x.classList.toggle("chip--on", x === b));
-        campo("dica-foco").textContent = dicaFoco(r.focoMuscular);
+      const ligaFoco = () => raiz.querySelectorAll("[data-foco]").forEach((b) => b.onclick = () => {
+        const { lista, erro } = alternarFoco(r.focoMuscular, b.dataset.foco);
+        if (erro) return toast(erro, "erro");
+        r.focoMuscular = lista;
+        campo("chips-foco").innerHTML = htmlChipsFoco(lista);
+        campo("dica-foco").textContent = dicaFoco(lista);
+        ligaFoco();
       });
+      ligaFoco();
       raiz.querySelectorAll("[data-min]").forEach((b) => b.onclick = () => {
         r.minutosTreino = +b.dataset.min;
         raiz.querySelectorAll("[data-min]").forEach((x) => x.classList.toggle("dia-b--on", x === b));
@@ -421,9 +425,11 @@ export function pintaAnaliseIA(el, a) {
 }
 
 export function dicaFoco(f) {
-  if (!f || f === "nenhum") return "Treino equilibrado: todos os músculos com o mesmo volume.";
-  if (f === "bracos") return "Braços em todo treino, em bi-set (rosca + tríceps colados, sem descanso entre eles): mais volume de braço sem aumentar o tempo.";
-  return `${FOCOS[f].nome} recebem um bloco extra em todo treino — mais volume onde você mais quer crescer.`;
+  const l = listaFocos(f);
+  if (!l.length) return "Treino equilibrado: todos os músculos com o mesmo volume.";
+  const nomes = l.map((x) => FOCOS[x].nome).join(" e ");
+  const braco = l.includes("bracos") ? " Braço vai em bi-set (rosca + tríceps colados), pra caber no tempo." : "";
+  return `${nomes}: blocos extras ao longo da semana (~${l.length > 1 ? 14 : 16} séries cada) — sem tirar o mínimo dos outros músculos, pra manter o corpo equilibrado.${braco}`;
 }
 
 function dicaMin(m) {

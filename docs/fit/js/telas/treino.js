@@ -4,13 +4,14 @@
 import { esc, num, toast, abrirSheet, dataBR, carregando } from "../ui.js";
 import {
   treinosDoCiclo, cicloAtual, diasParaTroca, nomeDivisao, cardio, REGRAS_TREINO, EQUIPAMENTOS, gerarPlano,
-  DIAS_SEMANA, MINUTOS, PADRAO_DIAS, FOCOS, volumeSemanal, alternativas,
+  DIAS_SEMANA, MINUTOS, PADRAO_DIAS, FOCOS, volumeSemanal, alternativas, htmlChipsFoco, alternarFoco, nomeFocos, listaFocos,
 } from "../treino.js";
 import { E, listar, salvarPlano, salvarPerfil } from "../estado.js";
 import { hojeISO } from "../db.js";
 import { iniciarSessao, sessaoAtual, abrirSessao } from "../sessao.js";
 import { conversar, resumoPerfil } from "../ia.js";
 import { abrirAdicionarExercicios } from "./adicionar-exercicio.js";
+import { abrirRegistrarEsporte } from "./esporte.js";
 
 export const cicloDoPlano = (pl) => cicloAtual(pl) + (pl.offset || 0);
 
@@ -46,7 +47,7 @@ export async function telaTreino(el, { rerender }) {
         <div>
           <div class="card-tag">🏋️ ${esc(nomeDivisao(pl))}</div>
           <p class="nota">${(pl.diasSemana || PADRAO_DIAS[pl.dias]).map((x) => DIAS_SEMANA[x]).join(", ")} · ${pl.minutos || 60} min</p>
-          ${pl.foco && pl.foco !== "nenhum" ? `<p class="nota"><b>${FOCOS[pl.foco].emoji} Prioridade: ${FOCOS[pl.foco].nome}</b></p>` : ""}
+          ${nomeFocos(pl.foco) ? `<p class="nota"><b>Prioridade: ${nomeFocos(pl.foco)}</b></p>` : ""}
           <p class="nota">Ciclo ${ciclo + 1} · exercícios mudam em <b>${diasParaTroca(pl)} dias</b></p>
         </div>
         <div class="semana-bolinhas" aria-label="Treinos na semana">${Array.from({ length: pl.dias }, (_, i) => `<span class="${i < semana ? "on" : ""}"></span>`).join("")}<small>${semana}/${pl.dias} na semana</small></div>
@@ -91,6 +92,7 @@ export async function telaTreino(el, { rerender }) {
       <button class="btn btn--grande" id="iniciar">${emAndamento ? `Continuar treino ${d.letra} ▶ (em andamento)` : `Iniciar treino ${d.letra} ▶`}</button>
       <p class="nota centro">Ao iniciar, o cronômetro começa sozinho e te aviso quando der ${pl.minutos || 60} min.</p>
       <button class="btn btn--sec" id="livre">✍️ Treino livre — digitar os exercícios que vou fazer</button>
+      <button class="btn btn--sec" id="esporte">🏅 Registrar outro esporte (natação, corrida, bike, jiu-jitsu…)</button>
 
       <div class="card">
         <div class="card-tag">📊 Volume semanal por músculo</div>
@@ -105,7 +107,11 @@ export async function telaTreino(el, { rerender }) {
             </div>`;
           }).join("")}
         </div>
-        <p class="nota">${vol.some((v) => v.status === "baixo") ? `⚠️ ${vol.filter((v) => v.status === "baixo").map((v) => v.nome).join(", ")} abaixo do ideal — com mais tempo por treino ou mais dias na semana isso sobe.` : "✅ Todos os grupos dentro da faixa recomendada."}</p>
+        <p class="nota">${vol.some((v) => v.status === "baixo")
+          ? (vol.filter((v) => v.status === "baixo").every((v) => v.foco)
+            ? `⚠️ ${vol.filter((v) => v.status === "baixo").map((v) => v.nome).join(", ")} (prioridade) abaixo do ideal: no tempo disponível, o app não tira volume dos outros músculos pra não desequilibrar o corpo. Com +10 min por treino ou +1 dia na semana, o foco chega no ideal.`
+            : `⚠️ ${vol.filter((v) => v.status === "baixo").map((v) => v.nome).join(", ")} abaixo do ideal — com mais tempo por treino ou mais dias na semana isso sobe.`)
+          : "✅ Todos os grupos dentro da faixa recomendada — foco sem desequilibrar o resto."}</p>
         <button class="btn btn--sec btn--peq" id="avaliar">🏋️ Pedir avaliação do Léo (personal IA)</button>
         <div id="avaliacao"></div>
       </div>
@@ -128,7 +134,7 @@ export async function telaTreino(el, { rerender }) {
       ${logs.length ? `
       <div class="card">
         <div class="card-tag">🗓️ Últimos treinos</div>
-        ${logs.slice(-5).reverse().map((l) => `<div class="linha-hist"><span>${dataBR(l.data, { weekday: "short", day: "2-digit", month: "short" })}</span><b>${esc(l.nome)}</b><small>${l.duracaoMin || "–"} min${l.automatico ? " (auto)" : ""}</small></div>`).join("")}
+        ${logs.slice(-6).reverse().map((l) => `<div class="linha-hist"><span>${dataBR(l.data, { weekday: "short", day: "2-digit", month: "short" })}</span><b>${l.tipo === "esporte" ? `${l.emoji || "🏅"} ` : ""}${esc(l.nome)}</b><small>${l.duracaoMin || "–"} min${l.kcal ? ` · ≈${num(l.kcal)} kcal` : ""}${l.intensidade ? ` · ${{ leve: "leve", moderado: "moderada", intenso: "intensa", muito: "muito intensa" }[l.intensidade] || ""}` : ""}${l.automatico ? " (auto)" : ""}</small></div>`).join("")}
       </div>` : ""}
     </div>`;
 
@@ -154,6 +160,7 @@ export async function telaTreino(el, { rerender }) {
     await salvarPlano({ ...E.plano, adicionados });
     toast("Tirado do treino"); rerender();
   });
+  el.querySelector("#esporte").onclick = () => abrirRegistrarEsporte(rerender);
   el.querySelector("#livre").onclick = () => abrirAdicionarExercicios({
     titulo: "✍️ Treino livre",
     botao: "Começar treino livre ▶",
@@ -231,15 +238,16 @@ function ajustesPlano(aoMudar) {
     <div class="semana-sel">${DIAS_SEMANA.map((d, k) => `<button class="sem-b ${semana.includes(k) ? "sem-b--on" : ""}" data-diasem="${k}">${d}</button>`).join("")}</div>
     <label class="rotulo">Tempo por dia</label>
     <div class="dias-sel">${MINUTOS.map((m) => `<button class="dia-b dia-b--larg ${min === m ? "dia-b--on" : ""}" data-min="${m}">${m} min</button>`).join("")}</div>
-    <label class="rotulo">Prioridade muscular</label>
-    <div class="chips-quebra">${Object.entries(FOCOS).map(([k, f]) => `<button class="chip ${(pl.foco || "nenhum") === k ? "chip--on" : ""}" data-foco="${k}">${f.emoji} ${f.nome}</button>`).join("")}</div>
+    <label class="rotulo">Prioridade muscular (até 2)</label>
+    <div class="chips-quebra" id="chips-foco">${htmlChipsFoco(pl.foco)}</div>
+    <p class="nota">O foco ganha volume extra sem tirar o mínimo dos outros músculos.</p>
     <label class="rotulo">Local</label>
     <div class="opcoes">${Object.entries(EQUIPAMENTOS).map(([k, o]) => `<button class="opcao opcao--linha ${pl.equipamento === k ? "opcao--on" : ""}" data-eq="${k}"><span class="opcao-emoji">${o.emoji}</span><span><b>${o.rotulo}</b></span></button>`).join("")}</div>
     <label class="rotulo">Trocar exercícios a cada</label>
     <div class="dias-sel">${[4, 6, 8].map((w) => `<button class="dia-b dia-b--larg ${pl.semanasCiclo === w ? "dia-b--on" : ""}" data-ciclo="${w}">${w} sem</button>`).join("")}</div>
     <button class="btn btn--sec" id="variar">🔄 Variar exercícios agora</button>
     <button class="btn btn--grande" id="salvar">Salvar</button>`);
-  let eq = pl.equipamento, sem = pl.semanasCiclo, foco = pl.foco || "nenhum";
+  let eq = pl.equipamento, sem = pl.semanasCiclo, foco = listaFocos(pl.foco);
   s.el.querySelectorAll("[data-diasem]").forEach((b) => b.onclick = () => {
     const d = +b.dataset.diasem;
     const novo = semana.includes(d) ? semana.filter((x) => x !== d) : [...semana, d].sort();
@@ -252,7 +260,14 @@ function ajustesPlano(aoMudar) {
     s.el.querySelectorAll(`[data-${attr}]`).forEach((x) => x.classList.toggle(cls, x === b));
   });
   liga("min", "dia-b--on", (v) => { min = +v; });
-  liga("foco", "chip--on", (v) => { foco = v; });
+  const ligaFoco = () => s.el.querySelectorAll("[data-foco]").forEach((b) => b.onclick = () => {
+    const r = alternarFoco(foco, b.dataset.foco);
+    if (r.erro) return toast(r.erro, "erro");
+    foco = r.lista;
+    s.el.querySelector("#chips-foco").innerHTML = htmlChipsFoco(foco);
+    ligaFoco();
+  });
+  ligaFoco();
   liga("eq", "opcao--on", (v) => { eq = v; });
   liga("ciclo", "dia-b--on", (v) => { sem = +v; });
   s.el.querySelector("#variar").onclick = async () => {

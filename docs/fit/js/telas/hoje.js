@@ -6,6 +6,7 @@ import { proximoTreino } from "./treino.js";
 import { proximoCheckin, completarInicial } from "./evolucao.js";
 import { instalar, deveSugerirInstalar, dispensarSugestao, ehIOS } from "../instalar.js";
 import { calcularRelatorio } from "./relatorio.js";
+import { bonusDoDia } from "../esportes.js";
 import { sessaoAtual, abrirSessao } from "../sessao.js";
 import { analisarAlimentacao, sugerirFecharDia } from "../nutri-insights.js";
 import { hojeISO } from "../db.js";
@@ -26,14 +27,16 @@ const DICAS = [
 const ehEscuro = () => temaAtual() === "dark" || (temaAtual() === "auto" && matchMedia("(prefers-color-scheme: dark)").matches);
 
 export async function telaHoje(el, ctx) {
-  const m = metasAtuais();
+  const m = { ...metasAtuais() };
   const t = await totaisDoDia();
+  const atividade = bonusDoDia(await listar("treinos"));
+  if (atividade.bonus) { m.kcal += atividade.bonus; m.carb += Math.round(atividade.bonus / 4); }
   const met = await metricasDoDia();
   const { dia: prox, feitoHoje } = await proximoTreino();
   const hojeTreina = !E.plano.diasSemana || E.plano.diasSemana.includes(new Date().getDay());
   const sessao = await sessaoAtual();
   const fechar = sugerirFecharDia(E.perfil, { kcal: m.kcal - t.kcal, prot: m.prot - t.proteina });
-  const analise = await analisarAlimentacao(E.perfil, m);
+  const analise = await analisarAlimentacao(E.perfil, metasAtuais());
   const insight = analise.insights.find((x) => x.nivel !== "bom") || analise.insights[0];
   const ck = await proximoCheckin();
   const cks = await listar("checkins");
@@ -85,7 +88,7 @@ export async function telaHoje(el, ctx) {
         <div class="hero-lado">
           <div class="hero-kcal">
             <div class="hero-num"><small>Comido</small><b>${num(t.kcal)}</b></div>
-            <div class="hero-num"><small>Meta</small><b>${num(m.kcal)}</b></div>
+            <div class="hero-num"><small>Meta${atividade.bonus ? " 🏅" : ""}</small><b>${num(m.kcal)}</b>${atividade.bonus ? `<span class="meta-bonus">+${num(atividade.bonus)} pela atividade</span>` : ""}</div>
           </div>
           ${[["Proteína", t.proteina, m.prot, "m-p"], ["Carboidrato", t.carboidrato, m.carb, "m-c"], ["Gordura", t.gordura, m.gord, "m-g"]].map(([nome, v, meta, cls]) => `
           <div class="hero-macro">
