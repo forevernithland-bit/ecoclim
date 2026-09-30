@@ -705,3 +705,16 @@ summary.card-tag { cursor: pointer; margin: 0; }
 .calc { margin-top: 10px; border-top: 1px solid var(--linha); padding-top: 10px; }
 .calc summary { cursor: pointer; font-weight: 700; font-size: .9rem; }
 .calc-passos { padding-left: 20px; display: grid; gap: 8px; font-size: .86rem; margin: 10px 0; }
+
+/* ---------- Ilustração da refeição (sem foto) ---------- */
+.ref-ilustra { position: relative; display: block; background: radial-gradient(circle at 30% 25%, #fff 0%, var(--cor) 70%); border: 1px solid var(--linha); overflow: hidden; }
+.ref-ilustra i { position: absolute; font-style: normal; line-height: 1; filter: drop-shadow(0 2px 2px rgba(0,0,0,.15)); }
+.ref-ilustra--1 .ri-0 { font-size: 30px; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+.ref-ilustra--2 .ri-0 { font-size: 28px; left: 8%; top: 12%; } .ref-ilustra--2 .ri-1 { font-size: 22px; right: 8%; bottom: 10%; }
+.ref-ilustra--3 .ri-0 { font-size: 26px; left: 6%; top: 8%; } .ref-ilustra--3 .ri-1 { font-size: 19px; right: 7%; top: 14%; } .ref-ilustra--3 .ri-2 { font-size: 19px; left: 38%; bottom: 6%; }
+.foto-prev--ilustra { height: 150px; }
+.foto-prev--ilustra.ref-ilustra--1 .ri-0 { font-size: 72px; }
+.foto-prev--ilustra.ref-ilustra--2 .ri-0 { font-size: 64px; left: 22%; top: 18%; } .foto-prev--ilustra.ref-ilustra--2 .ri-1 { font-size: 48px; right: 22%; bottom: 16%; }
+.foto-prev--ilustra.ref-ilustra--3 .ri-0 { font-size: 60px; left: 20%; top: 14%; } .foto-prev--ilustra.ref-ilustra--3 .ri-1 { font-size: 44px; right: 20%; top: 20%; } .foto-prev--ilustra.ref-ilustra--3 .ri-2 { font-size: 44px; left: 45%; bottom: 10%; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ref-ilustra { background: radial-gradient(circle at 30% 25%, #2a3344 0%, #1a2130 75%); } }
+:root[data-theme="dark"] .ref-ilustra { background: radial-gradient(circle at 30% 25%, #2a3344 0%, #1a2130 75%); }

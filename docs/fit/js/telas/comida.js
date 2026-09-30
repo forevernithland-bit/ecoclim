@@ -8,6 +8,7 @@ import { porData, todos, hojeISO } from "../db.js";
 import { urlFotoRemota } from "../nuvem.js";
 import { sugerirSuplementos, NAO_VALE, AVISO_SUPLEMENTOS } from "../suplementos.js";
 import { analisarAlimentacao, sugerirFecharDia } from "../nutri-insights.js";
+import { miniaturaRefeicao } from "../emoji-comida.js";
 
 export const TIPOS = [
   { id: "cafe", nome: "Café da manhã", emoji: "☕", ate: 10 },
@@ -75,7 +76,7 @@ export async function telaComida(el, ctx) {
           <h3>${tp.emoji} ${tp.nome} <small>${num(lista.reduce((a, r) => a + r.kcal, 0))} kcal</small></h3>
           ${lista.map((r) => `
             <button class="ref-item" data-ref="${r.id}">
-              ${r.foto || r.fotoPath ? `<img class="ref-foto" data-foto-ref="${r.id}" alt="">` : `<span class="ref-foto ref-foto--vazia">${tp.emoji}</span>`}
+              ${r.foto || r.fotoPath ? `<img class="ref-foto" data-foto-ref="${r.id}" alt="">` : miniaturaRefeicao(r)}
               <span class="ref-txt"><b>${esc(r.titulo || r.itens.map((i) => i.nome).join(", "))}</b><small>${r.hora || ""} · P ${num(r.proteina)} · C ${num(r.carboidrato)} · G ${num(r.gordura)}</small></span>
               <span class="ref-kcal">${num(r.kcal)}<small>kcal</small></span>
             </button>`).join("")}
@@ -234,7 +235,7 @@ function detalheRefeicao(r, aoMudar) {
   const s = abrirSheet(`
     <h2>${esc(r.titulo || "Refeição")}</h2>
     <p class="nota">${dataBR(r.data, { day: "2-digit", month: "long" })} · ${r.hora || ""} · ${{ tabela: "tabela TACO", local: "tabela TACO", "tabela+ia": "tabela TACO + IA", ia: "estimado por IA" }[r.fonte] || "estimado"}</p>
-    ${r.foto ? `<img class="foto-prev" src="${urlDe(r.foto, `ref-${r.id}`)}" alt="">` : r.fotoPath ? `<img class="foto-prev" id="fr" alt="">` : ""}
+    ${r.foto ? `<img class="foto-prev" src="${urlDe(r.foto, `ref-${r.id}`)}" alt="">` : r.fotoPath ? `<img class="foto-prev" id="fr" alt="">` : miniaturaRefeicao(r, "foto-prev foto-prev--ilustra")}
     <div class="total-ref"><b>${num(r.kcal)}</b> kcal <span>P ${num(r.proteina)}g · C ${num(r.carboidrato)}g · G ${num(r.gordura)}g</span></div>
     ${r.itens.map((i) => `<div class="item-ref"><div><b>${esc(i.nome)}</b><small>${esc(i.quantidade || "")}</small></div><span>${num(i.kcal)} kcal</span></div>`).join("")}
     ${r.descricao ? `<p class="nota">"${esc(r.descricao)}"</p>` : ""}
