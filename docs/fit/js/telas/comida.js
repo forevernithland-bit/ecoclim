@@ -7,6 +7,7 @@ import { E, gravar, apagar, metasAtuais } from "../estado.js";
 import { porData, todos, hojeISO } from "../db.js";
 import { urlFotoRemota } from "../nuvem.js";
 import { sugerirSuplementos, NAO_VALE, AVISO_SUPLEMENTOS } from "../suplementos.js";
+import { analisarAlimentacao, sugerirFecharDia } from "../nutri-insights.js";
 
 export const TIPOS = [
   { id: "cafe", nome: "Café da manhã", emoji: "☕", ate: 10 },
@@ -25,7 +26,8 @@ export async function totaisDoDia(data = hojeISO()) {
 
 let diaVisto = hojeISO();
 
-export async function telaComida(el, { rerender }) {
+export async function telaComida(el, ctx) {
+  const { rerender } = ctx;
   const m = metasAtuais();
   const t = await totaisDoDia(diaVisto);
   const ehHoje = diaVisto === hojeISO();
@@ -39,6 +41,8 @@ export async function telaComida(el, { rerender }) {
   }
   const comRegistro = semana.filter((s) => s.y > 0);
   const mediaSemana = comRegistro.length ? Math.round(comRegistro.reduce((a, s) => a + s.y, 0) / comRegistro.length) : 0;
+  const fechar = ehHoje ? sugerirFecharDia(E.perfil, { kcal: m.kcal - t.kcal, prot: m.prot - t.proteina }) : null;
+  const analise = await analisarAlimentacao(E.perfil, m);
 
   el.innerHTML = `
     <div class="tela entra">
@@ -78,6 +82,10 @@ export async function telaComida(el, { rerender }) {
         </section>`;
       }).join("") || `<div class="vazio"><span>🍽️</span><p>Nada registrado ${ehHoje ? "hoje" : "neste dia"}.<br>Tire uma foto do prato — a IA faz a conta pra você.</p></div>`}
 
+      ${fechar ? cartaoFecharDia(fechar) : ""}
+
+      ${cartaoInsights(analise)}
+
       <div class="card">
         <div class="card-tag">📊 Últimos 7 dias</div>
         ${graficoBarras(semana, { meta: m.kcal })}
@@ -95,6 +103,12 @@ export async function telaComida(el, { rerender }) {
   el.querySelectorAll("[data-add]").forEach((b) => b.onclick = () => abrirNovaRefeicao(b.dataset.add, { data: diaVisto, aoSalvar: rerender }));
   el.querySelectorAll("[data-ref]").forEach((b) => b.onclick = () => detalheRefeicao(t.refs.find((r) => r.id === b.dataset.ref), rerender));
   el.querySelector("#suplementos").onclick = abrirSuplementos;
+  const bNina = el.querySelector("#fechar-nina");
+  if (bNina) bNina.onclick = () => ctx.ir("coach", { agente: "nutri", pergunta: "O que eu como pra bater o resto do dia? Me dê 3 opções com quantidades." });
+  const bIns = el.querySelector("#ins-nina");
+  if (bIns) bIns.onclick = () => ctx.ir("coach", { agente: "nutri", pergunta: "Analise minha alimentação desta semana e me ensine o que melhorar, começando pelo mais importante." });
+  const bTodas = el.querySelector("#ins-todas");
+  if (bTodas) bTodas.onclick = () => { el.querySelectorAll(".ins-oculto").forEach((x) => x.classList.remove("ins-oculto")); bTodas.remove(); };
   // fotos (locais ou da nuvem)
   for (const img of el.querySelectorAll("[data-foto-ref]")) {
     const r = t.refs.find((x) => x.id === img.dataset.fotoRef);
@@ -260,3 +274,45 @@ export function abrirSuplementos() {
 }
 
 export async function todasRefeicoes() { return todos("refeicoes"); }
+
+// ---------- Cartões de inteligência ----------
+function cartaoFecharDia(f) {
+  if (f.fechado) return `<div class="card card--fechado"><div class="card-tag">🎯 Meta do dia batida!</div><p class="nota">Calorias e proteína completas. Se bater fome, vá de salada, legumes ou uma fruta.</p></div>`;
+  if (!f.opcoes.length) return "";
+  return `
+    <div class="card card--fechar">
+      <div class="card-tag">🍽️ Pra fechar o dia ${f.momento}</div>
+      <p>Faltam <b>${num(f.restante.kcal)} kcal</b> e <b>${num(f.restante.prot)} g de proteína</b>. Algumas opções que batem certinho:</p>
+      <div class="fechar-opcoes">
+        ${f.opcoes.map((o, i) => `
+          <div class="fechar-op">
+            <span class="fechar-num">${i + 1}</span>
+            <div><b>${o.itens.map(esc).join(" + ")}</b><small>~${num(o.kcal)} kcal · P ${num(o.prot)} g · C ${num(o.carb)} g · G ${num(o.gord)} g</small></div>
+          </div>`).join("")}
+      </div>
+      <button class="btn btn--sec btn--peq" id="fechar-nina">💬 Pedir mais ideias à Nina</button>
+    </div>`;
+}
+
+function cartaoInsights(a) {
+  if (!a.nDias) return "";
+  const lista = a.insights;
+  if (!lista.length) return "";
+  return `
+    <div class="card card--insights">
+      <div class="card-tag">🧠 O que a Nina percebeu (${a.nDias} ${a.nDias === 1 ? "dia" : "dias"} registrados)</div>
+      <div class="ins-lista">
+        ${lista.map((x, i) => `
+          <details class="ins ins--${x.nivel} ${i >= 3 ? "ins-oculto" : ""}">
+            <summary><span class="ins-emoji">${x.emoji}</span><span><b>${esc(x.titulo)}</b><small>${esc(x.texto)}</small></span></summary>
+            <div class="ins-corpo">
+              <p><b>O que fazer:</b> ${esc(x.acao)}</p>
+              <p class="nota"><b>Por quê?</b> ${esc(x.porque)}</p>
+            </div>
+          </details>`).join("")}
+      </div>
+      ${lista.length > 3 ? `<button class="link" id="ins-todas">Ver todas (${lista.length})</button>` : ""}
+      <p class="nota">Vitaminas e minerais são estimados pelos grupos de alimentos (frutas, verduras, peixe…), como no Guia Alimentar. Toque em cada item pra entender o porquê.</p>
+      <button class="btn btn--sec btn--peq" id="ins-nina">💬 Conversar com a Nina sobre isso</button>
+    </div>`;
+}

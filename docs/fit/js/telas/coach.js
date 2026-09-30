@@ -7,17 +7,18 @@ import { E, gravar, listar, metasAtuais, salvarPerfil } from "../estado.js";
 import { juntar, remover } from "../gostos.js";
 import { totaisDoDia } from "./comida.js";
 import { hojeISO } from "../db.js";
+import { analisarAlimentacao } from "../nutri-insights.js";
 
 export const AGENTES = {
   nutri: {
     nome: "Nina", papel: "Nutricionista", emoji: "🥗",
     ola: "Oi! Sou a Nina, sua nutricionista. Posso montar cardápios, sugerir trocas, explicar rótulos ou dizer o que comer agora pra bater sua meta. Em que posso ajudar?",
-    sugestoes: ["Monte um cardápio de 1 dia pra mim", "O que eu janto hoje pra bater a proteína?", "Não gosto de alguns alimentos", "Posso comer doce e ainda emagrecer?", "Lanches práticos pra levar pro trabalho"],
+    sugestoes: ["O que eu como pra bater o resto do dia?", "Monte um cardápio de 1 dia pra mim", "Como está minha alimentação esta semana?", "O que eu janto hoje pra bater a proteína?", "Não gosto de alguns alimentos", "Posso comer doce e ainda emagrecer?", "Lanches práticos pra levar pro trabalho"],
   },
   coach: {
     nome: "Léo", papel: "Personal trainer", emoji: "🏋️",
     ola: "E aí! Sou o Léo, seu personal. Posso ajustar seu treino, explicar um exercício, substituir algo por dor ou falta de aparelho, ou te ajudar a quebrar um platô. Manda!",
-    sugestoes: ["Não tenho aparelho X hoje, o que faço?", "Como sei se estou progredindo?", "Sinto dor no joelho no agachamento", "Parei de perder peso, e agora?"],
+    sugestoes: ["Qual é meu treino de hoje?", "Como está meu volume de braço?", "Não tenho aparelho X hoje, o que faço?", "Como sei se estou progredindo?", "Sinto dor no joelho no agachamento", "Parei de perder peso, e agora?"],
   },
 };
 
@@ -25,6 +26,10 @@ let agenteAtual = "nutri";
 
 async function contexto() {
   const t = await totaisDoDia();
+  const m = metasAtuais();
+  let analise = null;
+  try { analise = await analisarAlimentacao(E.perfil, m); } catch (e) { /* sem dados */ }
+  const hora = new Date();
   const treinos = (await listar("treinos")).slice(-3).map((l) => ({ data: l.data, nome: l.nome, series: l.series, volume: l.volume }));
   const metricas = (await listar("metricas")).slice(-7).map((m) => ({ data: m.data, peso: m.peso, passos: m.passos, sono: m.sono, energia: m.energia }));
   const comps = (await listar("comparativos")).slice(-1).map((c) => ({ de: c.antesData, ate: c.depoisData, difs: c.difs, ia: c.ia ? c.ia.resumo : null }));
@@ -32,15 +37,37 @@ async function contexto() {
     hoje: hojeISO(),
     perfil: resumoPerfil(E.perfil),
     metas: metasAtuais(),
-    comido_hoje: { kcal: t.kcal, proteina: t.proteina, carboidrato: t.carboidrato, gordura: t.gordura, refeicoes: t.refs.map((r) => `${r.tipo}: ${r.titulo || r.itens.map((i) => i.nome).join(", ")} (${r.kcal} kcal)`) },
+    comido_hoje: { kcal: t.kcal, proteina: t.proteina, carboidrato: t.carboidrato, gordura: t.gordura, refeicoes: t.refs.map((r) => `${r.tipo} ${r.hora || ""}: ${r.titulo || r.itens.map((i) => i.nome).join(", ")} (${r.kcal} kcal, ${r.proteina} g prot)`) },
+    // o que FALTA hoje pra bater a meta — use isto pra sugerir o que comer
+    falta_hoje: { kcal: Math.max(0, m.kcal - t.kcal), proteina: Math.max(0, m.prot - t.proteina), carboidrato: Math.max(0, m.carb - t.carboidrato), gordura: Math.max(0, m.gord - t.gordura) },
+    agora: `${String(hora.getHours()).padStart(2, "0")}:${String(hora.getMinutes()).padStart(2, "0")}`,
+    analise_alimentacao_7_dias: analise && analise.nDias ? {
+      dias_registrados: analise.nDias, gordura_pct_kcal: Math.round(analise.pctGord * 100), proteina_media_dia: Math.round(analise.protDia),
+      pontos_percebidos: analise.insights.slice(0, 6).map((x) => `${x.titulo} — ${x.texto}`),
+    } : null,
     ultimos_treinos: treinos,
     metricas_7_dias: metricas,
     ultima_comparacao: comps[0] || null,
-    plano_treino: E.plano ? { dias: E.plano.dias, equipamento: E.plano.equipamento } : null,
+    plano_treino: E.plano ? { dias_semana: E.plano.dias, minutos: E.plano.minutos, equipamento: E.plano.equipamento, prioridade: E.plano.foco } : null,
+    treino_de_hoje: await treinoDeHoje(),
   };
 }
 
-export function abrirAgente(ag) { agenteAtual = ag; }
+let perguntaPendente = null;
+export function abrirAgente(ag, pergunta) { agenteAtual = ag; perguntaPendente = pergunta || null; }
+
+async function treinoDeHoje() {
+  try {
+    const { proximoTreino } = await import("./treino.js");
+    const { dia, feitoHoje } = await proximoTreino();
+    const { volumeSemanal, treinosDoCiclo } = await import("../treino.js");
+    return {
+      ja_treinou_hoje: feitoHoje,
+      proximo: `Treino ${dia.letra} — ${dia.nome} (~${dia.minutos} min): ` + dia.exercicios.map((x) => `${x.nome} ${x.series}x${x.reps}`).join("; "),
+      volume_semanal: volumeSemanal(treinosDoCiclo(E.plano), E.plano.foco).map((v) => `${v.nome} ${v.series}`).join(", "),
+    };
+  } catch (e) { return null; }
+}
 
 export async function telaCoach(el, { rerender }) {
   const ag = AGENTES[agenteAtual];
@@ -70,6 +97,7 @@ export async function telaCoach(el, { rerender }) {
   el.querySelectorAll("[data-sug]").forEach((b) => b.onclick = () => { txt.value = b.dataset.sug; enviar(); });
   txt.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); enviar(); } };
   el.querySelector("#form").onsubmit = (e) => { e.preventDefault(); enviar(); };
+  if (perguntaPendente) { txt.value = perguntaPendente; perguntaPendente = null; setTimeout(enviar, 200); }
 
   let ocupado = false;
   async function enviar() {

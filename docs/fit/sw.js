@@ -1,11 +1,11 @@
 // Service Worker — cacheia o app pra abrir sem sinal. Não intercepta Supabase,
 // esm.sh nem a API (essas precisam de rede; os dados offline vêm do IndexedDB).
 // ⚠️ Suba a versão do CACHE (e js/versao.js) a cada publicação.
-const CACHE = "evolua-v11";
+const CACHE = "evolua-v12";
 const ARQUIVOS = [
   "./", "./index.html", "./manifest.json", "./css/app.css",
   "./js/app.js", "./js/versao.js", "./js/config.js", "./js/db.js", "./js/estado.js", "./js/nuvem.js", "./js/ia.js",
-  "./js/ui.js", "./js/midia.js", "./js/camera.js", "./js/ciencia.js", "./js/treino.js", "./js/alimentos.js", "./js/suplementos.js", "./js/gostos.js", "./js/fisico-arte.js", "./js/instalar.js", "./js/sessao.js", "./js/interpretar-treino.js",
+  "./js/ui.js", "./js/midia.js", "./js/camera.js", "./js/ciencia.js", "./js/treino.js", "./js/alimentos.js", "./js/suplementos.js", "./js/gostos.js", "./js/fisico-arte.js", "./js/instalar.js", "./js/sessao.js", "./js/interpretar-treino.js", "./js/nutri-insights.js", "./js/calibracao.js",
   "./js/telas/onboarding.js", "./js/telas/hoje.js", "./js/telas/comida.js", "./js/telas/treino.js",
   "./js/telas/evolucao.js", "./js/telas/coach.js", "./js/telas/perfil.js", "./js/telas/relatorio.js", "./js/telas/adicionar-exercicio.js",
   "./data/alimentos.json", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/icon-192-maskable.png", "./icons/icon-512-maskable.png",

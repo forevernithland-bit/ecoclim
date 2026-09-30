@@ -681,3 +681,27 @@ summary.card-tag { cursor: pointer; margin: 0; }
 .chip--usar { border-style: dashed; }
 .icone-btn--mini { width: 30px; height: 30px; font-size: .85rem; flex-shrink: 0; }
 .selo-add { display: block; font-style: normal; font-size: .72rem; font-weight: 800; color: var(--lima-forte); margin-top: 2px; }
+
+/* ---------- Nutrição inteligente ---------- */
+.card--fechar { background: linear-gradient(150deg, var(--lima-suave), transparent 70%), var(--card); border-color: var(--lima-forte); }
+.fechar-opcoes { display: grid; gap: 8px; margin: 10px 0; }
+.fechar-op { display: flex; gap: 10px; align-items: flex-start; background: var(--card); border: 1px solid var(--linha); border-radius: 14px; padding: 10px 12px; }
+.fechar-op b { display: block; font-size: .92rem; } .fechar-op small { color: var(--muted); font-size: .78rem; }
+.fechar-num { width: 24px; height: 24px; border-radius: 50%; background: var(--lima); color: var(--ink); display: grid; place-items: center; font-weight: 800; font-size: .8rem; flex-shrink: 0; }
+.card--fechado { border-color: #16a34a; }
+.ins-lista { display: grid; gap: 8px; margin: 8px 0; }
+.ins { border-radius: 14px; border: 1px solid var(--linha); background: var(--card); }
+.ins summary { display: flex; gap: 10px; align-items: flex-start; padding: 12px; cursor: pointer; list-style: none; }
+.ins summary::-webkit-details-marker { display: none; }
+.ins summary b { display: block; font-size: .9rem; } .ins summary small { color: var(--muted); font-size: .8rem; }
+.ins-emoji { font-size: 1.3rem; line-height: 1.2; }
+.ins-corpo { padding: 0 12px 12px 44px; font-size: .88rem; }
+.ins--alerta { border-left: 4px solid var(--alerta); } .ins--dica { border-left: 4px solid #38bdf8; } .ins--bom { border-left: 4px solid #16a34a; }
+.ins-oculto { display: none; }
+.card--fechar-mini span { font-size: .9rem; }
+.dica-dia--nina { width: 100%; text-align: left; background: var(--ia-suave); }
+.dica-dia--nina u { color: var(--ia); text-decoration: none; font-weight: 700; }
+
+.calc { margin-top: 10px; border-top: 1px solid var(--linha); padding-top: 10px; }
+.calc summary { cursor: pointer; font-weight: 700; font-size: .9rem; }
+.calc-passos { padding-left: 20px; display: grid; gap: 8px; font-size: .86rem; margin: 10px 0; }

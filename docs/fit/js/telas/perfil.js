@@ -44,8 +44,22 @@ export async function telaPerfil(el, ctx) {
         <div class="card-tag">🥗 Suas metas diárias</div>
         <div class="kcal-grande">${num(m.kcal)} <small>kcal</small></div>
         <div class="macros-linha"><span class="pill pill--p">P ${m.prot} g</span><span class="pill pill--c">C ${m.carb} g</span><span class="pill pill--g">G ${m.gord} g</span><span class="pill">Fibra ${m.fibra} g</span></div>
-        <p class="nota">Gasto basal ${num(m.tmb)} kcal · gasto total ~${num(m.gasto)} kcal. ${esc(m.explic)}</p>
-        <p class="nota">As metas se recalculam sozinhas quando seu peso muda.</p>
+        <p class="nota">${esc(m.explic)}</p>
+        <details class="calc">
+          <summary>🔬 Como suas metas são calculadas</summary>
+          <ol class="calc-passos">
+            <li><b>Gasto em repouso (TMB):</b> ${num(m.tmb)} kcal — fórmula de Mifflin-St Jeor com seu peso (${num(p.peso, 1)} kg), altura (${p.altura} cm), idade (${p.idade}) e sexo.</li>
+            <li><b>Atividade:</b> × ${String(m.fator).replace(".", ",")} pelos ${p.diasTreino || 3} treinos/semana = ${num(Math.round(m.tmb * m.fator))} kcal.</li>
+            <li><b>Passos:</b> ${m.passos ? `${m.passos > 0 ? "+" : ""}${num(m.passos)} kcal pela sua média de ${num(p.calibracao.passosMedia)} passos/dia` : "registre seus passos em Métricas pra ajustar (hoje considera ~7.000/dia)"}.</li>
+            <li><b>Calibração pelos seus dados:</b> ${m.calibrado ? `✅ gasto real medido ~${num(m.gastoReal)} kcal (comida registrada × variação do peso em ${p.calibracao.dias} dias) — misturado com a fórmula` : "ainda não — com 2 semanas registrando comida e se pesando, o app mede seu gasto real e ajusta sozinho"}.</li>
+            <li><b>Gasto total considerado:</b> ${num(m.gasto)} kcal/dia.</li>
+            <li><b>Meta de calorias:</b> ${num(m.kcal)} kcal (${m.deficit > 0 ? "+" : ""}${num(m.deficit)} kcal/dia pro seu objetivo).</li>
+            <li><b>Proteína:</b> ${m.prot} g = ${String(m.protPorKg).replace(".", ",")} g/kg de peso ou ${String(m.protPorMagra).replace(".", ",")} g/kg da sua massa magra (${num(m.magra, 1)} kg). Faixa científica pra você: ${m.protFaixa[0]}–${m.protFaixa[1]} g.</li>
+            <li><b>Gordura:</b> ${m.gord} g (27% das calorias — faixa saudável 20–35%). <b>Carboidrato:</b> o restante, ${m.carb} g (energia pro treino).</li>
+          </ol>
+          <p class="nota">Tudo se recalcula sozinho quando seu peso, seus passos ou seus registros mudam.</p>
+          <button class="btn btn--sec btn--peq" id="revisar-metas">💬 Pedir pra Nina revisar minhas metas</button>
+        </details>
       </div>
 
       <div class="card">
@@ -89,6 +103,7 @@ export async function telaPerfil(el, ctx) {
   el.querySelectorAll("[data-fis]").forEach((b) => b.onclick = async () => { await salvarPerfil({ ...p, fisicoAlvo: b.dataset.fis }); ctx.rerender(); });
   el.querySelector("#pesoMeta").onchange = async (e) => { await salvarPerfil({ ...p, pesoMeta: +String(e.target.value).replace(",", ".") || null }); toast("Peso meta salvo"); };
   el.querySelector("#supl").onclick = abrirSuplementos;
+  el.querySelector("#revisar-metas").onclick = () => ctx.ir("coach", { agente: "nutri", pergunta: `Revise minhas metas como nutricionista: ${m.kcal} kcal, ${m.prot} g de proteína, ${m.carb} g de carboidrato e ${m.gord} g de gordura por dia (gasto estimado ${m.gasto} kcal). Estão adequadas pro meu objetivo, peso e rotina? Se algo estiver fora, diga o que ajustaria e por quê.` });
   const bInst = el.querySelector("#instalar");
   if (bInst) bInst.onclick = instalar;
   el.querySelector("#buscar-atualizacao").onclick = async () => {

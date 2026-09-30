@@ -28,7 +28,7 @@ const ABAS = [
 let abaAtual = "hoje";
 
 async function ir(aba, opts = {}) {
-  if (aba === "coach" && opts.agente) abrirAgente(opts.agente);
+  if (aba === "coach" && opts.agente) abrirAgente(opts.agente, opts.pergunta);
   if (aba === "relatorio") abrirRelatorio(opts.periodo);
   if (aba === "comida" && abaAtual !== "comida") resetDiaComida();
   abaAtual = aba;
@@ -142,6 +142,7 @@ async function iniciar() {
     } else {
       renderApp();
     }
+    import("./calibracao.js").then((c) => c.calibrar()).catch(() => {});
     iniciarVerificadorSessao(() => { resetAbaTreino(); if (E.perfil && E.plano) renderApp(); });
   };
 

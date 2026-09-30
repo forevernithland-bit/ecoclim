@@ -120,8 +120,31 @@ export function fatorAtividade(diasTreino) {
   return 1.72;
 }
 
+// Passos: o fator de atividade já considera ~7.000 passos/dia. Cada passo a
+// mais/menos vale ~0,0005 kcal por kg (≈ 45 kcal a cada 1.000 passos em 90 kg).
+export function ajustePassos(p) {
+  const passos = p.calibracao && p.calibracao.passosMedia;
+  if (!passos) return 0;
+  return Math.round(Math.max(-350, Math.min(600, (passos - 7000) * 0.0005 * p.peso)));
+}
+
+// Gasto pela fórmula (Mifflin-St Jeor × atividade + passos reais).
+export function gastoFormula(p) {
+  return Math.round(tmb(p) * fatorAtividade(p.diasTreino)) + ajustePassos(p);
+}
+
+// Gasto final: quando já há dados suficientes (≥ 2 semanas comendo e se
+// pesando), mistura a fórmula com o gasto REAL medido (quanto comeu × como o
+// peso mudou) — fórmulas erram ±10–15% de pessoa pra pessoa.
 export function gastoDiario(p) {
-  return Math.round(tmb(p) * fatorAtividade(p.diasTreino));
+  const f = gastoFormula(p);
+  const c = p.calibracao;
+  if (c && c.gastoReal && c.em && Date.now() - c.em < 45 * 864e5) {
+    const real = Math.max(f * 0.75, Math.min(f * 1.25, c.gastoReal));
+    const peso = Math.min(0.7, 0.3 + (c.dias || 14) / 60); // mais dias = mais confiança nos dados
+    return Math.round(f * (1 - peso) + real * peso);
+  }
+  return f;
 }
 
 // Metas diárias de calorias e macros de acordo com o objetivo.
@@ -149,16 +172,27 @@ export function metas(p) {
     explic = "Manutenção: mesmo peso, mais qualidade na comida e mais força.";
   }
   kcal = Math.round(kcal / 10) * 10;
-  // Proteína por kg de massa magra-ajustada quando a pessoa tem muita gordura
-  const pesoRef = p.gordura && p.gordura > (p.sexo === "M" ? 25 : 32)
-    ? p.peso * (1 - p.gordura / 100) / (p.sexo === "M" ? 0.85 : 0.75)
-    : p.peso;
-  const prot = Math.round(pesoRef * protKg);
+  // Proteína pela MASSA MAGRA (contínuo, sem "saltos"): em déficit/recomposição
+  // 2,3–3,1 g/kg de massa magra (Helms 2014); ganho de massa ~2,3; manutenção ~2,0.
+  // Limitada a 1,4–2,2 g/kg de peso total (faixa da ISSN / Morton 2018).
+  const gordura = p.gordura || 20;
+  const magra = p.peso * (1 - gordura / 100);
+  const porMagra = { emagrecer: 2.7, recomp: 2.6, massa: 2.3, saude: 2.0 }[obj] || 2.2;
+  const prot = Math.round(Math.max(p.peso * 1.4, Math.min(p.peso * 2.2, magra * porMagra)));
   const gord = Math.round((kcal * 0.27) / 9);
   const carb = Math.max(50, Math.round((kcal - prot * 4 - gord * 9) / 4));
   const agua = Math.round(p.peso * 35 / 100) / 10; // litros
   const fibra = Math.round(kcal / 1000 * 14);
-  return { gasto, tmb: tmb(p), kcal, prot, carb, gord, agua, fibra, explic };
+  const formula = gastoFormula(p);
+  return {
+    gasto, tmb: tmb(p), kcal, prot, carb, gord, agua, fibra, explic,
+    // detalhes do cálculo (tela "Como calculamos")
+    fator: fatorAtividade(p.diasTreino), passos: ajustePassos(p), gastoFormula: formula,
+    calibrado: gasto !== formula, gastoReal: p.calibracao && p.calibracao.gastoReal, magra: Math.round(magra * 10) / 10,
+    protPorKg: Math.round((prot / p.peso) * 100) / 100, protPorMagra: Math.round((prot / magra) * 100) / 100,
+    protFaixa: [Math.round(Math.max(p.peso * 1.4, magra * 2.3)), Math.round(Math.min(p.peso * 2.2, magra * 3.1))],
+    deficit: kcal - gasto,
+  };
 }
 
 // Quanto a rotina escolhida entrega de estímulo, comparado a uma rotina

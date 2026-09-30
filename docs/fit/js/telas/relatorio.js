@@ -6,6 +6,7 @@ import { todos, hojeISO } from "../db.js";
 import { projetarRitmo } from "../ciencia.js";
 import { cardio, PADRAO_DIAS } from "../treino.js";
 import { conversar, resumoPerfil } from "../ia.js";
+import { analisarAlimentacao } from "../nutri-insights.js";
 
 const PERIODOS = { dia: { nome: "Hoje", dias: 1 }, semana: { nome: "Semana", dias: 7 }, mes: { nome: "Mês", dias: 30 } };
 let periodo = "semana";
@@ -209,6 +210,10 @@ export async function telaRelatorio(el, ctx) {
   el.innerHTML = carregando("Montando seu relatório…");
   const r = await calcularRelatorio(periodo);
   const dicas = gerarDicas(r);
+  try {
+    const a = await analisarAlimentacao(E.perfil, r.m, { dias: r.n });
+    for (const x of a.insights.filter((i) => i.nivel !== "bom" && !["proteina"].includes(i.id)).slice(0, 3)) dicas.push({ e: x.emoji, t: `${x.titulo}. ${x.acao}` });
+  } catch (e) { /* sem dados */ }
   const { m, p } = r;
   const tituloPeriodo = r.qual === "dia" ? dataBR(r.fim, { weekday: "long", day: "2-digit", month: "long" }) : `${dataBR(r.ini)} a ${dataBR(r.fim)}`;
   const at = r.assim, id = r.ideal;

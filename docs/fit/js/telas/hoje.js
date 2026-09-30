@@ -7,6 +7,7 @@ import { proximoCheckin, completarInicial } from "./evolucao.js";
 import { instalar, deveSugerirInstalar, dispensarSugestao, ehIOS } from "../instalar.js";
 import { calcularRelatorio } from "./relatorio.js";
 import { sessaoAtual, abrirSessao } from "../sessao.js";
+import { analisarAlimentacao, sugerirFecharDia } from "../nutri-insights.js";
 import { hojeISO } from "../db.js";
 
 const DICAS = [
@@ -31,6 +32,9 @@ export async function telaHoje(el, ctx) {
   const { dia: prox, feitoHoje } = await proximoTreino();
   const hojeTreina = !E.plano.diasSemana || E.plano.diasSemana.includes(new Date().getDay());
   const sessao = await sessaoAtual();
+  const fechar = sugerirFecharDia(E.perfil, { kcal: m.kcal - t.kcal, prot: m.prot - t.proteina });
+  const analise = await analisarAlimentacao(E.perfil, m);
+  const insight = analise.insights.find((x) => x.nivel !== "bom") || analise.insights[0];
   const ck = await proximoCheckin();
   const cks = await listar("checkins");
   const [relDia, relSemana] = await Promise.all([calcularRelatorio("dia"), calcularRelatorio("semana")]);
@@ -128,7 +132,15 @@ export async function telaHoje(el, ctx) {
         <span>${ck.dias <= 0 ? "<b>Liberado hoje!</b> Tire as fotos e compare com o início." : `Próximo em <b>${ck.dias} dias</b> — aí você vê o antes × depois.`}</span>
       </button>
 
-      <div class="dica-dia"><span>💡</span><p>${esc(dica)}</p></div>
+      ${t.kcal > 0 && !fechar.fechado && fechar.opcoes.length ? `
+      <button class="card card--link card--fechar-mini" id="fechar-dia">
+        <div class="card-tag">🍽️ Faltam ${num(fechar.restante.kcal)} kcal e ${num(fechar.restante.prot)} g de proteína</div>
+        <span>Sugestão ${fechar.momento}: <b>${esc(fechar.opcoes[0].itens.join(" + "))}</b> ›</span>
+      </button>` : ""}
+
+      ${insight ? `
+      <button class="dica-dia dica-dia--nina" id="insight"><span>${insight.emoji}</span><p><b>A Nina percebeu:</b> ${esc(insight.titulo)}. <u>Ver por quê ›</u></p></button>` : `
+      <div class="dica-dia"><span>💡</span><p>${esc(dica)}</p></div>`}
 
       <div class="grade-2">
         <button class="card card--link card--agente" data-agente="nutri"><span class="agente-av">🥗</span><b>Nina</b><small>Nutricionista</small></button>
@@ -141,6 +153,10 @@ export async function telaHoje(el, ctx) {
   el.querySelectorAll("[data-ir]").forEach((b) => b.onclick = () => (sessao && b.dataset.ir === "treino" ? abrirSessao() : ctx.ir(b.dataset.ir)));
   el.querySelectorAll("[data-agente]").forEach((b) => b.onclick = () => ctx.ir("coach", { agente: b.dataset.agente }));
   el.querySelector("#perfil").onclick = () => ctx.ir("perfil");
+  const bf = el.querySelector("#fechar-dia");
+  if (bf) bf.onclick = () => ctx.ir("comida");
+  const bi = el.querySelector("#insight");
+  if (bi) bi.onclick = () => ctx.ir("comida");
   el.querySelector("#relatorio").onclick = () => ctx.ir("relatorio", { periodo: "semana" });
   el.querySelector("#tema").onclick = (ev) => {
     aplicarTema(ehEscuro() ? "light" : "dark");
