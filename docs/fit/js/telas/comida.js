@@ -105,7 +105,7 @@ export async function telaComida(el, ctx) {
   el.querySelectorAll("[data-ref]").forEach((b) => b.onclick = () => detalheRefeicao(t.refs.find((r) => r.id === b.dataset.ref), rerender));
   el.querySelector("#suplementos").onclick = abrirSuplementos;
   const bNina = el.querySelector("#fechar-nina");
-  if (bNina) bNina.onclick = () => ctx.ir("coach", { agente: "nutri", pergunta: "O que eu como pra bater o resto do dia? Me dê 3 opções com quantidades." });
+  if (bNina) bNina.onclick = () => ctx.ir("coach", { agente: "nutri", pergunta: "O que eu como pra bater o resto do dia? Me dê 3 opções com quantidades (pode incluir whey ou outro suplemento se ajudar)." });
   const bIns = el.querySelector("#ins-nina");
   if (bIns) bIns.onclick = () => ctx.ir("coach", { agente: "nutri", pergunta: "Analise minha alimentação desta semana e me ensine o que melhorar, começando pelo mais importante." });
   const bTodas = el.querySelector("#ins-todas");
@@ -338,7 +338,7 @@ function cartaoFecharDia(f) {
         ${f.opcoes.map((o, i) => `
           <div class="fechar-op">
             <span class="fechar-num">${i + 1}</span>
-            <div><b>${o.itens.map(esc).join(" + ")}</b><small>~${num(o.kcal)} kcal · P ${num(o.prot)} g · C ${num(o.carb)} g · G ${num(o.gord)} g</small></div>
+            <div>${o.tipo === "suplemento" ? `<em class="selo-supl">💪 Com suplemento · prático</em>` : ""}<b>${o.itens.map(esc).join(" + ")}</b><small>~${num(o.kcal)} kcal · P ${num(o.prot)} g · C ${num(o.carb)} g · G ${num(o.gord)} g</small></div>
           </div>`).join("")}
       </div>
       <button class="btn btn--sec btn--peq" id="fechar-nina">💬 Pedir mais ideias à Nina</button>

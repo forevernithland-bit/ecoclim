@@ -183,7 +183,7 @@ const PROTEINAS = [
   { nome: "Atum em lata (água)", k: 1.16, p: 0.255, c: 0, g: 0.008, max: 160, animal: true, peixe: true },
   { nome: "Tilápia grelhada", k: 1.28, p: 0.26, c: 0, g: 0.027, max: 220, animal: true, peixe: true },
   { nome: "Iogurte proteico", k: 0.7, p: 0.1, c: 0.05, g: 0.008, max: 320, un: 160, unNome: "pote de iogurte proteico", plural: "potes de iogurte proteico", animal: true, lacteo: true },
-  { nome: "Whey protein", k: 3.9, p: 0.78, c: 0.08, g: 0.06, max: 60, un: 30, unNome: "scoop de whey", plural: "scoops de whey", animal: true, lacteo: true },
+  { nome: "Whey protein", k: 3.9, p: 0.78, c: 0.08, g: 0.06, max: 60, un: 30, unNome: "scoop de whey", plural: "scoops de whey", animal: true, lacteo: true, suplemento: true },
   { nome: "Queijo cottage", k: 0.98, p: 0.11, c: 0.034, g: 0.043, max: 200, animal: true, lacteo: true },
   { nome: "Tofu", k: 0.76, p: 0.08, c: 0.019, g: 0.048, max: 300 },
   { nome: "Lentilha cozida", k: 0.93, p: 0.063, c: 0.163, g: 0.005, max: 300 },
@@ -217,11 +217,36 @@ export function sugerirFecharDia(perfil, restante) {
   if (R < 120 && P < 10) return { fechado: true, opcoes: [] };
   const hora = new Date().getHours();
   const momento = hora < 10 ? "no café da manhã" : hora < 15 ? "no almoço" : hora < 18 ? "no lanche" : hora < 22 ? "no jantar" : "na ceia";
-  const provs = PROTEINAS.filter(ok);
+  const provs = PROTEINAS.filter((x) => ok(x) && !x.suplemento);
   const carbs = CARBOS.filter(ok);
+  const whey = PROTEINAS.find((x) => x.suplemento && ok(x));
   const opcoes = [];
+
+  // Opção com suplemento: shake de whey (1–2 scoops) — fecha a proteína com
+  // poucas calorias e sem cozinhar; se sobrar muita caloria, entra comida junto.
+  const opcaoWhey = () => {
+    if (!whey || P < 15) return null;
+    const scoops = Math.max(1, Math.min(2, Math.round(P / 24)));
+    const itens = [`Shake: ${scoops} ${scoops > 1 ? "scoops" : "scoop"} de whey${R - scoops * 117 > 200 ? " + 1 banana + 30 g de aveia (bater com água ou leite desnatado)" : " com água"}`];
+    let tot = { k: scoops * 117, p: scoops * 23.4, c: scoops * 2.4, g: scoops * 1.8 };
+    if (R - scoops * 117 > 200) tot = { k: tot.k + 88 + 118, p: tot.p + 1.2 + 4.2, c: tot.c + 23 + 20, g: tot.g + 0.1 + 2.6 };
+    const sobra = R - tot.k;
+    if (sobra > 250 && carbs.length) {
+      const pr = provs[0];
+      const ca = carbs[0];
+      const faltaP = Math.max(0, P - tot.p);
+      if (pr && faltaP >= 15) {
+        const gp = Math.min(pr.max, faltaP / pr.p, (sobra * 0.5) / pr.k);
+        if (gp >= 40) { itens.push(`no prato: ${descreve(pr, gp)}`); tot = { k: tot.k + gp * pr.k, p: tot.p + gp * pr.p, c: tot.c + gp * pr.c, g: tot.g + gp * pr.g }; }
+      }
+      const gc = Math.min(ca.max || 300, (R - tot.k) / ca.k);
+      if (gc >= 50) { itens.push(itens.length > 1 ? descreve(ca, gc) : `no prato: ${descreve(ca, gc)}`); itens.push("salada/legumes à vontade"); tot = { k: tot.k + gc * ca.k, p: tot.p + gc * ca.p, c: tot.c + gc * ca.c, g: tot.g + gc * ca.g }; }
+    }
+    return { itens, kcal: Math.round(tot.k), prot: Math.round(tot.p), carb: Math.round(tot.c), gord: Math.round(tot.g), tipo: "suplemento" };
+  };
+
   for (const pr of P >= 15 ? provs : []) {
-    if (opcoes.length >= 3) break;
+    if (opcoes.length >= 2) break;
     // proteína cobre ~90% do que falta (sem passar do limite do alimento nem das calorias)
     let gp = Math.min(pr.max, (P * 0.9) / pr.p, (R * 0.75) / pr.k);
     if (gp < 30) continue;
@@ -241,6 +266,8 @@ export function sugerirFecharDia(perfil, restante) {
     if (R > 400) texto.push("salada/legumes à vontade");
     opcoes.push({ itens: texto, kcal: Math.round(tot.k), prot: Math.round(tot.p), carb: Math.round(tot.c), gord: Math.round(tot.g) });
   }
+  const w = opcaoWhey();
+  if (w) opcoes.push(w);
   // Proteína já batida, mas ainda sobram calorias: carboidrato + fruta
   if (!opcoes.length && R >= 120) {
     for (const ca of carbs.slice(0, 3)) {

@@ -737,3 +737,5 @@ summary.card-tag { cursor: pointer; margin: 0; }
 .qtd-g input:focus { outline: none; border-color: var(--lima-forte); }
 .qtd-g label span { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font-size: .75rem; color: var(--muted); }
 .qtd-pct { grid-column: 1 / -1; text-align: center; color: var(--muted); font-size: .7rem; }
+
+.selo-supl { display: block; font-style: normal; font-size: .72rem; font-weight: 800; color: var(--ia); margin-bottom: 2px; }
