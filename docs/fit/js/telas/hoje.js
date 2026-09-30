@@ -157,7 +157,7 @@ export async function telaHoje(el, ctx) {
   if (bf) bf.onclick = () => ctx.ir("comida");
   const bi = el.querySelector("#insight");
   if (bi) bi.onclick = () => ctx.ir("comida");
-  el.querySelector("#relatorio").onclick = () => ctx.ir("relatorio", { periodo: "semana" });
+  el.querySelector("#relatorio").onclick = () => ctx.ir("relatorio", { periodo: "dia" });
   el.querySelector("#tema").onclick = (ev) => {
     aplicarTema(ehEscuro() ? "light" : "dark");
     ev.currentTarget.textContent = ehEscuro() ? "☀️" : "🌙";

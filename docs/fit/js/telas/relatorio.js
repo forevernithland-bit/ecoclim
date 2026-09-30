@@ -9,15 +9,17 @@ import { conversar, resumoPerfil } from "../ia.js";
 import { analisarAlimentacao } from "../nutri-insights.js";
 
 const PERIODOS = { dia: { nome: "Hoje", dias: 1 }, semana: { nome: "Semana", dias: 7 }, mes: { nome: "Mês", dias: 30 } };
-let periodo = "semana";
+let periodo = "dia";
 export const abrirRelatorio = (p) => { if (p) periodo = p; };
 
 // ---------- Cálculo ----------
 export async function calcularRelatorio(qual = periodo) {
   const p = E.perfil, m = metasAtuais();
   const n = PERIODOS[qual].dias;
-  const fim = hojeISO();
+  const hoje = hojeISO();
+  const fim = qual === "dia" ? hoje : somarDias(hoje, -1);
   const ini = somarDias(fim, -(n - 1));
+  const emAndamento = qual === "dia";
   const datas = Array.from({ length: n }, (_, i) => somarDias(ini, i));
   const [refs, mets, treinos] = await Promise.all([todos("refeicoes"), todos("metricas"), todos("treinos")]);
   const noPeriodo = (x) => x.data >= ini && x.data <= fim;
@@ -59,7 +61,12 @@ export async function calcularRelatorio(qual = periodo) {
   const sonoMedia = comSono.length ? comSono.reduce((a, d) => a + d.sono, 0) / comSono.length : 0;
 
   // Nota de aderência (0–100). Dia sem registro conta como 0 — registrar É parte do método.
-  const partes = [
+  const d0 = dias[dias.length - 1];
+  const partes = emAndamento ? [
+    // calorias: acima de 105% da meta começa a descontar
+    { id: "kcal", nome: "Calorias", peso: 35, valor: d0.kcal <= m.kcal * 1.05 ? Math.min(1, d0.kcal / m.kcal) : Math.max(0, 1 - (d0.kcal - m.kcal * 1.05) / (m.kcal * 0.3)) },
+    { id: "prot", nome: "Proteína", peso: 20, valor: Math.min(1, d0.prot / m.prot) },
+  ] : [
     { id: "kcal", nome: "Calorias", peso: 35, valor: diasKcalOk / n },
     { id: "prot", nome: "Proteína", peso: 20, valor: diasProtOk / n },
   ];
@@ -78,9 +85,23 @@ export async function calcularRelatorio(qual = periodo) {
     aderenciaTreino = plan7 ? feit7 / plan7 : 1;
   }
 
-  const temDados = registrados.length > 0;
-  const balanco = temDados ? kcalMedia - m.gasto : null;
-  const assim = temDados ? projetarRitmo(p, { balanco, aderenciaTreino, proteinaOk: protMedia >= m.prot * 0.9 }, 6) : null;
+  // Base da projeção: dias COMPLETOS com refeição (no "Hoje", os últimos 7 dias antes de hoje)
+  let baseKcal = kcalMedia, baseProt = protMedia, baseDias = registrados.length;
+  if (emAndamento) {
+    const ant = Array.from({ length: 7 }, (_, i) => somarDias(hoje, -(i + 1)));
+    const comp = ant.map((d) => ({ k: refs.filter((r) => r.data === d).reduce((a, r) => a + (r.kcal || 0), 0), p: refs.filter((r) => r.data === d).reduce((a, r) => a + (r.proteina || 0), 0) })).filter((x) => x.k >= 800);
+    baseDias = comp.length;
+    baseKcal = baseDias ? Math.round(comp.reduce((a, x) => a + x.k, 0) / baseDias) : 0;
+    baseProt = baseDias ? Math.round(comp.reduce((a, x) => a + x.p, 0) / baseDias) : 0;
+  } else {
+    // dia com menos de 800 kcal registradas = registro incompleto: não entra na média da projeção
+    const comp = registrados.filter((d) => d.kcal >= 800);
+    baseDias = comp.length;
+    if (baseDias) { baseKcal = Math.round(comp.reduce((a, d) => a + d.kcal, 0) / baseDias); baseProt = Math.round(comp.reduce((a, d) => a + d.prot, 0) / baseDias); }
+  }
+  const temDados = baseDias > 0;
+  const balanco = temDados ? baseKcal - m.gasto : null;
+  const assim = temDados ? projetarRitmo(p, { balanco, aderenciaTreino, proteinaOk: baseProt >= m.prot * 0.9 }, 6) : null;
   const ideal = projetarRitmo(p, { balanco: m.kcal - m.gasto, aderenciaTreino: 1, proteinaOk: true }, 6);
 
   // Peso real no período (tendência)
@@ -89,6 +110,7 @@ export async function calcularRelatorio(qual = periodo) {
   return {
     qual, n, ini, fim, dias, m, p, nota, partes, kcalMedia, protMedia, diasKcalOk, diasProtOk, planejados, feitos,
     aguaMedia, passosMedia, sonoMedia, registrados: registrados.length, balanco, assim, ideal, pesos, aderenciaTreino,
+    emAndamento, baseKcal, baseDias, deficitGrande: temDados && balanco < -m.gasto * 0.3,
   };
 }
 
@@ -215,7 +237,7 @@ export async function telaRelatorio(el, ctx) {
     for (const x of a.insights.filter((i) => i.nivel !== "bom" && !["proteina"].includes(i.id)).slice(0, 3)) dicas.push({ e: x.emoji, t: `${x.titulo}. ${x.acao}` });
   } catch (e) { /* sem dados */ }
   const { m, p } = r;
-  const tituloPeriodo = r.qual === "dia" ? dataBR(r.fim, { weekday: "long", day: "2-digit", month: "long" }) : `${dataBR(r.ini)} a ${dataBR(r.fim)}`;
+  const tituloPeriodo = r.qual === "dia" ? dataBR(r.fim, { weekday: "long", day: "2-digit", month: "long" }) : `${dataBR(r.ini)} a ${dataBR(r.fim)} (dias já encerrados)`;
   const at = r.assim, id = r.ideal;
   const marco = (tr, mes) => tr && tr[mes];
 
@@ -231,8 +253,8 @@ export async function telaRelatorio(el, ctx) {
       <div class="card rel-nota rel-nota--${corNota(r.nota)}">
         ${anel(r.nota, 100, { rotulo: `${r.nota}%`, sub: "da meta", tam: 132, espessura: 12 })}
         <div>
-          <div class="card-tag">Aderência ao plano</div>
-          <b class="rel-nota-txt">${rotuloNota(r.nota)}</b>
+          <div class="card-tag">${r.emAndamento ? "Progresso de hoje (até agora)" : "Aderência ao plano"}</div>
+          <b class="rel-nota-txt">${r.emAndamento ? (r.nota >= 90 ? "Dia completo 🔥" : r.nota >= 50 ? "No caminho 👍" : "Dia começando ⏳") : rotuloNota(r.nota)}</b>
           <div class="rel-partes">${r.partes.map((x) => `<span>${x.nome} <b>${Math.round(x.valor * 100)}%</b></span>`).join("")}</div>
         </div>
       </div>
@@ -257,7 +279,8 @@ export async function telaRelatorio(el, ctx) {
       <div class="card card--destaque">
         <div class="card-tag">🔮 Se você continuar assim…</div>
         ${at ? `
-          <p class="rel-frase">Com o que você ${r.qual === "dia" ? "fez hoje" : "fez nesse período"}, você atingiu <b>${r.nota}% da meta</b>. Mantendo esse ritmo, em <b>3 meses</b> você estará com <b>~${num(at[3].peso, 1)} kg</b>, <b>${num(at[3].gordura, 1)}% de gordura</b> e <b>${num(at[3].magra, 1)} kg de massa magra</b>.</p>
+          ${r.deficitGrande ? `<p class="aviso">⚠️ Nos últimos dias você comeu em média ${num(r.baseKcal)} kcal — bem abaixo do seu gasto (${num(m.gasto)}). Se for registro incompleto, registre tudo; se for real, é um déficit grande demais: perde músculo e não se sustenta. A projeção abaixo já considera isso.</p>` : ""}
+          <p class="rel-frase">${r.emAndamento ? `Com base na sua média dos últimos ${r.baseDias} dias completos (${num(r.baseKcal)} kcal/dia)` : `Com o que você fez nesse período, você atingiu <b>${r.nota}% da meta</b>`}. Mantendo esse ritmo, em <b>3 meses</b> você estará com <b>~${num(at[3].peso, 1)} kg</b>, <b>${num(at[3].gordura, 1)}% de gordura</b> e <b>${num(at[3].magra, 1)} kg de massa magra</b>.</p>
           <div class="rel-marcos">
             ${[1, 3, 6].map((mes) => `
               <div class="rel-marco">
@@ -275,7 +298,7 @@ export async function telaRelatorio(el, ctx) {
                 ? ` Você está perdendo peso mais rápido que o plano, mas ganharia <b>${num(id[3].magra - at[3].magra, 1)} kg a mais de músculo</b> seguindo a meta — é o músculo que dá o formato do corpo.`
                 : " Você está praticamente no ritmo do plano 👏"}</p>
           <p class="nota">Estimativa pelo seu balanço médio (${sinal(r.balanco, 0)} kcal/dia vs. gasto de ${num(m.gasto)}) e ${Math.round(Math.min(1, r.aderenciaTreino) * 100)}% dos treinos cumpridos. Serve pra mostrar a direção — os check-ins confirmam na prática.</p>
-        ` : `<p>Registre suas refeições ${r.qual === "dia" ? "de hoje" : "no período"} pra ver onde esse ritmo te leva.</p>
+        ` : `<p>${r.emAndamento ? "A projeção usa seus dias completos anteriores — registre as refeições de alguns dias inteiros pra ver onde esse ritmo te leva." : "Registre suas refeições em dias completos pra ver onde esse ritmo te leva."}</p>
              <p class="nota">Cumprindo 100% do plano, em 3 meses: ~${num(id[3].peso, 1)} kg e ${num(id[3].gordura, 1)}% de gordura.</p>`}
       </div>
 

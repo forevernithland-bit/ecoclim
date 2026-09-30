@@ -229,6 +229,12 @@ function ganhoMagroMes(p, meses) {
 export function projetarRitmo(p, { balanco, aderenciaTreino = 1, proteinaOk = true }, meses = 6) {
   let magra = p.peso * (1 - p.gordura / 100);
   let gordKg = p.peso - magra;
+  // Limites realistas: o corpo se adapta a déficits grandes (gasta menos) e
+  // ninguém chega abaixo da gordura essencial (~8% H / ~15% M) comendo normal.
+  const gasto = tmb(p) * fatorAtividade(p.diasTreino);
+  const deficitGrande = balanco < -gasto * 0.3;
+  balanco = Math.max(-gasto * 0.3, Math.min(gasto * 0.25, balanco));
+  const pisoGordura = p.sexo === "F" ? 0.15 : 0.08;
   const trilha = [{ mes: 0, peso: r1(p.peso), gordura: r1(p.gordura), magra: r1(magra) }];
   for (let m = 1; m <= meses; m++) {
     const deltaPeso = (balanco * 30.4) / 7700;
@@ -236,9 +242,12 @@ export function projetarRitmo(p, { balanco, aderenciaTreino = 1, proteinaOk = tr
     let ganho = ganhoMagroMes(p, m) * Math.min(1, aderenciaTreino) * (proteinaOk ? 1 : 0.6);
     if (balanco < -250) ganho *= p.nivel === "iniciante" ? 0.6 : 0.35; // em déficit cresce menos
     if (aderenciaTreino < 0.3) ganho = balanco < -250 ? -0.15 : 0;    // sem treino, déficit come músculo
-    const deltaGord = deltaPeso - ganho;
-    magra = Math.max(magra * 0.9, magra + ganho);
-    gordKg = Math.max(p.peso * 0.03, gordKg + deltaGord);
+    if (deficitGrande) ganho = Math.min(ganho, -0.25);                 // déficit exagerado: perde músculo
+    // quanto mais perto do mínimo de gordura, mais o peso perdido vem de músculo
+    const folga = gordKg / (magra + gordKg) - pisoGordura;
+    const deltaGord = folga > 0.03 ? deltaPeso - ganho : Math.max(0, (deltaPeso - ganho) * 0.2);
+    magra = Math.max(magra * 0.9, magra + ganho + (folga > 0.03 ? 0 : Math.min(0, deltaPeso) * 0.5));
+    gordKg = Math.max((magra / (1 - pisoGordura)) * pisoGordura, gordKg + deltaGord);
     const peso = magra + gordKg;
     trilha.push({ mes: m, peso: r1(peso), gordura: r1((gordKg / peso) * 100), magra: r1(magra) });
   }
