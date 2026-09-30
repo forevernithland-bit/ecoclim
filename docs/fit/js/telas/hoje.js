@@ -83,9 +83,15 @@ export async function telaHoje(el, ctx) {
       <div class="card card--anel card--hero">
         ${anel(t.kcal, m.kcal, { rotulo: num(Math.max(0, m.kcal - t.kcal)), sub: t.kcal > m.kcal ? `${num(t.kcal - m.kcal)} acima` : "kcal restantes", tam: 150 })}
         <div class="hero-lado">
-          <div class="hero-num"><small>Comido</small><b>${num(t.kcal)}</b></div>
-          <div class="hero-num"><small>Meta</small><b>${num(m.kcal)}</b></div>
-          <div class="hero-num"><small>Proteína</small><b>${num(t.proteina)}/${m.prot} g</b><div class="mini-trilho"><div style="width:${pctProt}%"></div></div></div>
+          <div class="hero-kcal">
+            <div class="hero-num"><small>Comido</small><b>${num(t.kcal)}</b></div>
+            <div class="hero-num"><small>Meta</small><b>${num(m.kcal)}</b></div>
+          </div>
+          ${[["Proteína", t.proteina, m.prot, "m-p"], ["Carboidrato", t.carboidrato, m.carb, "m-c"], ["Gordura", t.gordura, m.gord, "m-g"]].map(([nome, v, meta, cls]) => `
+          <div class="hero-macro">
+            <div class="hero-macro-topo"><small>${nome}</small><b>${num(v)}<span>/${num(meta)} g</span></b></div>
+            <div class="mini-trilho"><div class="${cls}" style="width:${Math.min(100, meta ? Math.round((v / meta) * 100) : 0)}%"></div></div>
+          </div>`).join("")}
         </div>
       </div>
 
@@ -98,7 +104,7 @@ export async function telaHoje(el, ctx) {
       <button class="card card--link card--relatorio" id="relatorio">
         <div class="rel-mini">
           <div class="rel-mini-num rel-nota--${relDia.nota >= 80 ? "bom" : relDia.nota >= 60 ? "medio" : "ruim"}"><b>${relDia.nota}%</b><small>hoje</small></div>
-          <div class="rel-mini-num rel-nota--${relSemana.nota >= 80 ? "bom" : relSemana.nota >= 60 ? "medio" : "ruim"}"><b>${relSemana.nota}%</b><small>semana</small></div>
+          ${relSemana.registrados ? `<div class="rel-mini-num rel-nota--${relSemana.nota >= 80 ? "bom" : relSemana.nota >= 60 ? "medio" : "ruim"}"><b>${relSemana.nota}%</b><small>semana</small></div>` : `<div class="rel-mini-num"><b>–</b><small>semana</small></div>`}
         </div>
         <div class="rel-mini-txt">
           <div class="card-tag">📊 Relatório de aderência</div>

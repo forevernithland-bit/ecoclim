@@ -739,3 +739,13 @@ summary.card-tag { cursor: pointer; margin: 0; }
 .qtd-pct { grid-column: 1 / -1; text-align: center; color: var(--muted); font-size: .7rem; }
 
 .selo-supl { display: block; font-style: normal; font-size: .72rem; font-weight: 800; color: var(--ia); margin-bottom: 2px; }
+
+/* ---------- Hoje: macros no cartão principal ---------- */
+.hero-lado { gap: 8px; }
+.hero-kcal { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.hero-macro-topo { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
+.hero-macro-topo small { color: var(--muted); font-size: .72rem; font-weight: 600; }
+.hero-macro-topo b { font-family: var(--f-titulo); font-size: .92rem; white-space: nowrap; }
+.hero-macro-topo b span { color: var(--muted); font-weight: 600; font-size: .75rem; }
+.hero-macro .mini-trilho { margin-top: 3px; height: 5px; }
+.hero-macro .mini-trilho div.m-c { background: var(--m-c); } .hero-macro .mini-trilho div.m-g { background: var(--m-g); }
