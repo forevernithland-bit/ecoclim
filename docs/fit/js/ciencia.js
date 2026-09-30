@@ -311,6 +311,8 @@ export function estimarTempoFisico(p, fisico) {
 // Projeção simples de peso ao longo do plano, para o objetivo escolhido.
 export function projecaoObjetivo(p, pesoMeta) {
   const obj = p.objetivo;
+  if (obj === "emagrecer" && pesoMeta && pesoMeta > p.peso) return { texto: "Seu peso meta está ACIMA do peso atual, mas o objetivo é emagrecer. Confira o número ou troque o objetivo.", semanas: null, conflito: true };
+  if (obj === "massa" && pesoMeta && pesoMeta < p.peso) return { texto: "Seu peso meta está ABAIXO do peso atual, mas o objetivo é ganhar massa. Confira o número ou troque o objetivo.", semanas: null, conflito: true };
   if (obj === "emagrecer" && pesoMeta && pesoMeta < p.peso) {
     const semanal = Math.min(1, Math.max(0.5, p.gordura > 30 ? 1 : p.gordura > 20 ? 0.75 : 0.5)) / 100;
     const kgSemana = p.peso * semanal;
@@ -330,7 +332,18 @@ export function projecaoObjetivo(p, pesoMeta) {
     };
   }
   if (obj === "recomp") {
-    return { texto: "Na recomposição o peso quase não muda — o que muda são as medidas e o espelho. Acompanhe a cintura e as fotos.", semanas: null };
+    const texto = "Na recomposição o peso quase não muda — o que muda são as medidas e o espelho. Acompanhe a cintura e as fotos.";
+    if (pesoMeta && pesoMeta > p.peso) {
+      // sobe só com músculo novo (sem superávit, quase sem água/glicogênio extra)
+      const mes = ganhoMagroMes(p, 0) * 0.7;
+      return { texto: `${texto} Subir de peso na recomposição é lento: só com músculo novo (~${br(mes)} kg/mês).`, semanas: Math.ceil(((pesoMeta - p.peso) / mes) * 4.3), lento: pesoMeta - p.peso > 2 ? "massa" : null };
+    }
+    if (pesoMeta && pesoMeta < p.peso) {
+      // déficit leve (~8%): ~0,3% do peso por semana
+      const semanal = 0.003;
+      return { texto: `${texto} Com o déficit leve da recomposição, a perda fica em ~${br(p.peso * semanal)} kg/semana.`, semanas: Math.ceil(Math.log(pesoMeta / p.peso) / Math.log(1 - semanal)), lento: p.peso - pesoMeta > 4 ? "emagrecer" : null };
+    }
+    return { texto, semanas: null };
   }
   return { texto: "Foco em hábitos: o peso deve ficar estável enquanto força e disposição sobem.", semanas: null };
 }

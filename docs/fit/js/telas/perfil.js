@@ -1,6 +1,6 @@
 // Perfil: dados, metas, objetivo/físico-alvo, conta e exportação.
 import { esc, num, toast, confirmar, abrirSheet, temaAtual, aplicarTema } from "../ui.js";
-import { OBJETIVOS, FISICOS, estimarTempoFisico, formatarMeses, imc, ffmi } from "../ciencia.js";
+import { OBJETIVOS, FISICOS, estimarTempoFisico, formatarMeses, imc, ffmi, projecaoObjetivo } from "../ciencia.js";
 import { E, salvarPerfil, metasAtuais, listar } from "../estado.js";
 import { usuarioAtual, sair, pendentes, sincronizar } from "../nuvem.js";
 import { abrirSuplementos } from "./comida.js";
@@ -36,9 +36,10 @@ export async function telaPerfil(el, ctx) {
         <div class="chips-rolar">${Object.entries(OBJETIVOS).map(([k, o]) => `<button class="chip ${p.objetivo === k ? "chip--on" : ""}" data-obj="${k}">${o.emoji} ${o.rotulo}</button>`).join("")}</div>
         <label class="rotulo">Peso meta</label>
         <div class="campo-unid campo-unid--mini"><input class="campo" id="pesoMeta" type="number" inputmode="decimal" step="0.1" value="${esc(p.pesoMeta || "")}" placeholder="–"><span>kg</span></div>
+        <div id="meta-info">${infoPesoMeta(p, p.pesoMeta)}</div>
         <label class="rotulo">Físico de referência</label>
         <div class="chips-rolar">${FISICOS[p.sexo].map((f) => `<button class="chip ${fisico.id === f.id ? "chip--on" : ""}" data-fis="${f.id}">${f.nome}</button>`).join("")}</div>
-        <p class="nota">Tempo estimado hoje até "${esc(fisico.nome)}": <b>${est.inalcancavel ? "fora do alcance natural" : `${formatarMeses(est.minimo)} a ${formatarMeses(est.maximo)}`}</b></p>
+        <p class="nota">Tempo até o físico "${esc(fisico.nome)}" (pela gordura e massa muscular do modelo, não pelo peso): <b>${est.inalcancavel ? "fora do alcance natural" : `${formatarMeses(est.minimo)} a ${formatarMeses(est.maximo)}`}</b></p>
       </div>
 
       <div class="card">
@@ -46,6 +47,7 @@ export async function telaPerfil(el, ctx) {
         <div class="kcal-grande">${num(m.kcal)} <small>kcal</small></div>
         <div class="macros-linha"><span class="pill pill--p">P ${m.prot} g</span><span class="pill pill--c">C ${m.carb} g</span><span class="pill pill--g">G ${m.gord} g</span><span class="pill">Fibra ${m.fibra} g</span></div>
         <p class="nota">${esc(m.explic)}</p>
+        <p class="nota">ℹ️ As metas do dia usam seu <b>peso atual</b> (${num(p.peso, 1)} kg) e o <b>objetivo</b> — o peso meta não muda as calorias, só o prazo. Conforme você registra o peso em Hoje → "Peso de hoje", tudo se recalcula.</p>
         <details class="calc">
           <summary>🔬 Como suas metas são calculadas</summary>
           <ol class="calc-passos">
@@ -109,7 +111,17 @@ export async function telaPerfil(el, ctx) {
 
   el.querySelectorAll("[data-obj]").forEach((b) => b.onclick = async () => { await salvarPerfil({ ...p, objetivo: b.dataset.obj }); toast("Objetivo atualizado — metas recalculadas"); ctx.rerender(); });
   el.querySelectorAll("[data-fis]").forEach((b) => b.onclick = async () => { await salvarPerfil({ ...p, fisicoAlvo: b.dataset.fis }); ctx.rerender(); });
-  el.querySelector("#pesoMeta").onchange = async (e) => { await salvarPerfil({ ...p, pesoMeta: +String(e.target.value).replace(",", ".") || null }); toast("Peso meta salvo"); };
+  let tMeta = null;
+  el.querySelector("#pesoMeta").oninput = (e) => {
+    const v = +String(e.target.value).replace(",", ".") || null;
+    el.querySelector("#meta-info").innerHTML = infoPesoMeta(E.perfil, v);
+    const bt = el.querySelector("#trocar-obj");
+    if (bt) bt.onclick = async () => { clearTimeout(tMeta); await salvarPerfil({ ...E.perfil, objetivo: bt.dataset.obj, pesoMeta: v }); toast("Objetivo atualizado — metas recalculadas"); ctx.rerender(); };
+    clearTimeout(tMeta);
+    tMeta = setTimeout(async () => { if (v === null || (v >= 30 && v <= 300)) { await salvarPerfil({ ...E.perfil, pesoMeta: v }); toast("Peso meta salvo ✅"); } }, 900);
+  };
+  el.querySelector("#pesoMeta").dispatchEvent(new Event("input"));
+  clearTimeout(tMeta);
   el.querySelector("#supl").onclick = abrirSuplementos;
   el.querySelector("#revisar-metas").onclick = () => ctx.ir("coach", { agente: "nutri", pergunta: `Revise minhas metas como nutricionista: ${m.kcal} kcal, ${m.prot} g de proteína, ${m.carb} g de carboidrato e ${m.gord} g de gordura por dia (gasto estimado ${m.gasto} kcal). Estão adequadas pro meu objetivo, peso e rotina? Se algo estiver fora, diga o que ajustaria e por quê.` });
   const bInst = el.querySelector("#instalar");
@@ -164,4 +176,19 @@ export async function telaPerfil(el, ctx) {
     a.download = `meus-dados-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
   };
+}
+
+// Prazo até o peso meta + coerência com o objetivo (atualiza enquanto digita).
+function infoPesoMeta(p, meta) {
+  if (!meta || meta < 30 || meta > 300) return `<p class="nota">Digite o peso que você quer chegar pra ver o prazo estimado.</p>`;
+  const pr = projecaoObjetivo(p, meta);
+  const dif = meta - p.peso;
+  const partes = [];
+  if (Math.abs(dif) < 0.5) partes.push(`<p class="nota">Você já está no peso meta 🎯 — agora o foco é composição (menos gordura, mais músculo).</p>`);
+  else if (pr.conflito) partes.push(`<p class="aviso">⚠️ ${esc(pr.texto)}</p>`);
+  else if (pr.semanas) partes.push(`<p class="nota">${dif > 0 ? "📈" : "📉"} ${dif > 0 ? "+" : ""}${num(dif, 1)} kg · tempo médio até ${num(meta, 1)} kg: <b>${formatarMeses(Math.round(pr.semanas / 4.35))}</b> <small>(${pr.semanas} semanas)</small></p><p class="nota">${esc(pr.texto)}</p>`);
+  else partes.push(`<p class="nota">${esc(pr.texto)}</p>`);
+  if (pr.lento) partes.push(`<button class="link" id="trocar-obj" data-obj="${pr.lento}">Quer chegar mais rápido? Mudar objetivo para "${esc(OBJETIVOS[pr.lento].rotulo)}" ›</button>`);
+  if (imc(meta, p.altura) < 18.5) partes.push(`<p class="aviso">⚠️ ${num(meta, 1)} kg deixaria seu IMC abaixo de 18,5 (abaixo do peso saudável).</p>`);
+  return partes.join("");
 }
