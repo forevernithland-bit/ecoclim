@@ -1489,6 +1489,26 @@ def _limpo_txt(txt):
     return s if s.lower() != 'nan' else ""
 
 
+# Marcas/fabricantes que aparecem embutidas no NOME do item em
+# `catalogo_produtos` (ex.: "BOILER BP 500 LITROS AÇO 304 SOLAR GLOBAL").
+# Levantado lendo o catálogo inteiro em 2026-09-30 — se cadastrar um
+# equipamento de marca nova no futuro, acrescentar aqui também.
+MARCAS_EQUIPAMENTO = ["SOLAR GLOBAL", "TUMA"]
+
+
+def remover_marca_equipamento(nome):
+    """Tira o nome do fabricante/marca de um item de equipamento — SÓ pra
+    exibição em documento que vai pro cliente (orçamento e contrato em PDF).
+    Pedido do Breno (2026-09-30): não quer o cliente conseguindo ligar direto
+    na fábrica e comprar o equipamento por fora. O catálogo interno
+    (`catalogo_produtos.item`, a lista que o Breno vê na tela) continua com a
+    marca normalmente — só o texto que cai no PDF passa por aqui."""
+    texto = str(nome or "")
+    for marca in MARCAS_EQUIPAMENTO:
+        texto = re.sub(rf'\s*\b{re.escape(marca)}\b\s*', ' ', texto, flags=re.IGNORECASE)
+    return texto.strip()
+
+
 def gerar_pdf_lista_materiais(supabase, nome_cliente, telefone, itens, observacoes="", mao_de_obra=0.0):
     """PDF de material hidráulico pro cliente — preço de VENDA, não de custo,
     em formato PAISAGEM (ver `_construir_pdf_material_horizontal`).
@@ -1792,6 +1812,7 @@ def gerar_pdf_orcamento(nome, tel, capa, df_items, d_s, v_s, d_o, v_o, total, ob
             item_nome = _limpo(row.get('Produto Manual', '')) or _limpo(row.get('Item', ''))
         else:
             item_nome = p_base
+        item_nome = remover_marca_equipamento(item_nome)
         v_un = safe_float(row.get('Venda (R$)', row.get('Venda Un.', 0)))
         v_tot = safe_float(row.get('Venda Total', qtd * v_un))
         subtotal_eq += v_tot
@@ -1990,7 +2011,7 @@ def gerar_pdf_contrato(nome, doc, tipo_cliente, endereco, objeto, df_items, mat_
     for _, row in df_items.iterrows():
         qtd = safe_float(row.get('Qtd', 0))
         if qtd > 0:
-            item_nome = row.get('Item', '')
+            item_nome = remover_marca_equipamento(row.get('Item', ''))
             desc = str(row.get('Descrição', '')).replace('\n', ', ')
             texto_item = f"<b>{int(qtd)}x {item_nome}</b>"
             if desc and desc != 'nan': texto_item += f" - {desc}"
@@ -2022,7 +2043,7 @@ def gerar_pdf_contrato(nome, doc, tipo_cliente, endereco, objeto, df_items, mat_
     for _, row in df_items.iterrows():
         qtd = safe_float(row.get('Qtd', 0))
         if qtd > 0:
-            item_nome = row.get('Item', '')
+            item_nome = remover_marca_equipamento(row.get('Item', ''))
             desc = str(row.get('Descrição', '')).replace('\n', ' ')
             if desc and desc != 'nan' and ('garantia' in desc.lower() or 'anos' in desc.lower()):
                 story.append(Paragraph(f"• <b>{item_nome}:</b> {desc}.", style_bullet))

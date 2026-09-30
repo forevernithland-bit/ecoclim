@@ -694,7 +694,11 @@ def renderizar():
             st.session_state.pop('db_df_ap_itens', None)
             st.rerun()
 
-    contas_p = ['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'INVESTIMENTO INTER', 'INVESTIMENTO ITAU', 'INVESTIMENTO XP', 'FGTS', 'IMÓVEIS', 'VEÍCULOS']
+    # 'CAPITAL DE GIRO CONSOR (ITAU)' oculta a pedido do Breno (2026-09-30) —
+    # conta sem uso no momento. Só tirada da lista que CARREGA/EXIBE; a linha
+    # já gravada em `fin_patrimonio` (sempre R$0,00 até aqui) não é apagada —
+    # basta devolver o nome aqui pra ela voltar a aparecer, sem perder nada.
+    contas_p = ['CAPITAL DE GIRO (ML)', 'INVESTIMENTO INTER', 'INVESTIMENTO ITAU', 'INVESTIMENTO XP', 'FGTS', 'IMÓVEIS', 'VEÍCULOS']
     # ECOCLIM, CONS INVESTIMENTOS e AIRNB deixaram de ser digitadas à mão — são
     # calculadas ao vivo (carregar_ecoclim_mensal / carregar_breno_mensal /
     # carregar_airnb_breno_mensal). Só MAGGI CONSORCIOS continua manual/gravada
@@ -774,13 +778,19 @@ def renderizar():
         with st.expander("Registrar depósitos (pode haver vários no mesmo mês)", expanded=False):
             st.caption("Lance cada DEPÓSITO feito. O sistema soma por mês/conta e desconta do rendimento e do Limite de Gasto — não é juros. Registre só no mês em que o dinheiro entrou.")
             st.caption("**Origem**: use *Reinvestimento de renda* quando o dinheiro veio de um recebimento já lançado (ex.: salário Maggi) — assim fica claro que não é dinheiro novo. Não muda nenhum número; só o cálculo de juros usa o valor.")
+            st.caption("**Transferência entre contas suas** (ex.: tirou do Itaú pra investir num CDB do Inter): lance DUAS linhas no mesmo mês — uma com **Valor negativo** na conta de ORIGEM (saiu) e outra com **Valor positivo** na conta de DESTINO (entrou), ambas com Origem *Transferência entre contas*. Sem isso, o sistema lê a saída como prejuízo e a entrada como rendimento, o que é errado — não é nem aporte nem juro, é o mesmo dinheiro só mudando de conta (pedido do Breno, 2026-09-30).")
             st.caption("**Data** é opcional — só ajuda a diferenciar dois depósitos na mesma conta no mesmo mês (ex.: dois recebimentos da Maggi). Quem decide o mês pro cálculo continua sendo a coluna **Mês**, não a Data.")
             cfg_ap = {
                 "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY", width="small"),
                 "Mês": st.column_config.SelectboxColumn("Mês", options=utils.meses_pt, width="small", required=True),
                 "Conta": st.column_config.SelectboxColumn("Conta", options=["XP", "INTER", "ITAU"], width="small", required=True),
-                "Valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f", min_value=0.0, width="small"),
-                "Origem": st.column_config.SelectboxColumn("Origem", options=["Capital externo", "Reinvestimento de renda"], width="medium"),
+                # Sem min_value: a perna de SAÍDA de uma transferência entre
+                # contas precisa de valor negativo (ver caption acima) — sem
+                # isso não tinha como zerar o efeito da transferência na conta
+                # de origem, só na de destino.
+                "Valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f", width="small"),
+                "Origem": st.column_config.SelectboxColumn(
+                    "Origem", options=["Capital externo", "Reinvestimento de renda", "Transferência entre contas"], width="medium"),
                 "Obs": st.column_config.TextColumn("Obs (opcional)"),
             }
             df_ap_itens_ed = st.data_editor(
@@ -822,9 +832,17 @@ def renderizar():
                 _vals = pd.to_numeric(df_ap_itens_ed.get("Valor"), errors="coerce").fillna(0)
                 _orig = df_ap_itens_ed.get("Origem")
                 _reinv = float(_vals[_orig == "Reinvestimento de renda"].sum()) if _orig is not None else 0.0
-                _ext = float(_vals.sum()) - _reinv
-                if (_reinv + _ext) > 0:
-                    st.caption(f"💰 Capital externo (dinheiro novo): **{utils.to_br_currency_md(_ext)}**  ·  ♻️ Reinvestimento de renda: **{utils.to_br_currency_md(_reinv)}**")
+                _transf = float(_vals[_orig == "Transferência entre contas"].sum()) if _orig is not None else 0.0
+                _ext = float(_vals.sum()) - _reinv - _transf
+                if (_reinv + _ext + _transf) != 0:
+                    _linha_cap = f"💰 Capital externo (dinheiro novo): **{utils.to_br_currency_md(_ext)}**  ·  ♻️ Reinvestimento de renda: **{utils.to_br_currency_md(_reinv)}**"
+                    if _transf:
+                        # Soma líquida das linhas de transferência (idealmente
+                        # 0 — uma perna negativa na origem, outra positiva no
+                        # destino); só sobra valor aqui se alguém esqueceu a
+                        # perna par, o que já é um sinal de alerta útil.
+                        _linha_cap += f"  ·  🔀 Transferência entre contas (líquido): **{utils.to_br_currency_md(_transf)}**"
+                    st.caption(_linha_cap)
         ap_xp, ap_it, ap_itau = agregar_aportes(df_ap_itens_ed)
 
         st.markdown(f"##### 💰 Recebimentos e Pró-labore ({ano_selecionado})")
@@ -1044,18 +1062,24 @@ def renderizar():
     # ABA GRÁFICOS
     # =====================================================================
     with tabs[2]:
+        # Meses futuros (sem nenhum dado digitado ainda) ficam zerados nas
+        # séries brutas — plotar eles fazia o gráfico parecer que o
+        # patrimônio "despencou pra zero" ou que deu um prejuízo enorme em
+        # Outubro, quando é só mês que ainda não chegou. `meses_calc` já é a
+        # mesma janela "só até o mês atual" usada nas métricas de resumo
+        # acima — os gráficos só não estavam cortando nela (achado 2026-09-30).
         g1, g2 = st.columns(2)
         with g1:
             with st.container(border=True):
                 st.markdown("##### 📈 Evolução Patrimonial")
-                st.altair_chart(grafico_area(pat_tot, "#0f9d58"), use_container_width=True)
+                st.altair_chart(grafico_area(pat_tot[meses_calc], "#0f9d58"), use_container_width=True)
             with st.container(border=True):
                 st.markdown("##### 📊 Rendimento (juros) mensal")
-                st.altair_chart(grafico_barra(rend_tot_full, "#0f9d58"), use_container_width=True)
+                st.altair_chart(grafico_barra(rend_tot_full[meses_calc], "#0f9d58"), use_container_width=True)
         with g2:
             with st.container(border=True):
                 st.markdown("##### 💵 Salário + Rendimento")
-                st.altair_chart(grafico_area(tot_e + rend_tot_full, "#2563eb"), use_container_width=True)
+                st.altair_chart(grafico_area((tot_e + rend_tot_full)[meses_calc], "#2563eb"), use_container_width=True)
             with st.container(border=True):
                 st.markdown("##### ☀️ Faturamento Ecoclim")
-                st.altair_chart(grafico_linha(serie_ecoclim, "#d97706"), use_container_width=True)
+                st.altair_chart(grafico_linha(serie_ecoclim[meses_calc], "#d97706"), use_container_width=True)
