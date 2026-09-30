@@ -346,12 +346,17 @@ function cartaoFecharDia(f) {
 }
 
 function cartaoInsights(a) {
+  if (a.aguardando) return `
+    <div class="card card--insights">
+      <div class="card-tag">🧠 O que a Nina percebeu</div>
+      <p class="nota">A análise começa depois do primeiro <b>dia completo</b> registrado (ela não conta o dia de hoje enquanto ele não acaba, pra não dar alerta falso). Continue registrando todas as refeições 😉</p>
+    </div>`;
   if (!a.nDias) return "";
   const lista = a.insights;
   if (!lista.length) return "";
   return `
     <div class="card card--insights">
-      <div class="card-tag">🧠 O que a Nina percebeu (${a.nDias} ${a.nDias === 1 ? "dia" : "dias"} registrados)</div>
+      <div class="card-tag">🧠 O que a Nina percebeu (últimos ${a.nDias} ${a.nDias === 1 ? "dia completo" : "dias completos"})</div>
       <div class="ins-lista">
         ${lista.map((x, i) => `
           <details class="ins ins--${x.nivel} ${i >= 3 ? "ins-oculto" : ""}">

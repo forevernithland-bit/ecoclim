@@ -1,7 +1,7 @@
 // Service Worker — cacheia o app pra abrir sem sinal. Não intercepta Supabase,
 // esm.sh nem a API (essas precisam de rede; os dados offline vêm do IndexedDB).
 // ⚠️ Suba a versão do CACHE (e js/versao.js) a cada publicação.
-const CACHE = "evolua-v16";
+const CACHE = "evolua-v17";
 const ARQUIVOS = [
   "./", "./index.html", "./manifest.json", "./css/app.css",
   "./js/app.js", "./js/versao.js", "./js/config.js", "./js/db.js", "./js/estado.js", "./js/nuvem.js", "./js/ia.js",

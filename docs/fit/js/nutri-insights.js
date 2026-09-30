@@ -37,12 +37,18 @@ const somarDias = (iso, n) => { const d = new Date(`${iso}T12:00:00`); d.setDate
 
 // Analisa os últimos N dias com refeições registradas
 export async function analisarAlimentacao(perfil, metas, { dias = 7 } = {}) {
+  // Só dias JÁ ENCERRADOS e com registro completo (≥ 800 kcal): o dia de hoje
+  // ainda está acontecendo e um dia com metade das refeições anotadas
+  // distorceria as médias (ex.: "proteína baixa" falsa).
   const hoje = hojeISO();
-  const ini = somarDias(hoje, -(dias - 1));
-  const refs = (await todos("refeicoes")).filter((r) => r.data >= ini && r.data <= hoje);
-  const datas = [...new Set(refs.map((r) => r.data))];
+  const ini = somarDias(hoje, -dias);
+  const todasRefs = (await todos("refeicoes")).filter((r) => r.data >= ini && r.data < hoje);
+  const kcalDia = {};
+  for (const r of todasRefs) kcalDia[r.data] = (kcalDia[r.data] || 0) + (r.kcal || 0);
+  const datas = Object.keys(kcalDia).filter((d) => kcalDia[d] >= 800);
+  const refs = todasRefs.filter((r) => datas.includes(r.data));
   const nDias = datas.length;
-  if (!nDias) return { nDias: 0, insights: [] };
+  if (!nDias) return { nDias: 0, insights: [], aguardando: true };
 
   const diasCom = {}; const porcoes = {};
   for (const g of Object.keys(GRUPOS)) { diasCom[g] = new Set(); porcoes[g] = 0; }
