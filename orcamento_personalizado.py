@@ -760,9 +760,18 @@ def renderizar(lista_nomes_produtos, limpar_func):
         # de Piscina - Tradicional" (pedido do Breno, 2026-09-02). Só dispara
         # numa troca de fato e só se a lista de Equipamentos ainda estiver
         # vazia — nunca sobrescreve um orçamento que já está sendo montado.
-        if 'capa_anterior_piscina' not in st.session_state:
-            st.session_state.capa_anterior_piscina = modelo_capa
-        elif modelo_capa != st.session_state.capa_anterior_piscina:
+        #
+        # ACHADO 2026-10-01: o `if 'capa_anterior_piscina' not in
+        # st.session_state` tratava "primeira vez que esta chave existe" e
+        # "mudança que merece preencher" como a MESMA coisa — numa sessão
+        # nova em que a PRIMEIRA escolha do Breno já era direto "Aquecedor de
+        # Piscina - Tradicional" (sem passar por outro modelo antes), a chave
+        # ainda não existia, caía só no `if`, e o preenchimento NUNCA disparava
+        # nessa primeira vez. Corrigido com `setdefault` usando o mesmo valor
+        # padrão do próprio combobox (linha ~749) — agora a comparação roda
+        # sempre, inclusive na primeiríssima renderização.
+        st.session_state.setdefault('capa_anterior_piscina', "Aquecedor Solar a Vácuo Acoplado")
+        if modelo_capa != st.session_state.capa_anterior_piscina:
             st.session_state.capa_anterior_piscina = modelo_capa
             if modelo_capa == "Aquecedor de Piscina - Tradicional":
                 df_atual_equip = st.session_state.get('df_orc')
