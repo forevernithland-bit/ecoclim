@@ -553,19 +553,30 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
 
             instalador_atual = str(projeto_selecionado.get('instalador', ''))
             if instalador_atual.lower() in ['nan', 'none']: instalador_atual = ""
-        
+
             opcoes_inst = [""] + lista_instaladores
             if instalador_atual in opcoes_inst:
-                idx_inst = opcoes_inst.index(instalador_atual)
+                instalador_default = instalador_atual
             elif "Valdimar" in opcoes_inst:
                 # Pedido do Breno (2026-09-16): projeto sem instalador definido
                 # ainda vem pré-preenchido com o Valdimar (o mais usado), em vez
                 # de nascer em branco — só o valor inicial do campo, o usuário
                 # ainda pode trocar antes de salvar.
-                idx_inst = opcoes_inst.index("Valdimar")
+                instalador_default = "Valdimar"
             else:
-                idx_inst = 0
-            novo_instalador = col_dir.selectbox("Instalador Responsável", opcoes_inst, index=idx_inst, key=f"inst_{prefix_key}")
+                instalador_default = ""
+            # ACHADO 2026-10-01: `index=` do st.selectbox só é respeitado na
+            # PRIMEIRA vez que essa `key` é criada na sessão — num rerun
+            # seguinte (ex.: o mesmo orçamento vira "Em Andamento" sem trocar
+            # de aba), o Streamlit usa o que já está em session_state[key] e
+            # ignora `index` de novo, mesmo que `instalador_atual`/Valdimar
+            # tenham mudado nesse meio tempo. Por isso o default às vezes "não
+            # pegava". Corrigido semeando o session_state direto ANTES do
+            # widget (mesmo padrão já usado em "Modelo para Capa",
+            # orcamento_personalizado.py) — nunca sobrescreve se o usuário já
+            # tiver escolhido algo nesta sessão.
+            st.session_state.setdefault(f"inst_{prefix_key}", instalador_default)
+            novo_instalador = col_dir.selectbox("Instalador Responsável", opcoes_inst, key=f"inst_{prefix_key}")
 
             # ---------------------------------------------------------------
             # "Serviço Finalizado" manual (Breno, pelo ERP) — mesma ação que o
