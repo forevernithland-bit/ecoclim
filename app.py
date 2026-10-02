@@ -26,6 +26,7 @@ import tela_documentos
 import tela_relatorios
 import estoque_materiais
 import lembretes_erp
+import servicos_fotovoltaico
 
 # =============================================================================
 # 3. FUNÇÕES AUXILIARES PARA LEMBRETES NA PÁGINA INICIAL
@@ -285,13 +286,13 @@ def _checar_popup_boletos_pendentes(supabase):
 
     try:
         projs_andamento = (supabase.table('servicos_andamento')
-                           .select('nome_cliente,vencimento_boleto,pago_avista_fornecedor')
+                           .select('nome_cliente,vencimento_boleto,pago_avista_fornecedor,dados_contrato')
                            .eq('status_projeto', 'Em Andamento').execute().data or [])
     except Exception:
         projs_andamento = []
     try:
         projs_finalizados = (supabase.table('servicos_andamento')
-                             .select('nome_cliente,vencimento_boleto,pago_avista_fornecedor,data_conclusao')
+                             .select('nome_cliente,vencimento_boleto,pago_avista_fornecedor,data_conclusao,dados_contrato')
                              .in_('status_projeto', ['Concluído PIX', 'Concluído CARTÃO']).execute().data or [])
     except Exception:
         projs_finalizados = []
@@ -300,8 +301,10 @@ def _checar_popup_boletos_pendentes(supabase):
         if str(p.get('data_conclusao') or '')[:7] in (_mes_atual, _mes_passado)
     ]
 
+    # Fotovoltaico (comissão de parceiro) não tem boleto de fornecedor — fora da lista.
     nomes = [str(p.get('nome_cliente') or 'Sem nome') for p in (projs_andamento + projs_finalizados)
-             if not p.get('vencimento_boleto') and not p.get('pago_avista_fornecedor')]
+             if not p.get('vencimento_boleto') and not p.get('pago_avista_fornecedor')
+             and not servicos_fotovoltaico.eh_fv(p.get('dados_contrato'))]
 
     L.marcar_feito(lem, True)  # sempre avança pra próxima semana, tenha ou não gente na lista agora
 
@@ -540,12 +543,14 @@ else:
         # ---------- KPIs (somente leitura, sem alterar regras de negócio) ----------
         try:
             _sa = st.session_state.supabase.table('servicos_andamento').select(
-                'status_projeto, valor_venda_total, lucro_estimado, data_conclusao').execute().data or []
+                'status_projeto, valor_venda_total, lucro_estimado, data_conclusao, dados_contrato').execute().data or []
         except Exception:
             _sa = []
         _mes = hoje_br.strftime('%Y-%m')
         _em_and = sum(1 for r in _sa if str(r.get('status_projeto')) == 'Em Andamento')
-        _orc = sum(1 for r in _sa if str(r.get('status_projeto')) == 'Orçamento Enviado')
+        # Clientes Fotovoltaico em orçamento têm a própria aba — não contam aqui.
+        _orc = sum(1 for r in _sa if str(r.get('status_projeto')) == 'Orçamento Enviado'
+                   and not servicos_fotovoltaico.eh_fv(r.get('dados_contrato')))
         _fat = 0.0
         _fin_mes = 0
         _lucro_mes = 0.0

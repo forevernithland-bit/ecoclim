@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import datetime
 import utils
+import servicos_fotovoltaico
 
 @st.dialog("📅 Cronograma de Instalações", width="large")
 def modal_cronograma(df_servicos, lista_instaladores):
@@ -14,6 +15,9 @@ def modal_cronograma(df_servicos, lista_instaladores):
         filtro_tempo = c2.radio("🗓️ Visão de Tempo", ["Todas as Datas", "Esta Semana", "Este Mês"], horizontal=True, key="cron_filtro_tempo")
     
     df_cron = df_servicos[df_servicos['status_projeto'] == 'Em Andamento'].copy()
+    # Fotovoltaico (indicação a parceiro) não tem instalação nossa pra agendar.
+    if 'dados_contrato' in df_cron.columns:
+        df_cron = df_cron[~df_cron['dados_contrato'].apply(servicos_fotovoltaico.eh_fv)]
     
     if df_cron.empty:
         st.info("🎉 Nenhum serviço com status 'Em Andamento' no momento.")

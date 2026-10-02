@@ -32,8 +32,10 @@ def renderizar():
             listas_avulsas = []
 
         try:
-            res_projetos_andamento = supabase.table('servicos_andamento').select('id, nome_cliente').eq('status_projeto', 'Em Andamento').order('nome_cliente').execute()
-            projetos_andamento = res_projetos_andamento.data or []
+            res_projetos_andamento = supabase.table('servicos_andamento').select('id, nome_cliente, dados_contrato').eq('status_projeto', 'Em Andamento').order('nome_cliente').execute()
+            # Fotovoltaico (indicação a parceiro) não leva lista de material.
+            import servicos_fotovoltaico
+            projetos_andamento = [p for p in (res_projetos_andamento.data or []) if not servicos_fotovoltaico.eh_fv(p.get('dados_contrato'))]
         except Exception:
             projetos_andamento = []
         opcoes_projeto = {f"{p['nome_cliente']} (ID {p['id']})": p for p in projetos_andamento}

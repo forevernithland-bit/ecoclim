@@ -8,6 +8,7 @@ import servicos_painel
 import cronograma
 import push
 import movimentacoes
+import servicos_fotovoltaico
 
 def deve_ir_para_finalizados(status, data_conc_str):
     if status in ["Concluído PIX", "Concluído CARTÃO"]:
@@ -820,9 +821,12 @@ def renderizar():
         </style>
     """, unsafe_allow_html=True)
 
-    col_tit, col_btn = st.columns([1.2, 2.8])
+    col_tit, col_btn = st.columns([1.5, 2.5])
     with col_tit:
-        st.markdown("## 📋 Gestão de Serviços")
+        # Menor e sem quebra de linha (pedido do Breno, 2026-10-02): no `##`
+        # padrão o título quebrava em duas linhas.
+        st.markdown("<h2 style='font-size:1.65rem; white-space:nowrap; margin:0; padding-top:.35rem;'>📋 Gestão de Serviços</h2>",
+                    unsafe_allow_html=True)
         
     supabase = st.session_state.supabase
 
@@ -939,7 +943,13 @@ def renderizar():
     df['data_conclusao'] = pd.to_datetime(df['data_conclusao'], errors='coerce')
     df['ir_finalizados'] = df.apply(lambda x: deve_ir_para_finalizados(x['status_projeto'], x['data_conclusao']), axis=1)
 
-    df['Cliente'] = df['nome_cliente']
+    # Clientes Fotovoltaico (indicação a parceiro) moram na mesma tabela,
+    # marcados em dados_contrato["fv"] — ver servicos_fotovoltaico.py.
+    if 'dados_contrato' in df.columns:
+        df['_fv'] = df['dados_contrato'].apply(servicos_fotovoltaico.eh_fv)
+    else:
+        df['_fv'] = False
+    df['Cliente'] = df.apply(lambda r: ("☀️ " if r['_fv'] else "") + str(r['nome_cliente']), axis=1)
     df['Status'] = df['status_projeto']
     df['Valor Total'] = df['valor_venda_total'].apply(lambda x: utils.to_br_currency(x))
     df['Lucro Líquido'] = df['lucro_estimado'].apply(lambda x: utils.to_br_currency(x))
@@ -947,6 +957,8 @@ def renderizar():
 
     def descobrir_data_termino(row):
         status = str(row['status_projeto'])
+        if row.get('_fv') and status == 'Em Andamento':
+            return ""  # data_conclusao do FV em andamento é só a data de envio do orçamento
         alvos = ["Aguardando Pagamento", "Concluído PIX", "Concluído CARTÃO", "Aguardando Peças", "Em Andamento"]
         if status in alvos and pd.notna(row['data_conclusao']) and str(row['data_conclusao']).lower() not in ['nat', 'none', 'nan']:
             try: return pd.to_datetime(row['data_conclusao']).strftime('%d/%m/%Y')
@@ -981,11 +993,11 @@ def renderizar():
     # informação em dois lugares.
     ativos_status = ["Em Andamento", "Aguardando Pagamento", "Aguardando Peças", "Concluído PIX", "Concluído CARTÃO"]
 
-    df_orc = df[(~df['status_projeto'].isin(ativos_status)) & (df['status_projeto'] != 'Rascunho') & (df['status_projeto'] != 'Rascunho Rápido')].reset_index(drop=True)
+    df_orc = df[(~df['status_projeto'].isin(ativos_status)) & (df['status_projeto'] != 'Rascunho') & (df['status_projeto'] != 'Rascunho Rápido') & (~df['_fv'])].reset_index(drop=True)
     df_fin = df[df['ir_finalizados'] == True].reset_index(drop=True)
     df_atv = df[(df['status_projeto'].isin(ativos_status)) & (df['ir_finalizados'] == False)].reset_index(drop=True)
 
-    aba1, aba2, aba3, aba4 = st.tabs(["🚀 Em Andamento", "📝 Orçamentos", "✅ Finalizados", "📅 Agenda"])
+    aba1, aba_fv, aba2, aba3, aba4 = st.tabs(["🚀 Em Andamento", "☀️ Fotovoltaico", "📝 Orçamentos", "✅ Finalizados", "📅 Agenda"])
 
     colunas_visiveis = ['Cliente', 'Status', 'Valor Total', 'Lucro Líquido', 'Data de término', 'Instalador', '($) Fornecedor', 'Instalador Reportou']
 
@@ -1008,8 +1020,14 @@ def renderizar():
 
         _serv_atv = servico_selecionado_do_painel(df_atv, sel, "atv")
         if _serv_atv is not None:
-            servicos_painel.exibir_painel_detalhado(_serv_atv, supabase, df_taxas, df_produtos, f"atv_{_serv_atv['id']}", lista_instaladores)
-    
+            if servicos_fotovoltaico.eh_fv(_serv_atv.get('dados_contrato')):
+                servicos_fotovoltaico.painel_cliente(supabase, _serv_atv, f"atv_{_serv_atv['id']}")
+            else:
+                servicos_painel.exibir_painel_detalhado(_serv_atv, supabase, df_taxas, df_produtos, f"atv_{_serv_atv['id']}", lista_instaladores)
+
+    with aba_fv:
+        servicos_fotovoltaico.renderizar_aba(supabase, df, barra_busca_servicos, servico_selecionado_do_painel)
+
     with aba2:
         df_orc = barra_busca_servicos(df_orc, "orc")
         sel = st.dataframe(df_orc[colunas_visiveis], use_container_width=True, on_select="rerun", selection_mode="single-row", hide_index=True, column_config=config_colunas, key="g_orc")
@@ -1075,7 +1093,10 @@ def renderizar():
             if sel_fin is not None:
                 _serv_fin = servico_selecionado_do_painel(df_fin_mes, sel_fin, f"fin_{ano_sel}_{mes_sel_idx}")
                 if _serv_fin is not None:
-                    servicos_painel.exibir_painel_detalhado(_serv_fin, supabase, df_taxas, df_produtos, f"fin_{_serv_fin['id']}", lista_instaladores)
+                    if servicos_fotovoltaico.eh_fv(_serv_fin.get('dados_contrato')):
+                        servicos_fotovoltaico.painel_cliente(supabase, _serv_fin, f"fin_{_serv_fin['id']}")
+                    else:
+                        servicos_painel.exibir_painel_detalhado(_serv_fin, supabase, df_taxas, df_produtos, f"fin_{_serv_fin['id']}", lista_instaladores)
 
     with aba4:
         st.caption("Todas as tarefas da Agenda dos instaladores — clique numa linha pra abrir, editar, reatribuir instalador, ver a resposta/mídia ou excluir.")
