@@ -142,6 +142,34 @@ _uso: dict = {}
 _uso_lock = threading.Lock()
 
 
+_tokens: dict = {}  # token -> (uid, validade) — evita ir no Supabase a cada foto
+
+
+def validar_login(authorization: Optional[str]) -> str:
+    """Só confere quem é (sem gastar o limite diário da IA)."""
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(401, "Faça login no app.")
+    agora = datetime.datetime.now().timestamp()
+    em_cache = _tokens.get(authorization)
+    if em_cache and em_cache[1] > agora:
+        return em_cache[0]
+    try:
+        r = requests.get(
+            f"{SUPABASE_URL}/auth/v1/user",
+            headers={"apikey": SUPABASE_ANON_KEY, "Authorization": authorization},
+            timeout=10,
+        )
+    except requests.RequestException:
+        raise HTTPException(503, "Não consegui validar seu login agora.")
+    if r.status_code != 200:
+        raise HTTPException(401, "Sessão expirada. Entre de novo no app.")
+    uid = r.json().get("id")
+    if len(_tokens) > 500:
+        _tokens.clear()
+    _tokens[authorization] = (uid, agora + 300)
+    return uid
+
+
 def usuario_do_token(authorization: Optional[str]) -> str:
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(401, "Faça login para usar a IA.")
@@ -480,4 +508,191 @@ def ia_chat(req: ReqChat, authorization: Optional[str] = Header(None)):
 @router.get("/saude")
 def saude():
     qual = provedor()
-    return {"ok": True, "ia_configurada": bool(qual), "provedor": qual, "modelo": MODELOS_GEMINI[0] if qual == "gemini" else MODELO}
+    return {"ok": True, "ia_configurada": bool(qual), "provedor": qual, "modelo": MODELOS_GEMINI[0] if qual == "gemini" else MODELO,
+            "fotos_drive": bool(_oauth_google())}
+
+
+# =====================================================================
+# FOTOS NO GOOGLE DRIVE (não no Supabase, que tem pouco espaço)
+# Usa o MESMO login Google do ERP Ecoclim ([google_oauth] do secrets.toml),
+# dentro da pasta principal do ERP:  <pasta ERP>/Evolua - app fitness/
+#     fotos refeicoes/<id do usuário>/...   ← apagadas sozinhas após 60 dias
+#     fotos corpo/<id do usuário>/...       ← antes/depois: ficam (são o comparativo)
+# Arquivos PRIVADOS (sem link público). O app só vê a foto passando por aqui,
+# e cada arquivo leva o id do dono em appProperties — um usuário nunca abre
+# a foto de outro. Tudo via REST puro (sem biblioteca extra no servidor).
+# =====================================================================
+import base64
+import time as _time
+from fastapi import Response
+
+PASTA_ERP_DRIVE = os.environ.get("FIT_PASTA_DRIVE", "1rdCO-d0CTF4UPQ1Vddxr0loCgqYaXE2l")  # = utils.MAIN_DRIVE_FOLDER_ID
+DIAS_FOTO_REFEICAO = int(os.environ.get("FIT_DIAS_FOTO_REFEICAO", "60"))
+_DRIVE = "https://www.googleapis.com/drive/v3"
+_token_google = {"valor": None, "ate": 0.0}
+_pastas: dict = {}
+_drive_lock = threading.Lock()
+
+
+def _oauth_google() -> Optional[dict]:
+    try:
+        import tomllib
+        caminho = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".streamlit", "secrets.toml")
+        with open(caminho, "rb") as f:
+            o = tomllib.load(f).get("google_oauth")
+        return o if o and o.get("refresh_token") else None
+    except Exception:
+        return None
+
+
+def _gtoken() -> str:
+    if _token_google["valor"] and _token_google["ate"] > _time.time() + 60:
+        return _token_google["valor"]
+    o = _oauth_google()
+    if not o:
+        raise HTTPException(503, "Armazenamento de fotos não configurado no servidor.")
+    r = requests.post("https://oauth2.googleapis.com/token", data={
+        "client_id": o["client_id"], "client_secret": o["client_secret"],
+        "refresh_token": o["refresh_token"], "grant_type": "refresh_token"}, timeout=15)
+    if r.status_code != 200:
+        raise HTTPException(503, "Não consegui acessar o Google Drive agora.")
+    j = r.json()
+    _token_google.update(valor=j["access_token"], ate=_time.time() + int(j.get("expires_in", 3000)))
+    return j["access_token"]
+
+
+def _gh() -> dict:
+    return {"Authorization": f"Bearer {_gtoken()}"}
+
+
+_TODOS = {"supportsAllDrives": "true", "includeItemsFromAllDrives": "true"}
+
+
+def _pasta(caminho: List[str]) -> str:
+    """Acha/cria a pasta aninhada dentro da pasta do ERP (com cache)."""
+    chave = "/".join(caminho)
+    with _drive_lock:
+        if chave in _pastas:
+            return _pastas[chave]
+        atual = PASTA_ERP_DRIVE
+        for nome in caminho:
+            q = f"'{atual}' in parents and name='{nome}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+            r = requests.get(f"{_DRIVE}/files", headers=_gh(), params={"q": q, "fields": "files(id)", **_TODOS}, timeout=20)
+            r.raise_for_status()
+            achou = r.json().get("files", [])
+            if achou:
+                atual = achou[0]["id"]
+            else:
+                r = requests.post(f"{_DRIVE}/files", headers=_gh(), params={"supportsAllDrives": "true"},
+                                  json={"name": nome, "parents": [atual], "mimeType": "application/vnd.google-apps.folder"}, timeout=20)
+                r.raise_for_status()
+                atual = r.json()["id"]
+        _pastas[chave] = atual
+        return atual
+
+
+def _dono(file_id: str, uid: str) -> dict:
+    r = requests.get(f"{_DRIVE}/files/{file_id}", headers=_gh(), params={"fields": "id,appProperties", "supportsAllDrives": "true"}, timeout=20)
+    if r.status_code == 404:
+        raise HTTPException(404, "Foto não encontrada (pode ter sido apagada).")
+    r.raise_for_status()
+    meta = r.json()
+    if (meta.get("appProperties") or {}).get("fit_uid") != uid:
+        raise HTTPException(404, "Foto não encontrada.")
+    return meta
+
+
+class ReqFoto(BaseModel):
+    imagem_b64: str = Field(..., max_length=8_000_000)
+    tipo: Literal["refeicao", "corpo"] = "refeicao"
+    nome: str = Field("foto", max_length=120)
+
+
+@router.post("/foto")
+def enviar_foto(req: ReqFoto, authorization: Optional[str] = Header(None)):
+    uid = validar_login(authorization)
+    try:
+        dados = base64.b64decode(req.imagem_b64.split(",")[-1])
+    except Exception:
+        raise HTTPException(400, "Imagem inválida.")
+    pasta = _pasta(["Evolua - app fitness", "fotos refeicoes" if req.tipo == "refeicao" else "fotos corpo", uid])
+    nome = "".join(c for c in req.nome if c.isalnum() or c in "-_.") or "foto"
+    meta = {"name": f"{nome}.jpg", "parents": [pasta], "appProperties": {"fit_uid": uid, "fit_tipo": req.tipo}}
+    fronteira = "fitfronteira" + str(int(_time.time() * 1000))
+    corpo = (
+        f"--{fronteira}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{json.dumps(meta)}\r\n"
+        f"--{fronteira}\r\nContent-Type: image/jpeg\r\n\r\n"
+    ).encode() + dados + f"\r\n--{fronteira}--".encode()
+    r = requests.post(
+        "https://www.googleapis.com/upload/drive/v3/files",
+        headers={**_gh(), "Content-Type": f"multipart/related; boundary={fronteira}"},
+        params={"uploadType": "multipart", "fields": "id", "supportsAllDrives": "true"}, data=corpo, timeout=60)
+    if r.status_code >= 300:
+        raise HTTPException(502, "O Google Drive recusou a foto. Tente de novo.")
+    return {"id": r.json()["id"]}
+
+
+@router.get("/foto/{file_id}")
+def ver_foto(file_id: str, authorization: Optional[str] = Header(None)):
+    uid = validar_login(authorization)
+    _dono(file_id, uid)
+    r = requests.get(f"{_DRIVE}/files/{file_id}", headers=_gh(), params={"alt": "media", "supportsAllDrives": "true"}, timeout=60)
+    if r.status_code != 200:
+        raise HTTPException(404, "Foto não encontrada.")
+    return Response(content=r.content, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=86400"})
+
+
+@router.delete("/foto/{file_id}")
+def apagar_foto(file_id: str, authorization: Optional[str] = Header(None)):
+    uid = validar_login(authorization)
+    try:
+        _dono(file_id, uid)
+    except HTTPException as e:
+        if e.status_code == 404:
+            return {"ok": True}
+        raise
+    requests.delete(f"{_DRIVE}/files/{file_id}", headers=_gh(), params={"supportsAllDrives": "true"}, timeout=30)
+    return {"ok": True}
+
+
+def limpar_fotos_antigas() -> int:
+    """Apaga de vez as fotos de PRATO com mais de DIAS_FOTO_REFEICAO dias.
+    Fotos do corpo (antes/depois) nunca são apagadas aqui."""
+    if not _oauth_google():
+        return 0
+    limite = (datetime.datetime.utcnow() - datetime.timedelta(days=DIAS_FOTO_REFEICAO)).strftime("%Y-%m-%dT%H:%M:%S")
+    q = (f"appProperties has {{ key='fit_tipo' and value='refeicao' }} and createdTime < '{limite}' "
+         "and mimeType != 'application/vnd.google-apps.folder'")
+    apagadas, pagina = 0, None
+    while True:
+        params = {"q": q, "fields": "nextPageToken,files(id)", "pageSize": 200, **_TODOS}
+        if pagina:
+            params["pageToken"] = pagina
+        r = requests.get(f"{_DRIVE}/files", headers=_gh(), params=params, timeout=30)
+        if r.status_code != 200:
+            break
+        j = r.json()
+        for f in j.get("files", []):
+            st = requests.delete(f"{_DRIVE}/files/{f['id']}", headers=_gh(), params={"supportsAllDrives": "true"}, timeout=30).status_code
+            if st in (200, 204, 404):
+                apagadas += 1
+        pagina = j.get("nextPageToken")
+        if not pagina:
+            break
+    if apagadas:
+        print(f"[fit] limpeza: {apagadas} foto(s) de refeição com mais de {DIAS_FOTO_REFEICAO} dias apagadas do Drive")
+    return apagadas
+
+
+def _faxineira():
+    _time.sleep(120)  # deixa a API subir primeiro
+    while True:
+        try:
+            limpar_fotos_antigas()
+        except Exception as e:
+            print(f"[fit] limpeza de fotos falhou (tenta amanhã): {e}")
+        _time.sleep(24 * 3600)
+
+
+if os.environ.get("FIT_SEM_LIMPEZA") != "1":
+    threading.Thread(target=_faxineira, name="fit-limpeza-fotos", daemon=True).start()

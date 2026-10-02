@@ -5,7 +5,7 @@
 // linha em fit_<store> com a coluna `dados` (jsonb) e as fotos no bucket
 // privado fit-fotos/<id do usuário>/... . RLS garante que cada um só vê o seu.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { SUPABASE_URL, SUPABASE_ANON_KEY, BUCKET_FOTOS, SYNC_ATIVO } from "./config.js";
+import { SUPABASE_URL, SUPABASE_ANON_KEY, BUCKET_FOTOS, SYNC_ATIVO, API_BASE } from "./config.js";
 import { salvar, ler, todos, excluir, kvGet, kvSet } from "./db.js";
 
 let _sb = null;
@@ -76,8 +76,8 @@ export async function token() {
 }
 
 // ---------- Fila de envio ----------
-export async function enfileirar(store, id, op = "upsert") {
-  await salvar("outbox", { id: `${store}:${id}`, store, registroId: id, op, em: Date.now() });
+export async function enfileirar(store, id, op = "upsert", extra = {}) {
+  await salvar("outbox", { id: `${store}:${id}`, store, registroId: id, op, em: Date.now(), ...extra });
   agendarSync();
 }
 
@@ -96,11 +96,49 @@ export async function pendentes() {
   return (await todos("outbox")).length;
 }
 
+// ---------- Fotos: Google Drive (pasta do ERP Ecoclim), via API da VPS ----------
+// O Supabase tem pouco espaço: fotos vão pro Drive e o registro guarda só
+// "drive:<id>". Fotos de PRATO são apagadas sozinhas depois de 60 dias (no
+// Drive pela API, e neste aparelho por limparFotosAntigas). Fotos do CORPO
+// (antes/depois) ficam — são a base do comparativo.
+export const DIAS_FOTO_REFEICAO = 60;
+
+async function api(metodo, rota, corpo) {
+  const tk = await token();
+  if (!tk) throw new Error("sem login");
+  const resp = await fetch(`${API_BASE}/fit${rota}`, {
+    method: metodo,
+    headers: { Authorization: `Bearer ${tk}`, ...(corpo ? { "Content-Type": "application/json" } : {}) },
+    body: corpo ? JSON.stringify(corpo) : undefined,
+  });
+  if (!resp.ok) throw new Error(`foto ${resp.status}`);
+  return resp;
+}
+
+function blobParaB64(blob) {
+  return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1]); r.onerror = rej; r.readAsDataURL(blob); });
+}
+
 async function subirFoto(uid, store, id, campo, blob) {
-  const caminho = `${uid}/${store}/${id}-${campo}.jpg`;
-  const { error } = await sb().storage.from(BUCKET_FOTOS).upload(caminho, blob, { upsert: true, contentType: "image/jpeg" });
-  if (error) throw error;
-  return caminho;
+  const tipo = store === "refeicoes" ? "refeicao" : "corpo";
+  const r = await (await api("POST", "/foto", { imagem_b64: await blobParaB64(blob), tipo, nome: `${store}-${id}-${campo}` })).json();
+  return `drive:${r.id}`;
+}
+
+// Baixa a foto (Drive novo ou Supabase antigo). null se não existir mais.
+export async function baixarFoto(caminho) {
+  try {
+    if (String(caminho).startsWith("drive:")) return await (await api("GET", `/foto/${caminho.slice(6)}`)).blob();
+    const { data } = await sb().storage.from(BUCKET_FOTOS).download(caminho);
+    return data || null;
+  } catch (e) { return null; }
+}
+
+async function apagarFotoRemota(caminho) {
+  try {
+    if (String(caminho).startsWith("drive:")) await api("DELETE", `/foto/${caminho.slice(6)}`);
+    else await sb().storage.from(BUCKET_FOTOS).remove([caminho]);
+  } catch (e) { /* melhor esforço: a limpeza de 60 dias pega depois */ }
 }
 
 export async function sincronizar() {
@@ -125,6 +163,7 @@ export async function sincronizar() {
     for (const item of fila) {
       const tabela = TABELA[item.store];
       if (item.op === "delete") {
+        for (const f of item.fotos || []) await apagarFotoRemota(f);
         const { error } = await sb().from(tabela).update({ dados: { excluido: true }, atualizado_em: new Date().toISOString() }).eq("id", item.registroId);
         if (error) throw error;
       } else {
@@ -133,8 +172,22 @@ export async function sincronizar() {
           const dados = { ...reg };
           const fotos = {};
           for (const campo of CAMPOS_FOTO[item.store]) {
-            if (reg[campo] instanceof Blob) {
-              fotos[campo] = await subirFoto(user.id, item.store, reg.id, campo, reg[campo]);
+            if (reg[`${campo}Path`] && String(reg[`${campo}Path`]).startsWith("drive:")) {
+              fotos[campo] = reg[`${campo}Path`];
+            } else if (reg[campo] instanceof Blob) {
+              // Drive fora do ar? o registro sobe sem a foto e ela tenta de novo depois
+              // (enviarFotosPendentes) — nunca trava a sincronização do resto.
+              try {
+                fotos[campo] = await subirFoto(user.id, item.store, reg.id, campo, reg[campo]);
+                const atual = (await ler(item.store, reg.id)) || reg;
+                const pend = (atual.fotoPendente || []).filter((c) => c !== campo);
+                await salvar(item.store, { ...atual, [`${campo}Path`]: fotos[campo], fotoPendente: pend.length ? pend : undefined });
+                const antigo = reg[`${campo}Path`];
+                if (antigo && antigo !== fotos[campo]) await apagarFotoRemota(antigo);
+              } catch (e) {
+                const atual = (await ler(item.store, reg.id)) || reg;
+                await salvar(item.store, { ...atual, fotoPendente: [...new Set([...(atual.fotoPendente || []), campo])] });
+              }
             } else if (reg[`${campo}Path`]) {
               fotos[campo] = reg[`${campo}Path`];
             }
@@ -180,7 +233,7 @@ export async function puxarTudo() {
       for (const [campo, caminho] of Object.entries(fotos)) {
         reg[`${campo}Path`] = caminho;
         if (store === "checkins") {
-          const { data: blob } = await sb().storage.from(BUCKET_FOTOS).download(caminho);
+          const blob = await baixarFoto(caminho);
           if (blob) reg[campo] = blob;
         }
       }
@@ -251,7 +304,7 @@ export async function puxarNovidades() {
           reg[`${campo}Path`] = caminho;
           if (local && local[campo] instanceof Blob) reg[campo] = local[campo];
           else if (store === "checkins") {
-            const { data: blob } = await sb().storage.from(BUCKET_FOTOS).download(caminho);
+            const blob = await baixarFoto(caminho);
             if (blob) reg[campo] = blob;
           }
         }
@@ -279,15 +332,84 @@ export async function puxarNovidades() {
 }
 
 // Envia o que é daqui e depois recebe o que veio de outros aparelhos.
+// Fotos que não subiram (Drive/servidor fora do ar): tenta de novo.
+async function enviarFotosPendentes() {
+  for (const store of ["refeicoes", "checkins"]) {
+    for (const r of await todos(store)) {
+      if (r.fotoPendente && r.fotoPendente.length) await enfileirar(store, r.id);
+    }
+  }
+}
+
 export async function sincronizarTudo() {
   await sincronizar();
   if (!(await pendentes())) await puxarNovidades();
+  // fotos: só mexe se o servidor já tem o Drive ligado
+  let driveOk = false;
+  try { driveOk = !!(await (await fetch(`${API_BASE}/fit/saude`)).json()).fotos_drive; } catch (e) { /* offline */ }
+  if (driveOk) {
+    try { await migrarFotosDoSupabase(); } catch (e) { console.warn("migrar fotos", e); }
+    const ultimo = await kvGet("fotosPendentesEm", 0);
+    if (Date.now() - ultimo > 10 * 60 * 1000) { await kvSet("fotosPendentesEm", Date.now()); await enviarFotosPendentes(); }
+  }
+  try { await limparFotosAntigas(); } catch (e) { /* tenta amanhã */ }
 }
 
-// Foto que só existe na nuvem (refeição de outro aparelho): URL temporária.
+// Foto que só existe na nuvem (refeição de outro aparelho). "" se já foi apagada.
+const _urlsRemotas = new Map();
 export async function urlFotoRemota(caminho) {
-  const { data } = await sb().storage.from(BUCKET_FOTOS).createSignedUrl(caminho, 3600);
-  return data ? data.signedUrl : "";
+  if (_urlsRemotas.has(caminho)) return _urlsRemotas.get(caminho);
+  const blob = await baixarFoto(caminho);
+  const u = blob ? URL.createObjectURL(blob) : "";
+  if (u) _urlsRemotas.set(caminho, u);
+  return u;
+}
+
+// Uma vez por dia: foto de prato com mais de 60 dias sai do aparelho (o
+// registro da refeição fica, com a ilustração no lugar da foto).
+export async function limparFotosAntigas() {
+  const ultima = await kvGet("fotosLimpasEm", 0);
+  if (Date.now() - ultima < 20 * 3600 * 1000) return;
+  await kvSet("fotosLimpasEm", Date.now());
+  const d = new Date(); d.setDate(d.getDate() - DIAS_FOTO_REFEICAO);
+  const corte = d.toISOString().slice(0, 10);
+  for (const r of await todos("refeicoes")) {
+    if (r.data < corte && (r.foto || r.fotoPath)) {
+      const novo = { ...r, fotoApagada: true };
+      delete novo.foto; delete novo.fotoPath;
+      await salvar("refeicoes", novo);
+    }
+  }
+}
+
+// Uma vez: tira do Supabase as fotos que foram pra lá antes desta versão.
+// Recentes (e todas do corpo) são copiadas pro Drive; prato antigo só é apagado.
+async function migrarFotosDoSupabase() {
+  if (await kvGet("fotosMigradasDrive")) return;
+  const d = new Date(); d.setDate(d.getDate() - DIAS_FOTO_REFEICAO);
+  const corte = d.toISOString().slice(0, 10);
+  for (const [store, campos] of [["refeicoes", ["foto"]], ["checkins", ["fotoFrente", "fotoLado"]]]) {
+    for (const r of await todos(store)) {
+      let mudou = false;
+      const novo = { ...r };
+      for (const campo of campos) {
+        const antigo = r[`${campo}Path`];
+        if (!antigo || String(antigo).startsWith("drive:")) continue;
+        if (store === "refeicoes" && r.data < corte) {
+          await apagarFotoRemota(antigo);
+          delete novo.foto; delete novo.fotoPath; novo.fotoApagada = true; mudou = true;
+          continue;
+        }
+        const blob = r[campo] instanceof Blob ? r[campo] : await baixarFoto(antigo);
+        if (!blob) { delete novo[`${campo}Path`]; mudou = true; continue; }
+        novo[`${campo}Path`] = await subirFoto(null, store, r.id, campo, blob);
+        await apagarFotoRemota(antigo);
+        mudou = true;
+      }
+      if (mudou) { novo.atualizadoEm = Date.now(); await salvar(store, novo); await enfileirar(store, r.id); }
+    }
+  }
+  await kvSet("fotosMigradasDrive", true);
 }
 
 // ---------- Base de alimentos compartilhada (fit_alimentos) ----------

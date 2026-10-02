@@ -119,7 +119,7 @@ export async function telaComida(el, ctx) {
   for (const img of el.querySelectorAll("[data-foto-ref]")) {
     const r = t.refs.find((x) => x.id === img.dataset.fotoRef);
     if (r.foto) img.src = urlDe(r.foto, `ref-${r.id}`);
-    else if (r.fotoPath) urlFotoRemota(r.fotoPath).then((u) => { img.src = u; });
+    else if (r.fotoPath) urlFotoRemota(r.fotoPath).then((u) => { if (u) img.src = u; else img.outerHTML = miniaturaRefeicao(r); });
   }
 }
 

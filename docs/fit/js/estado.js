@@ -1,6 +1,6 @@
 // Estado global do app (perfil, plano, preferências) + gravação de registros
 // que já cuida da fila de sincronização.
-import { kvGet, kvSet, salvar, excluir, todos, uid, hojeISO } from "./db.js";
+import { kvGet, kvSet, salvar, excluir, todos, uid, hojeISO, ler } from "./db.js";
 import { enfileirar } from "./nuvem.js";
 import { metas, gorduraEstimada } from "./ciencia.js";
 
@@ -57,8 +57,10 @@ export async function gravar(store, reg) {
 }
 
 export async function apagar(store, id) {
+  const antes = await ler(store, id);
+  const fotos = antes ? Object.keys(antes).filter((k) => k.endsWith("Path") && antes[k]).map((k) => antes[k]) : [];
   await excluir(store, id);
-  if (!E.modoLocal) await enfileirar(store, id, "delete");
+  if (!E.modoLocal) await enfileirar(store, id, "delete", { fotos });
 }
 
 export async function listar(store, { ordem = "asc" } = {}) {
