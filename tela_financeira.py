@@ -731,7 +731,7 @@ def renderizar():
         cfg_edit[m] = st.column_config.TextColumn(m, width=100)
         cfg_text[m] = st.column_config.TextColumn(m, width=100)
 
-    tabs = st.tabs(["📊 Resumo", "📝 Lançamentos", "📈 Gráficos"])
+    tabs = st.tabs(["📊 Resumo", "📝 Lançamentos", "🏦 Ações", "📈 Gráficos"])
 
     # =====================================================================
     # ABA LANÇAMENTOS — renderiza os editores primeiro (produz os dados)
@@ -1062,6 +1062,10 @@ def renderizar():
     # ABA GRÁFICOS
     # =====================================================================
     with tabs[2]:
+        import tela_acoes
+        tela_acoes.renderizar(st.session_state.supabase)
+
+    with tabs[3]:
         # Meses futuros (sem nenhum dado digitado ainda) ficam zerados nas
         # séries brutas — plotar eles fazia o gráfico parecer que o
         # patrimônio "despencou pra zero" ou que deu um prejuízo enorme em

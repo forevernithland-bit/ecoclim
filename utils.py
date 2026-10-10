@@ -1063,6 +1063,13 @@ def registrar_preco_fornecedor_confirmado(supabase, item_nome, categoria, unidad
         supabase.table("materiais_padrao").update(dados).eq("id", existente[0]["id"]).execute()
     else:
         supabase.table("materiais_padrao").insert(dados).execute()
+    # Regra do Breno (2026-10-06): venda Tambasa nunca abaixo da Capelini — este
+    # fluxo é justamente o que cria/atualiza a linha Capelini do mesmo nome.
+    try:
+        import piso_capelini
+        piso_capelini.aplicar(supabase)
+    except Exception:
+        pass  # nunca derruba o import da nota; o piso roda de novo no próximo salvamento
 
 
 def processar_pdf_materiais(supabase, file_buffer, tipo_forcado=None):

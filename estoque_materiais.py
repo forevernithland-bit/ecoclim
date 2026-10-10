@@ -4,10 +4,31 @@ import urllib.parse
 from io import BytesIO
 import utils
 import gestao_click
+import piso_capelini
 
 STATUS_NF_LABELS = {"nao_precisa": "Não precisa", "pendente": "⏳ Pendente", "emitida": "✅ Emitida"}
 STATUS_NF_OPCOES = ["nao_precisa", "pendente", "emitida"]
 MSG_SYNC_OK = "Itens atualizados no ERP Ecoclim e no Gestão Click Ecoclim!"
+
+
+def _aplicar_piso_capelini(supabase):
+    """Regra do Breno (2026-10-06): venda de item Tambasa nunca abaixo da
+    Capelini (ver piso_capelini.py). Roda depois de qualquer gravação de
+    preço/margem/compra. Nunca derruba o salvamento que já aconteceu."""
+    try:
+        ajustes = piso_capelini.aplicar(supabase)
+    except Exception:
+        return
+    for a in ajustes:
+        try:
+            # Linha COMPLETA (codigo_externo, estoque, ncm...): com um dict
+            # parcial o Gestão Click duplicava o produto e zerava estoque/NCM.
+            gestao_click.garantir_produto(supabase, {**a["linha"], "venda": float(a["venda_nova"]),
+                                                     "margem_percentual": float(a["margem_nova"])})
+        except Exception:
+            pass
+    if ajustes:
+        st.session_state["_piso_capelini_msg"] = "🛡️ Piso Capelini aplicado: " + " · ".join(piso_capelini.descrever(ajustes))
 
 
 def _avisar_sincronizado():
@@ -152,6 +173,7 @@ def _aba_catalogo(supabase, catalogo):
                         gestao_click.garantir_produto(supabase, mat_atualizado)
                     except gestao_click.GestaoClickError as e:
                         erros_sync.append(f"{mat_atualizado.get('item')}: {e}")
+            _aplicar_piso_capelini(supabase)
             if faltou_migracao:
                 st.warning("Preço, margem e estoque foram salvos, mas **Fornecedor/Fabricante não** — "
                            "as colunas ainda não existem no banco. Rode `sql_fornecedor_fabricante.sql` "
@@ -329,6 +351,7 @@ def _aba_compras(supabase, catalogo):
                             "referencia_id": compra_id,
                         }).execute()
 
+                    _aplicar_piso_capelini(supabase)
                     _avisar_sincronizado()
                     st.session_state[_itens_compra_key] = []
                     st.rerun()
@@ -519,6 +542,9 @@ def renderizar():
     st.caption("Preço, estoque e vendas de materiais hidráulicos — separado da lista simples que só é enviada pro cliente/depósito sem custo pra Ecoclim.")
 
     supabase = st.session_state.supabase
+    _msg_piso = st.session_state.pop("_piso_capelini_msg", None)
+    if _msg_piso:
+        st.info(_msg_piso)
     catalogo = _carregar_catalogo(supabase)
 
     aba_cat, aba_estoque, aba_compras, aba_vendas = st.tabs(["📋 Catálogo & Preços", "📦 Estoque Atual", "🛒 Compras", "💰 Vendas de Materiais"])
