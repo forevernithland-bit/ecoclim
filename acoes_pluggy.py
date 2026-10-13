@@ -59,7 +59,7 @@ def buscar_posicoes(client_id, client_secret, item_ids=None):
                     if cod.endswith("F") and cod[:-1][-1:].isdigit():
                         cod = cod[:-1]  # fracionário
                     qtd = inv.get("quantity")
-                    if not re.fullmatch(r"[A-Z]{4}[0-9]{1,2}", cod) or not qtd:
+                    if not re.fullmatch(r"[A-Z][A-Z0-9]{3}[0-9]{1,2}", cod) or not qtd:
                         continue  # ignora nomes livres que não são ticker
                     amount = inv.get("amount") or 0
                     # `amount` costuma ser o saldo atual, não o custo -> não vira preço médio

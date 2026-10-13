@@ -202,7 +202,7 @@ def construir_base(ano_final=None, anos=ANOS_EXIGIDOS, progresso=None):
         vm = vm[vm["Codigo_Negociacao"].notna() & vm["Data_Fim_Negociacao"].isna()]
         for _, r in vm.iterrows():
             tk = str(r["Codigo_Negociacao"]).strip().upper()
-            if re.fullmatch(r"[A-Z]{4}\d{1,2}", tk):
+            if re.fullmatch(r"[A-Z][A-Z0-9]{3}\d{1,2}", tk):
                 tickers[tk] = r["CNPJ_Companhia"]
         break
 

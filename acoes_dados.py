@@ -54,7 +54,7 @@ def tipo_do_ticker(ticker, base):
     em_base = bool(base and _cnpj_do_ticker(t, base))
     if t in ETFS_CONHECIDOS:
         return "ETF"
-    if re.fullmatch(r"[A-Z]{4}3[2-5]|[A-Z]{4}39", t):
+    if re.fullmatch(r"[A-Z][A-Z0-9]{3}3[2-5]|[A-Z][A-Z0-9]{3}39", t):
         return "BDR"
     if em_base and t.endswith("11"):
         return "Unit"
@@ -62,7 +62,7 @@ def tipo_do_ticker(ticker, base):
         return "FII/Fundo"
     if em_base:
         return "Ação"
-    if re.fullmatch(r"[A-Z]{4}\d{1,2}", t) and not t.endswith(("11", "12", "13")):
+    if re.fullmatch(r"[A-Z][A-Z0-9]{3}\d{1,2}", t) and not t.endswith(("11", "12", "13")):
         return "Ação"  # ação que não achei na CVM (ex.: ticker novo) — segue como ação
     return "Outro"
 
@@ -408,7 +408,7 @@ def interpretar_texto(texto, corretora_padrao="Inter"):
         if not partes:
             continue
         t = partes[0].upper()
-        if not re.fullmatch(r"[A-Z]{4}\d{1,2}[A-Z]?", t) or len(partes) < 2:
+        if not re.fullmatch(r"[A-Z][A-Z0-9]{3}\d{1,2}[A-Z]?", t) or len(partes) < 2:
             ignoradas.append(linha)
             continue
         qtd = _num(partes[1])
@@ -417,7 +417,7 @@ def interpretar_texto(texto, corretora_padrao="Inter"):
         if qtd is None:
             ignoradas.append(linha)
             continue
-        t = t[:-1] if re.fullmatch(r"[A-Z]{4}\d{1,2}F", t) else t  # fracionário
+        t = t[:-1] if re.fullmatch(r"[A-Z][A-Z0-9]{3}\d{1,2}F", t) else t  # fracionário
         pos.append({"ticker": t, "qtd": qtd, "pm": pm or 0.0, "corretora": corr, "alugada": 0, "grupo": ""})
     # mesmo ticker em várias linhas: soma quantidades e faz média ponderada do PM
     uni = {}
@@ -457,7 +457,7 @@ def interpretar_planilha(df, corretora_padrao="B3"):
     acum = {}
     for _, r in df.iterrows():
         bruto = str(r[c_tick]).upper()
-        m = re.search(r"(?<![A-Z0-9])([A-Z]{4}[0-9]{1,2})F?(?![A-Z0-9])", bruto)  # MGLU3F = fracionario do MGLU3
+        m = re.search(r"(?<![A-Z0-9])([A-Z][A-Z0-9]{3}[0-9]{1,2})F?(?![A-Z0-9])", bruto)  # MGLU3F = fracionario do MGLU3
         qtd = _num(r[c_qtd])
         if not m or not qtd:
             continue
