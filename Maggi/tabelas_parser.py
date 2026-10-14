@@ -8,6 +8,13 @@ Le os PDFs de tabela de precos da pasta Maggi/tabelas/ e gera Maggi/tabelas.json
   "TABELA CONS GRUPO 634 ..." -> grupo 634).
 - Extrai: prazos disponiveis (cada um com sua taxa de administracao),
   valores de credito disponiveis, fundo de reserva e seguro de vida.
+- Tambem extrai a GRADE da tabela (campo "linhas": uma entrada por credito com
+  parcela ideal, parcela reduzida, parcela apos a reducao e valor disponivel) e,
+  nos grupos com PARCELA REDUZIDA, o campo "reduzida":
+      {"meses": 60, "fator": 0.5, "pct_ideal": 0.7092, "pct_reduzida": 0.3546, "pct_apos": 0.9719}
+  Regra: ate a parcela `meses` (ou ate a contemplacao) paga-se `fator` x a parcela
+  ideal; depois a parcela passa a ser a do "apos" e dilui o restante do prazo.
+  O simulador usa isso para oferecer "Parcela reduzida" ou "Parcela integral".
 - Roda pela GitHub Action (instala pdfplumber). Robusto: se um PDF falhar,
   mantem o valor anterior daquele grupo (nao apaga dados bons).
 
@@ -47,6 +54,96 @@ def num(s):
         return float(s)
     except Exception:
         return None
+
+
+def _pct(s):
+    """'0,7092%' -> 0.7092 (em %). None se nao for percentual."""
+    m = re.search(r'(\d+[.,]\d+)\s*%', str(s or ''))
+    return num(m.group(1)) if m else None
+
+
+def _valor(s):
+    """'R$ 4.794,63' / '1.819,43' / '519.063' / 'R$ 9 0.317' -> float."""
+    t = re.sub(r'[^\d.,]', '', str(s or '').replace(' ', ''))
+    if not t:
+        return None
+    return num(t)
+
+
+def parse_grade(path):
+    """Le a grade da tabela (pdfplumber.extract_tables). Devolve (linhas, reduzida).
+    linhas: [{"cod"?, "credito", "parcela", "parcela_sem_seguro"?, "reduzida"?, "apos"?, "disponivel"?}]
+    reduzida: dict (ver docstring) ou None."""
+    with pdfplumber.open(path) as pdf:
+        tabs = pdf.pages[0].extract_tables()
+    if not tabs:
+        return [], None
+    t = tabs[0]
+    cab = [(c or '').replace('\n', ' ').strip() for c in t[0]]
+    cabu = [c.upper() for c in cab]
+
+    def col(*chaves, excluir=()):
+        for i, c in enumerate(cabu):
+            if any(k in c for k in chaves) and not any(e in c for e in excluir):
+                return i
+        return None
+
+    i_cred = col('VALOR DO CR', 'CRÉDITO (R$)', 'CREDITO (R$)', 'CRÉDITO', 'CREDITO', excluir=('DESCRI', 'CREDITOS'))
+    if i_cred is None:
+        return [], None
+    i_cod = col('CÓDIGO', 'CODIGO', 'CÓD')
+    i_red = col('REDUZIDA')
+    i_apos = col('APÓS', 'APOS')
+    i_disp = col('DISPON')
+    i_sem = col('SEM SEGURO')
+    i_ideal = col('PARCELA IDEAL', 'PARCELA NORMAL COM SEGURO', 'COM SEGURO', 'PARCELA/M', 'PARCELA 4', 'MESES')
+    if i_ideal is None or i_ideal in (i_red, i_apos, i_disp, i_cred, i_cod, i_sem):
+        i_ideal = col('PARCELA IDEAL', 'PARCELA/M', 'PARCELA NORMAL', 'MESES')
+    # Volvo: o titulo "reduzida" e mesclado sobre duas colunas (reduzida, apos); a 2a fica sem titulo
+    if i_red is not None and i_apos is None and i_red + 1 < len(cab) and not cab[i_red + 1]:
+        i_apos = i_red + 1
+
+    # percentuais: linha logo abaixo do cabecalho (ou dentro do proprio titulo, como no 2013)
+    pcts = {}
+    for r in t[1:3]:
+        for i, c in enumerate(r):
+            v = _pct(c)
+            if v is not None:
+                pcts[i] = v
+    for i, c in enumerate(cab):
+        if i not in pcts and _pct(c) is not None:
+            pcts[i] = _pct(c)
+
+    linhas = []
+    for r in t[1:]:
+        cred = _valor(r[i_cred]) if i_cred < len(r) else None
+        if not cred or cred < 1000:
+            continue
+        item = {"credito": int(round(cred))}
+        if i_cod is not None and i_cod < len(r) and r[i_cod]:
+            item["cod"] = str(r[i_cod]).strip()
+
+        def pega(i, chave):
+            if i is not None and i < len(r):
+                v = _valor(r[i])
+                if v is not None:
+                    item[chave] = v
+        pega(i_ideal, "parcela")
+        pega(i_sem, "parcela_sem_seguro")
+        pega(i_red, "reduzida")
+        pega(i_apos, "apos")
+        pega(i_disp, "disponivel")
+        if "parcela" in item:
+            linhas.append(item)
+
+    reduzida = None
+    if i_red is not None and i_apos is not None and i_ideal is not None:
+        mm = re.search(r'(\d+)\s*MESES', cabu[i_red])
+        meses = int(mm.group(1)) if mm else None
+        pi, pr, pa = pcts.get(i_ideal), pcts.get(i_red), pcts.get(i_apos)
+        if meses and pi and pr and pa:
+            reduzida = {"meses": meses, "fator": round(pr / pi, 2), "pct_ideal": pi, "pct_reduzida": pr, "pct_apos": pa}
+    return linhas, reduzida
 
 
 def parse_pdf(path):
@@ -98,8 +195,17 @@ def parse_pdf(path):
     vm = re.search(r'Vencimento[^\d]*(\d{2})[./](\d{2})[./](\d{4})', text)
     vencimento = "{}-{}-{}".format(vm.group(3), vm.group(2), vm.group(1)) if vm else None
 
-    return {"ref": ref, "prazos": prazos, "fundo": fundo, "seguro": seguro,
-            "creditos": creditos, "assembleia": assembleia, "vencimento": vencimento}
+    saida = {"ref": ref, "prazos": prazos, "fundo": fundo, "seguro": seguro,
+             "creditos": creditos, "assembleia": assembleia, "vencimento": vencimento}
+    try:
+        linhas, reduzida = parse_grade(path)
+        if linhas:
+            saida["linhas"] = linhas
+        if reduzida:
+            saida["reduzida"] = reduzida
+    except Exception as e:  # a grade e extra: se falhar, os campos antigos continuam valendo
+        print("  (grade nao lida em {}: {})".format(os.path.basename(path), e))
+    return saida
 
 
 def carregar_antigo():
