@@ -686,7 +686,8 @@ else:
                                                 'status': 'Pendente', 
                                                 'is_recorrente': True
                                             }).execute()
-                                    except: pass
+                                    except Exception as _e_rec:
+                                        st.toast(f"⚠️ Marcado como pago, mas NÃO consegui criar o próximo boleto recorrente: {str(_e_rec)[:80]}. Crie-o manualmente.", icon="⚠️")
                             
                             utils.sincronizar_boletos_com_calendar()
                             st.success("✅ Pago! Lembrete atualizado.")

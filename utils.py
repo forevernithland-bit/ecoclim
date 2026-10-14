@@ -12,6 +12,8 @@ from reportlab.lib.enums import TA_JUSTIFY, TA_CENTER, TA_RIGHT, TA_LEFT
 import urllib.request
 import json
 import re
+import threading
+import logging
 import unicodedata
 
 try:
@@ -2209,10 +2211,62 @@ def garantir_lembrete_boleto(supabase, servico_id, cliente_nome, vencimento_iso,
 # ==========================================
 # SINCRONIZAÇÃO INTELIGENTE COM GOOGLE CALENDAR
 # ==========================================
+_SYNC_CAL_LOCK = threading.Lock()
+_SYNC_CAL_FLAG = threading.Lock()   # protege "tentou e falhou -> marca pendente" x "checou pendente -> libera"
+_SYNC_CAL_PENDENTE = False
+_log_sync = logging.getLogger("ecoclim.sync")
+
+
 def sincronizar_boletos_com_calendar():
+    """Dispara a sincronização com o Google Calendar EM SEGUNDO PLANO e volta na hora.
+
+    Antes rodava na frente do usuário e, a cada pagamento/edição, atualizava TODOS os
+    boletos um por um (~0,5s cada): passava de 1 minuto e a tela ficava travada.
+    Agora só o que mudou é atualizado (ver `_sincronizar_boletos_com_calendar_impl`) e
+    isso acontece depois que a tela já respondeu. Trava: nunca duas sincronizações ao
+    mesmo tempo (duas veriam "sem evento" e criariam o evento em duplicata); se chegar
+    outro pedido durante uma execução, roda mais uma vez ao terminar. O mutex
+    `_SYNC_CAL_FLAG` torna atômicos o "tentar adquirir + marcar pendente" e o "checar
+    pendente + liberar", senão um pedido na janela entre os dois se perderia.
+    """
+    global _SYNC_CAL_PENDENTE
+    with _SYNC_CAL_FLAG:
+        if not _SYNC_CAL_LOCK.acquire(blocking=False):
+            _SYNC_CAL_PENDENTE = True
+            return
+
+    def _rodar():
+        global _SYNC_CAL_PENDENTE
+        while True:
+            with _SYNC_CAL_FLAG:
+                _SYNC_CAL_PENDENTE = False
+            try:
+                _sincronizar_boletos_com_calendar_impl()
+            except Exception:
+                _log_sync.exception("sincronização com o Google Calendar falhou")
+            with _SYNC_CAL_FLAG:
+                if not _SYNC_CAL_PENDENTE:
+                    _SYNC_CAL_LOCK.release()
+                    return
+
+    try:
+        threading.Thread(target=_rodar, daemon=True, name="sync-calendar-boletos").start()
+    except Exception:
+        _SYNC_CAL_LOCK.release()  # se a thread nem subir, não deixa o lock preso para sempre
+        raise
+
+
+def sincronizar_boletos_com_calendar_agora():
+    """Versão que espera terminar (para scripts/testes)."""
+    with _SYNC_CAL_LOCK:
+        _sincronizar_boletos_com_calendar_impl()
+
+
+def _sincronizar_boletos_com_calendar_impl():
     """Sincroniza todos os lembretes do banco com o Google Calendar usando o motor vitalício"""
     service = get_calendar_service()
     if not service:
+        _log_sync.error("sem serviço do Google Calendar (credencial OAuth inválida/expirada?)")
         return
 
     try:
@@ -2221,16 +2275,29 @@ def sincronizar_boletos_com_calendar():
         boletos_db = res.data if res.data else []
         db_ids = {b['id'] for b in boletos_db}
 
-        events_result = service.events().list(calendarId='primary', q='[Ecoclim ID:', singleEvents=True).execute()
-        events_calendar = events_result.get('items', [])
-        
-        calendar_map = {}
+        events_calendar = []
+        _token = None
+        while True:  # paginado: sem isso, passando de 250 eventos o excedente seria recriado em duplicata
+            _r = service.events().list(calendarId='primary', q='[Ecoclim ID:', singleEvents=True,
+                                       maxResults=2500, pageToken=_token).execute()
+            events_calendar.extend(_r.get('items', []))
+            _token = _r.get('nextPageToken')
+            if not _token:
+                break
+
+        calendar_map = {}   # id do boleto -> id do evento
+        calendar_ev = {}    # id do boleto -> evento inteiro (pra comparar e só atualizar o que mudou)
+        eventos_repetidos = []
         for ev in events_calendar:
             desc = ev.get('description', '')
             match = re.search(r'\[Ecoclim ID:\s*(\d+)\]', desc)
             if match:
                 ev_id_db = int(match.group(1))
+                if ev_id_db in calendar_map:
+                    eventos_repetidos.append(ev['id'])  # cópia do mesmo boleto: nunca é atualizada, fica velha
+                    continue
                 calendar_map[ev_id_db] = ev['id']
+                calendar_ev[ev_id_db] = ev
 
         hoje_dt = obter_data_atual_br()
 
@@ -2290,13 +2357,22 @@ def sincronizar_boletos_com_calendar():
             }
 
             if id_db in calendar_map:
-                service.events().update(calendarId='primary', eventId=calendar_map[id_db], body=event_body).execute()
+                _ev = calendar_ev[id_db]
+                _igual = (_ev.get('summary') == summary
+                          and (_ev.get('start') or {}).get('date') == event_body['start']['date']
+                          and (_ev.get('end') or {}).get('date') == event_body['end']['date']
+                          and str(_ev.get('colorId') or '') == color_id
+                          and (_ev.get('description') or '') == description)
+                if not _igual:  # antes atualizava TODOS os boletos a cada pagamento (~0,5s cada = 1 min)
+                    service.events().update(calendarId='primary', eventId=calendar_map[id_db], body=event_body).execute()
             else:
                 service.events().insert(calendarId='primary', body=event_body).execute()
 
         for ev_id_db, ev_cal_id in calendar_map.items():
             if ev_id_db not in db_ids:
                 service.events().delete(calendarId='primary', eventId=ev_cal_id).execute()
+        for ev_cal_id in eventos_repetidos:
+            service.events().delete(calendarId='primary', eventId=ev_cal_id).execute()
 
-    except Exception as e:
-        pass
+    except Exception:
+        _log_sync.exception("erro ao sincronizar boletos com o Calendar")

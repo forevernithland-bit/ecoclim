@@ -588,8 +588,8 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                                                     'status': 'Pendente', 
                                                     'is_recorrente': True
                                                 }).execute()
-                                        except: 
-                                            pass
+                                        except Exception as _e_rec:
+                                            st.toast(f"⚠️ Boleto pago, mas NÃO consegui criar o próximo recorrente: {str(_e_rec)[:80]}. Crie-o manualmente.", icon="⚠️")
                             
                             utils.sincronizar_boletos_com_calendar()
                             st.success("✅ Tudo atualizado! Boletos pagos e próxima recorrência gerada (caso aplicável).")
