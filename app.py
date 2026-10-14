@@ -636,7 +636,7 @@ else:
                     if idx > 0:
                         st.markdown("<div style='margin-top: -16px;'></div>", unsafe_allow_html=True)
                         
-                    col_info, col_btn_doc, col_btn_pagar = st.columns([7.5, 1.2, 1.2])
+                    col_info, col_btn_doc, col_btn_pagar, col_btn_cfg = st.columns([7.0, 1.2, 1.2, 0.8])
                     
                     with col_info:
                         st.markdown(f"""
@@ -658,6 +658,11 @@ else:
                             st.session_state.doc_ir_para = "Boletos"
                             st.rerun()
                             
+                    with col_btn_cfg:
+                        with st.popover("⚙️", use_container_width=True, help="Editar, encerrar recorrência ou remover"):
+                            import lembretes_gestao
+                            lembretes_gestao.formulario(st.session_state.supabase, b, "lem_home")
+
                     with col_btn_pagar:
                         if st.button("✅ Pagar", type="primary", key=f"pg_{b['id']}", use_container_width=True):
                             with st.spinner("Atualizando..."):

@@ -648,6 +648,13 @@ def bate_busca(termo, *campos, min_similaridade=0.72):
             candidatos = campo_norm.split() + [campo_norm]
             if _difflib.get_close_matches(termo_norm, candidatos, n=1, cutoff=min_similaridade):
                 return True
+    # várias palavras ("15 tubos 316"): todas precisam aparecer, em qualquer ordem
+    if len(termo_norm.split()) > 1:
+        try:
+            from busca_inteligente import termo_bate
+            return termo_bate(termo, *campos)
+        except Exception:
+            return False
     return False
 
 # ---------------------------------------------------------------

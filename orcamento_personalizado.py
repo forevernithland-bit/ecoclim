@@ -828,6 +828,24 @@ def renderizar(lista_nomes_produtos, limpar_func):
         
         sequencia_colunas = ["Produto da Base", "Produto Manual", "Quantidade", "Custo (R$)", "Venda (R$)", "Custo Total", "Venda Total"]
         
+        # Busca inteligente (palavras em qualquer ordem, sem acento, erro leve):
+        # o produto clicado entra na primeira linha vazia já com preço/descrição.
+        import busca_inteligente as _bi
+        _bi.caixa_produto(lista_nomes_produtos, "busca_orc")
+        _esc = _bi.retirar_escolha("busca_orc")
+        if _esc:
+            _m = cat_produtos[cat_produtos['Item'].astype(str).str.strip() == _esc]
+            _v = {"Quantidade": 1, "Custo Total": 0.0, "Venda Total": 0.0}
+            if not _m.empty:
+                _v["Venda (R$)"] = utils.safe_float(_m['Venda (R$)'].values[0])
+                _v["Custo (R$)"] = utils.safe_float(_m['Custo (R$)'].values[0]) if 'Custo (R$)' in _m.columns else 0.0
+                _d = _m['Descrição'].values[0] if 'Descrição' in _m.columns else ""
+                _v["Descrição"] = str(_d) if pd.notna(_d) and str(_d).lower() != 'nan' else ""
+                _v["Custo Total"], _v["Venda Total"] = _v.get("Custo (R$)", 0.0), _v["Venda (R$)"]
+            st.session_state.df_orc = _bi.adicionar_na_grade(st.session_state.df_orc, "Produto da Base", _esc, _v, "Produto Manual")
+            st.session_state.df_orc_prev = st.session_state.df_orc.copy()
+            st.session_state.pop("editor_orc_base", None)
+
         df_editavel = st.data_editor(
             st.session_state.df_orc, 
             column_config=configuracao_colunas, 

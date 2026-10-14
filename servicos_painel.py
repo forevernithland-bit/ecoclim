@@ -113,6 +113,20 @@ def selecionar_itens_produtos(df_produtos, session_key, itens_iniciais=None):
         "Venda Total": st.column_config.NumberColumn("Venda Total", format="R$ %.2f", disabled=True, width="small"),
     }
 
+    import busca_inteligente as _bi
+    _bi.caixa_produto(lista_prod, f"busca_{session_key}")
+    _esc = _bi.retirar_escolha(f"busca_{session_key}")
+    if _esc:
+        _v = {"Qtd": 1.0, "Custo Total": 0.0, "Venda Total": 0.0}
+        if not df_produtos.empty and 'Item' in df_produtos.columns:
+            _m = df_produtos[df_produtos['Item'].astype(str).str.strip() == _esc]
+            if not _m.empty:
+                _v["Custo Un."] = safe_float(_m.iloc[0].get('Custo (R$)', 0))
+                _v["Venda Un."] = safe_float(_m.iloc[0].get('Venda (R$)', 0))
+                _v["Custo Total"], _v["Venda Total"] = _v["Custo Un."], _v["Venda Un."]
+        st.session_state[session_key] = _bi.adicionar_na_grade(st.session_state[session_key], "Item", _esc, _v)
+        st.session_state.pop(f"edit_{session_key}", None)
+
     df_itens_editavel = st.data_editor(
         st.session_state[session_key],
         column_config=config_itens,

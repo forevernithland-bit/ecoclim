@@ -615,6 +615,14 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                         st.rerun()
 
     with container_acoes:
+        if nome_principal == "Boletos" and not df_db.empty:
+            _pend = df_db[df_db["status"] == "Pendente"].sort_values("vencimento")
+            if not _pend.empty:
+                with st.expander("⚙️ Editar / encerrar recorrência / remover um lembrete pendente"):
+                    _opts = {int(r["id"]): f"{str(r.get('cliente') or '').strip()} — venc. {str(r.get('vencimento'))[8:10]}/{str(r.get('vencimento'))[5:7]}/{str(r.get('vencimento'))[:4]} — R$ {float(r.get('valor') or 0):,.2f}" + (" 🔄" if r.get("is_recorrente") else "") for _, r in _pend.iterrows()}
+                    _sel = st.selectbox("Lembrete", list(_opts), format_func=lambda i: _opts[i], key="lem_doc_sel")
+                    import lembretes_gestao
+                    lembretes_gestao.formulario(st.session_state.supabase, _pend[_pend["id"] == _sel].iloc[0].to_dict(), "lem_doc")
         arquivos_reais_disponiveis = df_pagina[df_pagina["ID_Drive"].notna() & (~df_pagina["Nome"].str.startswith("📝 "))]
         
         if not arquivos_reais_disponiveis.empty:

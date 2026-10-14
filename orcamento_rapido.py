@@ -98,6 +98,19 @@ def renderizar(lista_nomes_produtos, limpar_func):
     
     seq_r = ["Produto da Base", "Produto Manual", "Quantidade", "Custo (R$)", "Venda (R$)", "Custo Total", "Venda Total"]
 
+    import busca_inteligente as _bi
+    _bi.caixa_produto(lista_nomes_produtos, "busca_rapido")
+    _esc = _bi.retirar_escolha("busca_rapido")
+    if _esc:
+        _m = cat_produtos[cat_produtos['Item'].astype(str).str.strip() == _esc]
+        _v = {"Quantidade": 1, "Custo Total": 0.0, "Venda Total": 0.0}
+        if not _m.empty:
+            _v["Venda (R$)"] = utils.safe_float(_m['Venda (R$)'].values[0])
+            _v["Custo (R$)"] = utils.safe_float(_m['Custo (R$)'].values[0]) if 'Custo (R$)' in _m.columns else 0.0
+            _v["Custo Total"], _v["Venda Total"] = _v.get("Custo (R$)", 0.0), _v["Venda (R$)"]
+        st.session_state.rapido_df_orc = _bi.adicionar_na_grade(st.session_state.rapido_df_orc, "Produto da Base", _esc, _v, "Produto Manual")
+        st.session_state.pop("editor_rapido", None)
+
     df_r_ed = st.data_editor(st.session_state.rapido_df_orc, column_config=cfg_grid, column_order=seq_r, num_rows="dynamic", use_container_width=True, key="editor_rapido", hide_index=True)
     
     # Mesmo cuidado do Orçamento Personalizado: só a troca de PRODUTO redesenha
