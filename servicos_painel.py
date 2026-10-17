@@ -1010,8 +1010,10 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                 try:
                     res_vendas_mat_lucro = supabase.table('vendas_materiais').select('lucro_total').eq('servico_id', id_projeto).execute()
                     lucro_materiais_hidraulicos = sum(float(v.get('lucro_total') or 0) for v in (res_vendas_mat_lucro.data or []))
+                    _tem_materiais = bool(res_vendas_mat_lucro.data)
                 except Exception:
                     lucro_materiais_hidraulicos = 0.0
+                    _tem_materiais = False
 
                 # Tudo arredondado em centavos aqui, uma vez só: os quadros, o
                 # detalhamento e o valor gravado em `lucro_estimado` (que a lista
@@ -1033,23 +1035,27 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                                              ajuda="Produtos + taxa de cartão + impostos (NF) + comissão + materiais ou serviços terceirizados + mão de obra."),
                              unsafe_allow_html=True)
                 r0c.markdown(_card_resultado("LUCRO LÍQUIDO FINAL", utils.to_br_currency(lucro_final),
-                                             "Lucro do projeto + lucro com materiais (se houver)", tipo=_tipo_lucro,
+                                             ("Lucro do projeto + lucro com materiais" if _tem_materiais else "Valor da Venda − Custo Total do Projeto"), tipo=_tipo_lucro,
                                              pill=(f"{'↑' if margem_r >= 0 else '↓'} {margem_r:.1f}% Margem", "ok" if margem_r >= 0 else "ruim"),
                                              ajuda="Lucro do projeto + lucro dos materiais hidráulicos (se houver)."),
                              unsafe_allow_html=True)
-                r3, r4, r5 = st.columns(3)
-                r3.markdown(_card_resultado("Lucro do projeto", utils.to_br_currency(lucro_projeto),
-                                            "Valor da Venda − Custo Total do Projeto", tipo=_tipo_lp,
-                                            ajuda="Lucro real, já descontado tudo: Valor da Venda − Custo Total do Projeto."),
-                            unsafe_allow_html=True)
-                r4.markdown(_card_resultado("💧 Lucro Materiais Hidráulicos", utils.to_br_currency(lucro_materiais_hidraulicos),
-                                            "materiais vendidos com a Ecoclim" if lucro_materiais_hidraulicos else "nenhuma venda de materiais ainda",
-                                            ajuda="Soma do lucro das aquisições de materiais deste serviço."),
-                            unsafe_allow_html=True)
-                r5.markdown(_card_resultado("Margem líquida", f"{margem_r:.1f}%".replace(".", ","),
-                                            "Lucro líquido final ÷ Valor da Venda",
-                                            ajuda="Quanto do valor da venda sobra de lucro depois de tudo."),
-                            unsafe_allow_html=True)
+                # Só aparece quando há venda de materiais hidráulicos neste serviço: sem
+                # materiais, "Lucro do projeto" seria idêntico ao Lucro Líquido Final
+                # (pedido do Breno, 2026-10-16) e a margem já vai no selo do card acima.
+                if _tem_materiais:
+                    r3, r4, r5 = st.columns(3)
+                    r3.markdown(_card_resultado("Lucro do projeto", utils.to_br_currency(lucro_projeto),
+                                                "Valor da Venda − Custo Total do Projeto", tipo=_tipo_lp,
+                                                ajuda="Lucro real, já descontado tudo: Valor da Venda − Custo Total do Projeto."),
+                                unsafe_allow_html=True)
+                    r4.markdown(_card_resultado("💧 Lucro Materiais Hidráulicos", utils.to_br_currency(lucro_materiais_hidraulicos),
+                                                "materiais vendidos com a Ecoclim" if lucro_materiais_hidraulicos else "nenhuma venda de materiais ainda",
+                                                ajuda="Soma do lucro das aquisições de materiais deste serviço."),
+                                unsafe_allow_html=True)
+                    r5.markdown(_card_resultado("Margem líquida", f"{margem_r:.1f}%".replace(".", ","),
+                                                "Lucro líquido final ÷ Valor da Venda",
+                                                ajuda="Quanto do valor da venda sobra de lucro depois de tudo."),
+                                unsafe_allow_html=True)
 
                 # O que a lista de clientes mostra é o valor SALVO. Se o painel
                 # já está com números diferentes (editou e ainda não clicou em
