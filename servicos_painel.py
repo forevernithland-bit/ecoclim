@@ -602,7 +602,12 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             if instalador_atual.lower() in ['nan', 'none']: instalador_atual = ""
 
             opcoes_inst = [""] + lista_instaladores
-            if instalador_atual in opcoes_inst:
+            # `instalador_atual and`: "" JÁ está em `opcoes_inst` (a lista começa com ""),
+            # então sem isto um projeto sem instalador caía neste primeiro `if` com
+            # "" e o padrão Valdimar abaixo NUNCA era aplicado — era o "Choose option"
+            # vazio relatado pelo Breno (2026-10-17), que ainda por cima fazia a
+            # tabela de Mão de Obra herdar "" e salvar o projeto sem instalador.
+            if instalador_atual and instalador_atual in opcoes_inst:
                 instalador_default = instalador_atual
             elif "Valdimar" in opcoes_inst:
                 # Pedido do Breno (2026-09-16): projeto sem instalador definido
@@ -692,6 +697,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
             st.markdown(f"""
                 <div style='display: flex; justify-content: flex-end; gap: 25px; margin-top: -10px; margin-bottom: 25px;'>
                     <span style='color: #cc0000; font-size: 15px;'><b>Custo Total Produtos:</b> {utils.to_br_currency(custo_total_produtos)}</span>
+                    <span style='color: #004488; font-size: 15px;'><b>Venda Total Produtos:</b> {utils.to_br_currency(venda_total_produtos)}</span>
                     <span style='color: #006600; font-size: 15px;'><b>Lucro Total Produtos:</b> {utils.to_br_currency(lucro_total_produtos)}</span>
                 </div>
             """, unsafe_allow_html=True)
