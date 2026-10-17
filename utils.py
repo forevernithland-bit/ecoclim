@@ -532,6 +532,19 @@ def save_catalog(nome_tabela, df):
     com o Gestão Click em seguida."""
     supabase = get_supabase_client()
     tem_extras = any(v in df.columns for v in COLUNAS_EXTRAS_GESTAO_CLICK.values())
+    # `fornecedor` (só existe em catalogo_produtos) não aparece na tela de edição,
+    # então também não viaja no DataFrame — sem isto, o delete + insert abaixo
+    # apagava o fornecedor de todo item a cada GRAVAR. Lê antes e devolve depois.
+    fornecedor_por_item = {}
+    if nome_tabela == "catalogo_produtos":
+        try:
+            fornecedor_por_item = {
+                r["item"]: r["fornecedor"]
+                for r in (supabase.table(nome_tabela).select("item,fornecedor").execute().data or [])
+                if r.get("fornecedor")
+            }
+        except Exception:
+            fornecedor_por_item = {}
     lista_dados = []
     for _, linha in df.iterrows():
         if linha.get('Item') and str(linha['Item']).strip() != "":
@@ -545,6 +558,8 @@ def save_catalog(nome_tabela, df):
                     if col_df in df.columns:
                         valor = str(linha.get(col_df) or '').strip()
                         registro[col_banco] = valor if valor and valor.lower() != 'nan' else None
+            if linha['Item'] in fornecedor_por_item:
+                registro["fornecedor"] = fornecedor_por_item[linha['Item']]
             lista_dados.append(registro)
     try:
         supabase.table(nome_tabela).delete().neq("item", "___VAZIO___").execute()
