@@ -3,6 +3,7 @@ import pandas as pd
 import io
 import utils
 import gestao_click
+import itens_espelhados
 
 # Margem padrão por palavra-chave no nome do item, aplicada automaticamente
 # sempre que um item entra pela importação de Excel (Configurações →
@@ -306,7 +307,22 @@ def renderizar():
             # que a tela está mostrando.
             df_salvar = _mesclar_no_catalogo_inteiro(df_editor)
 
+            # Itens espelhados (também na Lista de Materiais): foto dos valores de
+            # ANTES do salvamento — só o que mudou aqui é empurrado pra outra base.
+            _antes_espelho = {}
+            if nome_tabela == 'catalogo_produtos':
+                try:
+                    _antes_espelho = itens_espelhados.valores_atuais(utils.get_supabase_client(), 'catalogo_produtos')
+                except Exception:
+                    _antes_espelho = {}
             linhas_salvas = utils.save_catalog(nome_tabela, df_salvar)
+            if nome_tabela == 'catalogo_produtos' and linhas_salvas:
+                for _r_esp in linhas_salvas:
+                    if itens_espelhados.eh_espelhado(_r_esp.get('item')):
+                        _novo = (float(_r_esp.get('custo') or 0), float(_r_esp.get('venda') or 0))
+                        _ant = _antes_espelho.get(itens_espelhados._n(_r_esp.get('item')))
+                        if _ant is None or abs(_ant[0] - _novo[0]) > 0.005 or abs(_ant[1] - _novo[1]) > 0.005:
+                            itens_espelhados.propagar(utils.get_supabase_client(), 'catalogo_produtos', _r_esp.get('item'), _novo[0], _novo[1])
             if f'temp_df_{nome_tabela}' in st.session_state: del st.session_state[f'temp_df_{nome_tabela}']
 
             if nome_tabela == 'catalogo_produtos' and linhas_salvas:

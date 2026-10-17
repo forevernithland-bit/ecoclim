@@ -1072,6 +1072,11 @@ def registrar_preco_fornecedor_confirmado(supabase, item_nome, categoria, unidad
         supabase.table("materiais_padrao").update(dados).eq("id", existente[0]["id"]).execute()
     else:
         supabase.table("materiais_padrao").insert(dados).execute()
+    try:
+        import itens_espelhados
+        itens_espelhados.propagar(supabase, "materiais_padrao", item_nome, custo, venda)
+    except Exception:
+        pass  # espelhar nunca derruba o import da nota
     # Regra do Breno (2026-10-06): venda Tambasa nunca abaixo da Capelini — este
     # fluxo é justamente o que cria/atualiza a linha Capelini do mesmo nome.
     try:

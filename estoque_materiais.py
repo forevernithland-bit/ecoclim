@@ -5,6 +5,7 @@ from io import BytesIO
 import utils
 import gestao_click
 import piso_capelini
+import itens_espelhados
 
 STATUS_NF_LABELS = {"nao_precisa": "Não precisa", "pendente": "⏳ Pendente", "emitida": "✅ Emitida"}
 STATUS_NF_OPCOES = ["nao_precisa", "pendente", "emitida"]
@@ -169,6 +170,9 @@ def _aba_catalogo(supabase, catalogo):
                         except Exception:
                             faltou_migracao = True
                     mat_atualizado = {**mapa_material_id.get(int(row['id']), {}), **dados_novos}
+                    # Item que também mora na lista de equipamentos (ex.: Caixa de
+                    # Quebra de Pressão): mudou aqui, muda lá. Ver itens_espelhados.py.
+                    itens_espelhados.propagar(supabase, 'materiais_padrao', mat_atualizado.get('item'), dados_novos['custo'], dados_novos['venda'])
                     try:
                         gestao_click.garantir_produto(supabase, mat_atualizado)
                     except gestao_click.GestaoClickError as e:
@@ -329,6 +333,7 @@ def _aba_compras(supabase, catalogo):
                         supabase.table('materiais_padrao').update({
                             "custo": novo_custo, "venda": nova_venda, "estoque_atual": novo_estoque,
                         }).eq('id', mat['id']).execute()
+                        itens_espelhados.propagar(supabase, 'materiais_padrao', mat.get('item'), novo_custo, nova_venda)
                         try:
                             gestao_click.garantir_produto(supabase, {**mat, "custo": novo_custo, "venda": nova_venda, "estoque_atual": novo_estoque})
                         except gestao_click.GestaoClickError:

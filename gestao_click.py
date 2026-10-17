@@ -159,6 +159,18 @@ def garantir_produto(supabase, material, tabela="materiais_padrao"):
     colunas que existem só pro nosso controle (fornecedor, fabricante) e que o
     Gestão Click não conhece. Mandar o registro inteiro faria a API recusar ou
     gravar lixo — por isso nunca troque isto por um `**material`."""
+    if tabela == "catalogo_produtos":
+        # Item que mora nas duas bases (ver itens_espelhados.py): no Gestão Click
+        # é UM produto só, mandado a partir de materiais_padrao (é lá que fica
+        # o estoque). Sem isso, o catálogo de equipamentos zeraria o estoque e
+        # trocaria o código interno HID-/EQP- a cada salvamento.
+        try:
+            import itens_espelhados
+            _mat_esp = itens_espelhados.material_equivalente(supabase, material.get("item"))
+        except Exception:
+            _mat_esp = None
+        if _mat_esp:
+            return garantir_produto(supabase, _mat_esp, "materiais_padrao")
     prefixo = PREFIXO_CODIGO_INTERNO.get(tabela, tabela.upper())
     corpo = {
         "nome": material.get("item"),

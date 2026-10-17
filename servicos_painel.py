@@ -7,6 +7,39 @@ import gestao_click
 import push
 import movimentacoes
 
+def _card_resultado(titulo, valor, sub="", tipo="neutro", pill=None, ajuda=""):
+    """Card de resultado do painel (Valor da Venda / Custo / Lucros). TODOS com a
+    mesma altura fixa e o mesmo respiro, pra a grade ficar alinhada (pedido do
+    Breno, 2026-10-16) — por isso são HTML próprio e não st.metric: os st.metric
+    mudavam de altura conforme tinham ou não a linha de variação, e as legendas
+    ficavam soltas fora do card.
+    tipo: 'azul' (destaque), 'verde'/'vermelho' (lucro positivo/negativo), 'neutro'.
+    pill: (texto, 'ok'|'ruim') — selo de margem."""
+    import html as _html
+    esc = _html.escape
+    if tipo == "azul":
+        estilo = "background:linear-gradient(135deg,#0b5fff,#0a3d91);color:#fff;border:1px solid #0a3d91;box-shadow:0 4px 14px rgba(11,95,255,.35);"
+        cor_t, cor_v, cor_s = "rgba(255,255,255,.92)", "#fff", "rgba(255,255,255,.85)"
+    else:
+        borda = {"verde": "border-left:4px solid #16a34a;", "vermelho": "border-left:4px solid #dc2626;"}.get(tipo, "")
+        estilo = ("background:var(--card,#fff);border:1px solid var(--line,#e9eef5);" + borda +
+                  "box-shadow:var(--shadow-sm,0 1px 2px rgba(15,23,42,.04),0 4px 14px rgba(15,23,42,.04));")
+        cor_t, cor_v, cor_s = "var(--muted,#64748b)", "var(--ink,#0f172a)", "var(--muted,#64748b)"
+    selo = ""
+    if pill:
+        fundo, cor = ("#dcfce7", "#15803d") if pill[1] == "ok" else ("#fee2e2", "#b91c1c")
+        selo = (f"<span style='display:inline-block;margin-left:8px;padding:1px 9px;border-radius:999px;"
+                f"background:{fundo};color:{cor};font-size:12px;font-weight:700;vertical-align:middle;'>{esc(pill[0])}</span>")
+    sub_html = f"<div style='font-size:12px;line-height:1.3;color:{cor_s};margin-top:4px;'>{esc(sub)}</div>" if sub else ""
+    return (
+        f"<div title='{esc(ajuda, quote=True)}' style='box-sizing:border-box;height:128px;border-radius:16px;padding:14px 18px;"
+        f"display:flex;flex-direction:column;justify-content:center;overflow:hidden;margin-bottom:14px;{estilo}'>"
+        f"<div style='font-size:13px;font-weight:700;letter-spacing:.02em;color:{cor_t};'>{esc(titulo)}</div>"
+        f"<div style='font-family:\"Plus Jakarta Sans\",Inter,sans-serif;font-size:27px;font-weight:800;line-height:1.2;color:{cor_v};'>"
+        f"{esc(valor)}{selo}</div>{sub_html}</div>"
+    )
+
+
 def safe_float(val):
     try:
         if pd.isna(val) or val is None or str(val).strip() == '': 
@@ -882,8 +915,16 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                         _data_s = _s.get('data_pagamento')
                         try: _data_s = pd.to_datetime(_data_s).date() if _data_s else None
                         except Exception: _data_s = None
+                        # Linha sem instalador (serviço antigo, ou o que o fallback
+                        # monta quando o banco não tem instalador) já vem com o
+                        # "Instalador Responsável" escolhido acima — que por padrão
+                        # é o Valdimar. Pedido do Breno (2026-10-16): vinha em
+                        # branco ("None"). `pd.notna` porque o campo vazio pode vir
+                        # como NaN (e `nan or ""` não vira "").
+                        _inst_s = _s.get('instalador')
+                        _inst_s = str(_inst_s).strip() if (pd.notna(_inst_s) and str(_inst_s).strip().lower() not in ('', 'nan', 'none')) else ""
                         _linhas_mo.append({
-                            "Instalador": _s.get('instalador') or "", "Valor (R$)": safe_float(_s.get('valor')),
+                            "Instalador": _inst_s or (novo_instalador or ""), "Valor (R$)": safe_float(_s.get('valor')),
                             "Pago?": bool(_s.get('pago')), "Data Pagamento": _data_s,
                         })
                     st.session_state[_session_mo_key] = pd.DataFrame(_linhas_mo, columns=["Instalador", "Valor (R$)", "Pago?", "Data Pagamento"])
@@ -981,25 +1022,34 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
 
                 st.markdown("<br>", unsafe_allow_html=True)
                 margem_r = (lucro_final / venda_final * 100) if venda_final > 0 else 0
+                _tipo_lucro = "verde" if lucro_final >= 0 else "vermelho"
+                _tipo_lp = "verde" if lucro_projeto >= 0 else "vermelho"
                 r0a, r0b, r0c = st.columns(3)
-                r0a.markdown(
-                    "<div style='background:linear-gradient(135deg,#0b5fff,#0a3d91);color:#fff;border-radius:12px;"
-                    "padding:14px 18px;box-shadow:0 4px 14px rgba(11,95,255,.35);'>"
-                    "<div style='font-size:13px;font-weight:700;letter-spacing:.04em;opacity:.92;'>💵 VALOR DA VENDA</div>"
-                    f"<div style='font-size:30px;font-weight:800;line-height:1.25;'>{utils.to_br_currency(venda_final)}</div>"
-                    "<div style='font-size:12px;opacity:.85;'>valor final fechado com o cliente</div></div>",
-                    unsafe_allow_html=True,
-                )
-                r0b.metric("Custo Total do Projeto", utils.to_br_currency(custo_total_projeto),
-                           help="Produtos + taxa de cartão + impostos (NF) + comissão + materiais ou serviços terceirizados + mão de obra.")
-                r0b.caption("Produtos + taxas + impostos + serviços + custos extras")
-                r0c.metric("LUCRO LÍQUIDO FINAL", utils.to_br_currency(lucro_final), delta=f"{margem_r:.1f}% Margem",
-                           help="Lucro do projeto + lucro dos materiais hidráulicos (se houver).")
-                r0c.caption("Lucro do projeto + lucro com materiais (se houver)")
-                r3, r4 = st.columns(2)
-                r3.metric("Lucro do projeto", utils.to_br_currency(lucro_projeto),
-                          help="Lucro real, já descontado tudo: Valor da Venda − Custo Total do Projeto.")
-                r4.metric("💧 Lucro Materiais Hidráulicos", utils.to_br_currency(lucro_materiais_hidraulicos))
+                r0a.markdown(_card_resultado("💵 VALOR DA VENDA", utils.to_br_currency(venda_final),
+                                             "valor final fechado com o cliente", tipo="azul",
+                                             ajuda="Valor da Venda informado acima."), unsafe_allow_html=True)
+                r0b.markdown(_card_resultado("Custo Total do Projeto", utils.to_br_currency(custo_total_projeto),
+                                             "Produtos + taxas + impostos + serviços + custos extras",
+                                             ajuda="Produtos + taxa de cartão + impostos (NF) + comissão + materiais ou serviços terceirizados + mão de obra."),
+                             unsafe_allow_html=True)
+                r0c.markdown(_card_resultado("LUCRO LÍQUIDO FINAL", utils.to_br_currency(lucro_final),
+                                             "Lucro do projeto + lucro com materiais (se houver)", tipo=_tipo_lucro,
+                                             pill=(f"{'↑' if margem_r >= 0 else '↓'} {margem_r:.1f}% Margem", "ok" if margem_r >= 0 else "ruim"),
+                                             ajuda="Lucro do projeto + lucro dos materiais hidráulicos (se houver)."),
+                             unsafe_allow_html=True)
+                r3, r4, r5 = st.columns(3)
+                r3.markdown(_card_resultado("Lucro do projeto", utils.to_br_currency(lucro_projeto),
+                                            "Valor da Venda − Custo Total do Projeto", tipo=_tipo_lp,
+                                            ajuda="Lucro real, já descontado tudo: Valor da Venda − Custo Total do Projeto."),
+                            unsafe_allow_html=True)
+                r4.markdown(_card_resultado("💧 Lucro Materiais Hidráulicos", utils.to_br_currency(lucro_materiais_hidraulicos),
+                                            "materiais vendidos com a Ecoclim" if lucro_materiais_hidraulicos else "nenhuma venda de materiais ainda",
+                                            ajuda="Soma do lucro das aquisições de materiais deste serviço."),
+                            unsafe_allow_html=True)
+                r5.markdown(_card_resultado("Margem líquida", f"{margem_r:.1f}%".replace(".", ","),
+                                            "Lucro líquido final ÷ Valor da Venda",
+                                            ajuda="Quanto do valor da venda sobra de lucro depois de tudo."),
+                            unsafe_allow_html=True)
 
                 # O que a lista de clientes mostra é o valor SALVO. Se o painel
                 # já está com números diferentes (editou e ainda não clicou em
