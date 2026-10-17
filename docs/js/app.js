@@ -489,7 +489,7 @@ function viewFinanceiroAdminHTML(s) {
     </div>
     <div class="cartao">
       <h3 class="cartao-secao">🧾 Custos</h3>
-      ${linha("Materiais extras", s.custo_adicional_materiais)}
+      ${linha("Materiais ou serviços terceirizados", s.custo_adicional_materiais)}
       ${linha("Mão de obra / Instalador", s.custo_terceirizados)}
       ${linha("Comissão", s.custo_comissao)}
       ${linha("Impostos / NF", s.custo_impostos)}

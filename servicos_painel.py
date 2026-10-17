@@ -807,7 +807,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                 c_rec3.metric("💳 Taxa de cartão (proporcional)", utils.to_br_currency(valor_cartao_taxa))
 
                 st.markdown("---")
-                f_col4, f_col5 = st.columns(2)
+                f_col4, _f_col5_vazio = st.columns(2)
             
                 perc_comissao_salvo = (safe_float(projeto_selecionado.get('custo_comissao')) / venda_final * 100) if venda_final > 0 else 0.0
                 comissao_pct = f_col4.number_input("Comissão (%)", value=float(perc_comissao_salvo), format="%.1f", step=None, key=f"com_{prefix_key}")
@@ -818,11 +818,37 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                 if not isinstance(d_ct_fallback, dict): d_ct_fallback = {}
 
                 val_ext_salvo = safe_float(projeto_selecionado.get('custo_adicional_materiais'))
-                if val_ext_salvo == 0.0 and safe_float(d_ct_fallback.get('val_outros')) > 0:
+                # Fallback antigo (serviço sem custo separado: usa val_outros) SÓ
+                # enquanto a chave "custo_outros" nunca foi gravada — depois que o
+                # painel salvou uma vez, o valor digitado (inclusive 0) manda.
+                if 'custo_outros' not in d_ct_fallback and val_ext_salvo == 0.0 and safe_float(d_ct_fallback.get('val_outros')) > 0:
                     val_ext_salvo = safe_float(d_ct_fallback.get('val_outros'))
 
-                custo_ext = f_col5.number_input("Materiais Extras (R$)", value=val_ext_salvo, format="%.2f", step=None, key=f"mat_{prefix_key}")
-                f_col5.caption("&nbsp;", unsafe_allow_html=True)
+                # Materiais ou Serviços Terceirizados — antes só o CUSTO ("Materiais
+                # Extras"); agora custo E venda (pedido do Breno, 2026-10-16). O
+                # custo continua em `custo_adicional_materiais` (todos os
+                # relatórios/app que já liam esse campo seguem batendo). A venda
+                # fica em `dados_contrato["venda_outros"]` — mesma chave que os
+                # orçamentos (personalizado/rápido) já gravam, então um serviço
+                # que veio de orçamento já abre com o valor preenchido. A venda
+                # NÃO soma no "Valor da Venda" acima: esse valor já é o total
+                # cobrado do cliente (inclui o que foi vendido de terceirizado);
+                # aqui ela só serve pra mostrar o lucro do item e conferir.
+                venda_terc_salva = safe_float(d_ct_fallback.get('venda_outros'))
+                if 'venda_outros' not in d_ct_fallback and venda_terc_salva == 0.0 and safe_float(d_ct_fallback.get('val_outros')) > 0:
+                    # mesmo fallback antigo do custo (serviço sem custo separado):
+                    # custo = venda = val_outros, lucro do item 0 — igual ao que
+                    # o painel sempre calculou pra esses serviços.
+                    venda_terc_salva = safe_float(d_ct_fallback.get('val_outros'))
+
+                st.markdown("**🔧 Materiais ou Serviços Terceirizados**")
+                t_col1, t_col2, t_col3 = st.columns(3)
+                custo_ext = t_col1.number_input("Valor de Custo (R$)", min_value=0.0, value=max(val_ext_salvo, 0.0), format="%.2f", step=None, key=f"mat_{prefix_key}")
+                venda_terc = t_col2.number_input("Valor de Venda (R$)", min_value=0.0, value=max(venda_terc_salva, 0.0), format="%.2f", step=None, key=f"mat_venda_{prefix_key}")
+                lucro_terc = venda_terc - custo_ext
+                t_col3.metric("Lucro do item", utils.to_br_currency(lucro_terc),
+                              delta=(f"{(lucro_terc / venda_terc * 100):.1f}% margem" if venda_terc > 0 else None))
+                t_col1.caption(f"Custo: - {utils.to_br_currency(custo_ext)}")
 
                 # Mão de Obra / Terceiros — uma linha por instalador que
                 # recebe por este serviço. Antes era um valor + um "pago" só
@@ -923,7 +949,16 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                 _datas_pagas_mo = [p['data_pagamento'] for p in lista_pagamentos_inst_salvar if p['pago'] and p['data_pagamento']]
                 nova_data_pag_inst = max(_datas_pagas_mo) if _datas_pagas_mo else None
 
-                abatimentos = valor_nf + valor_cartao_taxa + valor_comissao + custo_ext + custo_mo
+                # Cada parcela em centavos ANTES de somar: o que aparece nas linhas
+                # do detalhamento, o custo total, o lucro e o que é gravado no banco
+                # saem da mesma soma (sem diferença de 1 centavo entre quadro e tabela).
+                valor_nf = round(valor_nf, 2)
+                valor_cartao_taxa = round(valor_cartao_taxa, 2)
+                valor_comissao = round(valor_comissao, 2)
+                custo_ext = round(custo_ext, 2)
+                custo_mo = round(float(custo_mo), 2)
+                custo_total_produtos = round(custo_total_produtos, 2)
+                abatimentos = round(valor_nf + valor_cartao_taxa + valor_comissao + custo_ext + custo_mo, 2)
                 lucro_equipamento_servico = venda_final - custo_total_produtos - abatimentos
 
                 # Lucro de materiais hidráulicos vendidos com a Ecoclim neste
@@ -937,16 +972,85 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                 except Exception:
                     lucro_materiais_hidraulicos = 0.0
 
-                lucro_final = lucro_equipamento_servico + lucro_materiais_hidraulicos
+                # Tudo arredondado em centavos aqui, uma vez só: os quadros, o
+                # detalhamento e o valor gravado em `lucro_estimado` (que a lista
+                # de clientes e os relatórios leem) saem do MESMO número.
+                custo_total_projeto = round(custo_total_produtos + abatimentos, 2)
+                lucro_projeto = round(venda_final - custo_total_projeto, 2)
+                lucro_final = round(lucro_projeto + lucro_materiais_hidraulicos, 2)
 
                 st.markdown("<br>", unsafe_allow_html=True)
-                r1, r2 = st.columns(2)
-                r1.metric("Custo Total (Produtos + Taxas)", utils.to_br_currency(custo_total_produtos + abatimentos))
                 margem_r = (lucro_final / venda_final * 100) if venda_final > 0 else 0
-                r2.metric("LUCRO LÍQUIDO FINAL", utils.to_br_currency(lucro_final), delta=f"{margem_r:.1f}% Margem")
+                r0a, r0b, r0c = st.columns(3)
+                r0a.markdown(
+                    "<div style='background:linear-gradient(135deg,#0b5fff,#0a3d91);color:#fff;border-radius:12px;"
+                    "padding:14px 18px;box-shadow:0 4px 14px rgba(11,95,255,.35);'>"
+                    "<div style='font-size:13px;font-weight:700;letter-spacing:.04em;opacity:.92;'>💵 VALOR DA VENDA</div>"
+                    f"<div style='font-size:30px;font-weight:800;line-height:1.25;'>{utils.to_br_currency(venda_final)}</div>"
+                    "<div style='font-size:12px;opacity:.85;'>valor final fechado com o cliente</div></div>",
+                    unsafe_allow_html=True,
+                )
+                r0b.metric("Custo Total do Projeto", utils.to_br_currency(custo_total_projeto),
+                           help="Produtos + taxa de cartão + impostos (NF) + comissão + materiais ou serviços terceirizados + mão de obra.")
+                r0b.caption("Produtos + taxas + impostos + serviços + custos extras")
+                r0c.metric("LUCRO LÍQUIDO FINAL", utils.to_br_currency(lucro_final), delta=f"{margem_r:.1f}% Margem",
+                           help="Lucro do projeto + lucro dos materiais hidráulicos (se houver).")
+                r0c.caption("Lucro do projeto + lucro com materiais (se houver)")
                 r3, r4 = st.columns(2)
-                r3.metric("Lucro Equipamento/Serviço", utils.to_br_currency(lucro_equipamento_servico))
+                r3.metric("Lucro do projeto", utils.to_br_currency(lucro_projeto),
+                          help="Lucro real, já descontado tudo: Valor da Venda − Custo Total do Projeto.")
                 r4.metric("💧 Lucro Materiais Hidráulicos", utils.to_br_currency(lucro_materiais_hidraulicos))
+
+                # O que a lista de clientes mostra é o valor SALVO. Se o painel
+                # já está com números diferentes (editou e ainda não clicou em
+                # SALVAR PROJETO), avisa em vez de parecer que os dois divergem.
+                _venda_salva = safe_float(projeto_selecionado.get('valor_venda_total'))
+                _lucro_salvo = safe_float(projeto_selecionado.get('lucro_estimado'))
+                if abs(_lucro_salvo - lucro_final) > 0.005 or abs(_venda_salva - venda_final) > 0.005:
+                    st.info(
+                        f"ℹ️ A lista de clientes ainda mostra Valor Total {utils.to_br_currency_md(_venda_salva)} e Lucro Líquido "
+                        f"{utils.to_br_currency_md(_lucro_salvo)} (valores salvos). Ao clicar em 💾 SALVAR PROJETO, passa a mostrar "
+                        f"{utils.to_br_currency_md(venda_final)} e {utils.to_br_currency_md(lucro_final)}."
+                    )
+
+                # Detalhamento linha a linha — mesma conta do lucro acima,
+                # aberta pra conferir. A soma é recalculada à parte e comparada
+                # com `lucro_final`: se algum dia uma parcela for mexida só num
+                # lado, o aviso aparece em vez de o número ficar errado em
+                # silêncio.
+                _linhas_custo = [
+                    ("Produtos / equipamentos", custo_total_produtos),
+                    ("Nota fiscal (imposto)", valor_nf),
+                    ("Taxa de cartão", valor_cartao_taxa),
+                    ("Comissão", valor_comissao),
+                    ("Materiais ou serviços terceirizados (custo)", custo_ext),
+                    ("Mão de obra / instaladores", custo_mo),
+                ]
+                _total_custos_det = round(sum(v for _, v in _linhas_custo), 2)
+                _lucro_conferido = round(venda_final - _total_custos_det + lucro_materiais_hidraulicos, 2)
+                with st.expander("🔎 Detalhamento dos custos do projeto", expanded=False):
+                    _md = ["| Item | Valor |", "|---|---:|", f"| **Valor da Venda** | **{utils.to_br_currency(venda_final)}** |"]
+                    for _rot, _v in _linhas_custo:
+                        _md.append(f"| (-) {_rot} | {utils.to_br_currency(_v)} |")
+                    _md.append(f"| **= Custo total do projeto** | **{utils.to_br_currency(_total_custos_det)}** |")
+                    _md.append(f"| **Lucro do projeto** | **{utils.to_br_currency(venda_final - _total_custos_det)}** |")
+                    _md.append(f"| (+) Lucro materiais hidráulicos | {utils.to_br_currency(lucro_materiais_hidraulicos)} |")
+                    _md.append(f"| **= LUCRO LÍQUIDO FINAL** | **{utils.to_br_currency(_lucro_conferido)}** |")
+                    st.markdown("\n".join(_md))
+                    if venda_terc > 0 or custo_ext > 0:
+                        st.caption(
+                            f"Dentro do Valor da Venda, os terceirizados entram com venda de {utils.to_br_currency_md(venda_terc)} "
+                            f"e custo de {utils.to_br_currency_md(custo_ext)} → lucro de {utils.to_br_currency_md(lucro_terc)}."
+                        )
+                    _venda_itens_ref = venda_total_produtos + venda_terc
+                    if venda_final > 0 and venda_final + 0.005 < _venda_itens_ref:
+                        st.warning(
+                            f"⚠️ O Valor da Venda ({utils.to_br_currency_md(venda_final)}) está menor que a soma dos itens vendidos "
+                            f"({utils.to_br_currency_md(venda_total_produtos)}) + terceirizados ({utils.to_br_currency_md(venda_terc)}) = "
+                            f"{utils.to_br_currency_md(_venda_itens_ref)}. Se o cliente paga também o terceirizado, ajuste o Valor da Venda."
+                        )
+                if abs(_lucro_conferido - lucro_final) > 0.011 or abs(_total_custos_det - custo_total_projeto) > 0.011:
+                    st.error("⚠️ A soma do detalhamento não bate com o lucro final — avise o suporte antes de salvar.")
 
             # ---------------------------------------------------------------
             # Reportado pelo Instalador (app do instalador) OU marcado aqui
@@ -1685,7 +1789,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                                     st.caption("Itens sem preço no catálogo não entram na conta de custo/venda dessa operação.")
 
                                 _lucro_preview = _venda_total_op - _custo_total_op
-                                st.markdown(f"**Venda:** {utils.to_br_currency(_venda_total_op)} · **Custo:** {utils.to_br_currency(_custo_total_op)} · **Lucro:** {utils.to_br_currency(_lucro_preview)}")
+                                st.markdown(f"**Venda:** {utils.to_br_currency_md(_venda_total_op)} · **Custo:** {utils.to_br_currency_md(_custo_total_op)} · **Lucro:** {utils.to_br_currency_md(_lucro_preview)}")
 
                                 col_conf, col_canc = st.columns(2)
                                 if col_conf.button("✅ Confirmar aquisição", type="primary", key=f"btn_confirmar_adquirir_{lm['id']}_{prefix_key}"):
@@ -1701,6 +1805,23 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                                             "lucro_total": _lucro_preview,
                                         }).execute()
                                         venda_id = res_venda.data[0]['id']
+                                        # `lucro_estimado` (o que a lista de clientes e os
+                                        # relatórios leem) já inclui o lucro de materiais
+                                        # vendidos ATÉ o último "Salvar projeto" — sem somar
+                                        # esta venda aqui, a lista ficava desatualizada até
+                                        # alguém salvar o projeto de novo.
+                                        try:
+                                            _res_l0 = supabase.table('servicos_andamento').select('lucro_estimado').eq('id', id_projeto).execute()
+                                            _l0 = safe_float((_res_l0.data or [{}])[0].get('lucro_estimado'))
+                                            # serviço nunca salvo no painel (lucro 0/nulo): somar só o
+                                            # lucro dos materiais mostraria um "lucro total" errado na
+                                            # lista; fica como está até o primeiro SALVAR PROJETO.
+                                            if _l0 != 0.0:
+                                                supabase.table('servicos_andamento').update(
+                                                    {"lucro_estimado": round(_l0 + _lucro_preview, 2)}
+                                                ).eq('id', id_projeto).execute()
+                                        except Exception:
+                                            pass
                                         for linha in _linhas_preview:
                                             if "_material_id" not in linha:
                                                 continue
@@ -1959,6 +2080,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     "instalador": novo_instalador,
                     "detalhamento_itens": df_itens_final.fillna("").to_dict('records'),
                     "custo_adicional_materiais": custo_ext, 
+                    "dados_contrato": {**d_ct_fallback, "venda_outros": venda_terc, "custo_outros": custo_ext},
                     "custo_terceirizados": custo_mo,
                     "pago_instalador": novo_pago_instalador,
                     "data_pagamento_instalador": nova_data_pag_inst,
