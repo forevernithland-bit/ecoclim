@@ -28,15 +28,20 @@ def _card_resultado(titulo, valor, sub="", tipo="neutro", pill=None, ajuda=""):
     selo = ""
     if pill:
         fundo, cor = ("#dcfce7", "#15803d") if pill[1] == "ok" else ("#fee2e2", "#b91c1c")
-        selo = (f"<span style='display:inline-block;margin-left:8px;padding:1px 9px;border-radius:999px;"
-                f"background:{fundo};color:{cor};font-size:12px;font-weight:700;vertical-align:middle;'>{esc(pill[0])}</span>")
+        selo = (f"<span style='display:inline-block;padding:1px 9px;border-radius:999px;white-space:nowrap;"
+                f"background:{fundo};color:{cor};font-size:12px;font-weight:700;'>{esc(pill[0])}</span>")
     sub_html = f"<div style='font-size:12px;line-height:1.3;color:{cor_s};margin-top:4px;'>{esc(sub)}</div>" if sub else ""
     return (
-        f"<div title='{esc(ajuda, quote=True)}' style='box-sizing:border-box;height:128px;border-radius:16px;padding:14px 18px;"
-        f"display:flex;flex-direction:column;justify-content:center;overflow:hidden;margin-bottom:14px;{estilo}'>"
+        # container-type + cqw: a fonte do valor encolhe junto com a largura do card
+        # (cards de ~220px, janela estreita ou barra lateral aberta), em vez de o
+        # valor quebrar em duas linhas e o card cortar o título. Altura IGUAL em todos.
+        f"<div title='{esc(ajuda, quote=True)}' style='container-type:inline-size;box-sizing:border-box;height:136px;"
+        f"border-radius:16px;padding:14px 18px;display:flex;flex-direction:column;justify-content:center;"
+        f"overflow:hidden;margin-bottom:14px;{estilo}'>"
         f"<div style='font-size:13px;font-weight:700;letter-spacing:.02em;color:{cor_t};'>{esc(titulo)}</div>"
-        f"<div style='font-family:\"Plus Jakarta Sans\",Inter,sans-serif;font-size:27px;font-weight:800;line-height:1.2;color:{cor_v};'>"
-        f"{esc(valor)}{selo}</div>{sub_html}</div>"
+        f"<div style='display:flex;flex-wrap:wrap;align-items:center;gap:2px 10px;'>"
+        f"<span style='font-family:\"Plus Jakarta Sans\",Inter,sans-serif;font-size:clamp(18px,8.5cqw,27px);font-weight:800;"
+        f"line-height:1.25;white-space:nowrap;color:{cor_v};'>{esc(valor)}</span>{selo}</div>{sub_html}</div>"
     )
 
 
@@ -698,7 +703,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                 <div style='display: flex; justify-content: flex-end; gap: 25px; margin-top: -10px; margin-bottom: 25px;'>
                     <span style='color: #cc0000; font-size: 15px;'><b>Custo Total Produtos:</b> {utils.to_br_currency(custo_total_produtos)}</span>
                     <span style='color: #004488; font-size: 15px;'><b>Venda Total Produtos:</b> {utils.to_br_currency(venda_total_produtos)}</span>
-                    <span style='color: #006600; font-size: 15px;'><b>Lucro Total Produtos:</b> {utils.to_br_currency(lucro_total_produtos)}</span>
+                    <span style='color: {'#006600' if lucro_total_produtos >= 0 else '#cc0000'}; font-size: 15px;'><b>Lucro Total Produtos:</b> {utils.to_br_currency(lucro_total_produtos)}</span>
                 </div>
             """, unsafe_allow_html=True)
 
@@ -1042,7 +1047,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                              unsafe_allow_html=True)
                 r0c.markdown(_card_resultado("LUCRO LÍQUIDO FINAL", utils.to_br_currency(lucro_final),
                                              ("Lucro do projeto + lucro com materiais" if _tem_materiais else "Valor da Venda − Custo Total do Projeto"), tipo=_tipo_lucro,
-                                             pill=(f"{'↑' if margem_r >= 0 else '↓'} {margem_r:.1f}% Margem", "ok" if margem_r >= 0 else "ruim"),
+                                             pill=(f"{'↑' if lucro_final >= 0 else '↓'} {abs(margem_r):.1f}% Margem".replace(".", ","), "ok" if lucro_final >= 0 else "ruim"),
                                              ajuda="Lucro do projeto + lucro dos materiais hidráulicos (se houver)."),
                              unsafe_allow_html=True)
                 # Só aparece quando há venda de materiais hidráulicos neste serviço: sem
@@ -1055,7 +1060,7 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                                                 ajuda="Lucro real, já descontado tudo: Valor da Venda − Custo Total do Projeto."),
                                 unsafe_allow_html=True)
                     r4.markdown(_card_resultado("💧 Lucro Materiais Hidráulicos", utils.to_br_currency(lucro_materiais_hidraulicos),
-                                                "materiais vendidos com a Ecoclim" if lucro_materiais_hidraulicos else "nenhuma venda de materiais ainda",
+                                                "materiais vendidos com a Ecoclim", tipo=("vermelho" if lucro_materiais_hidraulicos < 0 else "neutro"),
                                                 ajuda="Soma do lucro das aquisições de materiais deste serviço."),
                                 unsafe_allow_html=True)
                     r5.markdown(_card_resultado("Margem líquida", f"{margem_r:.1f}%".replace(".", ","),

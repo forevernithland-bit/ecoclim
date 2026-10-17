@@ -232,7 +232,8 @@ def montar_css(chave_tema=None):
     @media screen and (max-width: 820px) {{
         .block-container {{ padding: 1rem 0.7rem 2rem !important; }}
         div[data-testid="stHorizontalBlock"] {{ flex-direction: column !important; align-items: stretch !important; }}
-        div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {{ width: 100% !important; min-width: 100% !important; flex: 1 1 100% !important; }}
+        div[data-testid="stHorizontalBlock"] > div[data-testid="column"],
+        div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {{ width: 100% !important; min-width: 100% !important; flex: 1 1 100% !important; }}
         .stTextInput, .stNumberInput, .stTextArea, div[data-baseweb="select"] {{ width: 100% !important; }}
         .stButton > button {{ min-height: 48px !important; font-size: 1rem !important; width: 100% !important; }}
         [data-testid="stDataFrame"], [data-testid="stDataEditor"] {{ overflow-x: auto !important; }}
