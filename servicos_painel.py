@@ -1435,6 +1435,45 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                 detalhar_itens_pdf_srv = st.checkbox("Detalhar valor de cada item no PDF?", value=False,
                                                       help="Desmarcado (padrão): o PDF mostra só o subtotal de Equipamentos, sem preço por item.", key=f"detalhar_itens_pdf_{prefix_key}")
 
+                # Valores que o PDF mostra em "2. Serviços" e "3. Outros / Terceiros".
+                # Antes iam FIXOS em R$ 0,00 (v_s=0.0, v_o=0.0), então o PDF de um
+                # cliente já salvo saía com Serviços e Outros zerados mesmo com o
+                # Investimento Total certo (relatado pelo Breno, 2026-10-19).
+                # Fonte da verdade = o "Valor da Venda" fechado (o que o cliente paga):
+                #   Equipamentos = soma da venda dos itens da grade;
+                #   Outros/Terceiros = "Valor de Venda" de Materiais ou Serviços
+                #     Terceirizados (campo acima; descrição vem do orçamento, se houver);
+                #   Serviços = o que sobra (Valor da Venda − Equipamentos − Outros),
+                #     pra o PDF sempre somar EXATAMENTE o Investimento Total.
+                _d_ct_pdf = projeto_selecionado.get('dados_contrato')
+                if not isinstance(_d_ct_pdf, dict): _d_ct_pdf = {}
+
+                def _txt_limpo(v):
+                    t = str(v if v is not None else '').strip()
+                    return '' if t.lower() in ('nan', 'none') else t
+
+                _equip_pdf = 0.0
+                if df_itens_final is not None and not df_itens_final.empty:
+                    _equip_pdf = round(float((pd.to_numeric(df_itens_final.get('Qtd', 0), errors='coerce').fillna(0)
+                                              * pd.to_numeric(df_itens_final.get('Venda Un.', 0), errors='coerce').fillna(0)).sum()), 2)
+                _v_o_pdf = round(float(venda_terc or 0), 2)
+                _v_s_pdf = round(float(venda_final or 0) - _equip_pdf - _v_o_pdf, 2)
+                _desc_s_pdf = _txt_limpo(_d_ct_pdf.get('txt_servico')) or _txt_limpo(projeto_selecionado.get('servicos_adquiridos'))
+                _desc_o_pdf = _txt_limpo(_d_ct_pdf.get('txt_outros'))
+                if _v_o_pdf > 0 and not _desc_o_pdf:
+                    _desc_o_pdf = "Materiais ou serviços terceirizados"
+                if _v_s_pdf < 0:
+                    st.warning(
+                        f"⚠️ O Valor da Venda ({utils.to_br_currency_md(venda_final)}) é menor que Equipamentos "
+                        f"({utils.to_br_currency_md(_equip_pdf)}) + Outros/Terceiros ({utils.to_br_currency_md(_v_o_pdf)}). "
+                        "No PDF, Serviços sai como R$ 0,00 e a soma não fecha com o Investimento Total — ajuste o Valor da Venda."
+                    )
+                    _v_s_pdf = 0.0
+                st.caption(
+                    f"No PDF: Equipamentos {utils.to_br_currency_md(_equip_pdf)} + Serviços {utils.to_br_currency_md(_v_s_pdf)} "
+                    f"+ Outros/Terceiros {utils.to_br_currency_md(_v_o_pdf)} = Investimento Total {utils.to_br_currency_md(venda_final)}"
+                )
+
                 if col_pdf2.button("GERAR PRÉVIA DO PDF", use_container_width=True, key=f"btn_pdf_{prefix_key}"):
                     df_pdf = df_itens_final.copy()
                     if not df_pdf.empty:
@@ -1451,8 +1490,8 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
 
                     pdf_bytes = utils.gerar_pdf_orcamento(
                         nome=novo_nome_cliente, tel=novo_tel_cliente,
-                        capa=modelo_capa, df_items=df_pdf, d_s=str(projeto_selecionado.get('servicos_adquiridos', '')).replace('nan',''),
-                        v_s=0.0, d_o="", v_o=0.0, total=safe_float(projeto_selecionado.get('valor_venda_total')), obs=obs_pdf, mostrar_un=False,
+                        capa=modelo_capa, df_items=df_pdf, d_s=_desc_s_pdf,
+                        v_s=_v_s_pdf, d_o=_desc_o_pdf, v_o=_v_o_pdf, total=venda_final, obs=obs_pdf, mostrar_un=False,
                         detalhar_itens=detalhar_itens_pdf_srv
                     )
                     st.session_state[f'pdf_gerado_{prefix_key}'] = pdf_bytes
