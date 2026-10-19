@@ -448,7 +448,15 @@ def _modal_calculo_custos(dados, limpar_func):
     venda_bruta = venda_produtos + venda_instalacao + venda_outros
 
     t3, t4 = st.columns(2)
-    comissao_pct = t3.number_input("Comissão (%)", min_value=0.0, format="%.2f", key="cc_comissao")
+    # Comissão em % OU em R$ (mesmo padrão do desconto ao lado) — pedido do Breno
+    # (2026-10-19). Em R$, o % é derivado da venda líquida (só pra exibir/gravar).
+    modo_comissao = t3.radio("Comissão em", ["%", "R$"], horizontal=True, key="cc_comissao_modo")
+    if modo_comissao == "R$":
+        comissao_valor_digitado = t3.number_input("Comissão (R$)", min_value=0.0, format="%.2f", key="cc_comissao_valor")
+        comissao_pct = 0.0  # definido logo abaixo, depois da venda líquida
+    else:
+        comissao_pct = t3.number_input("Comissão (%)", min_value=0.0, format="%.2f", key="cc_comissao")
+        comissao_valor_digitado = 0.0
     modo_desconto = t4.radio("Desconto em", ["R$", "%"], horizontal=True, key="cc_desconto_modo")
     if modo_desconto == "%":
         desconto_pct = t4.number_input("Desconto concedido (%)", min_value=0.0, max_value=100.0, format="%.2f", key="cc_desconto_pct")
@@ -465,7 +473,13 @@ def _modal_calculo_custos(dados, limpar_func):
     taxa_cartao_pct = dict_taxas.get(sel_cartao, 0.0)
     custo_nf = venda_liquida * (taxa_nf_val / 100.0) if emite_nf == "Sim" else 0.0
     custo_cartao = venda_liquida * (taxa_cartao_pct / 100.0)
-    custo_comissao = venda_liquida * (comissao_pct / 100.0)
+    if modo_comissao == "R$":
+        custo_comissao = comissao_valor_digitado
+        comissao_pct = (custo_comissao / venda_liquida * 100.0) if venda_liquida > 0 else 0.0
+        t3.caption(f"= {comissao_pct:.2f}% da venda líquida")
+    else:
+        custo_comissao = venda_liquida * (comissao_pct / 100.0)
+        t3.caption(f"= {utils.to_br_currency(custo_comissao)}")
 
     custo_fixo = custo_produtos + custo_instalacao + custo_outros
     custo_variavel = custo_nf + custo_cartao + custo_comissao
@@ -516,7 +530,7 @@ def _modal_calculo_custos(dados, limpar_func):
         "venda_outros": venda_outros, "custo_outros": custo_outros,
         "nf": emite_nf, "taxa_nf": taxa_nf_val,
         "cartao": sel_cartao, "taxa_cartao": taxa_cartao_pct,
-        "comissao_pct": comissao_pct,
+        "comissao_pct": comissao_pct, "comissao_modo": modo_comissao, "comissao_valor": custo_comissao,
         "desconto": desconto, "desconto_pct": desconto_pct, "desconto_modo": modo_desconto,
         "venda_bruta": venda_bruta, "venda_liquida": venda_liquida,
         "custo_fixo": custo_fixo, "custo_variavel": custo_variavel,
@@ -1136,6 +1150,8 @@ def renderizar(lista_nomes_produtos, limpar_func):
         st.session_state.cc_nf = "Não"
         st.session_state.cc_cartao = "Nenhum / Dinheiro / PIX"
         st.session_state.cc_comissao = 0.0
+        st.session_state.cc_comissao_modo = "%"
+        st.session_state.cc_comissao_valor = 0.0
         st.session_state.cc_desconto_modo = "R$"
         st.session_state.cc_desconto = 0.0
         st.session_state.cc_desconto_pct = 0.0
