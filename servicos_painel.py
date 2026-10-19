@@ -1457,7 +1457,17 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     _equip_pdf = round(float((pd.to_numeric(df_itens_final.get('Qtd', 0), errors='coerce').fillna(0)
                                               * pd.to_numeric(df_itens_final.get('Venda Un.', 0), errors='coerce').fillna(0)).sum()), 2)
                 _v_o_pdf = round(float(venda_terc or 0), 2)
-                _v_s_pdf = round(float(venda_final or 0) - _equip_pdf - _v_o_pdf, 2)
+                # Valor do Serviço no PDF: 0 = automático (o que sobra do Valor da Venda);
+                # preencha pra fixar o valor cobrado pela instalação (ex.: 2.000,00).
+                # Pedido do Breno (2026-10-19): o automático dava 1.899,23 num cliente
+                # cujo serviço é 2.000 — a diferença era o Valor da Venda (20.892,00)
+                # menor que Equipamentos 18.992,77 + Serviço 2.000 (= 20.992,77).
+                _srv_manual_pdf = st.number_input(
+                    "Valor do Serviço no PDF (R$) — 0 = automático", min_value=0.0, value=0.0, format="%.2f", step=None,
+                    key=f"pdf_valor_srv_{prefix_key}",
+                    help="Deixe 0,00 para o PDF calcular sozinho (Valor da Venda − Equipamentos − Outros/Terceiros). "
+                         "Preencha para mostrar um valor de serviço específico no PDF.")
+                _v_s_pdf = round(float(_srv_manual_pdf), 2) if _srv_manual_pdf > 0 else round(float(venda_final or 0) - _equip_pdf - _v_o_pdf, 2)
                 _desc_s_pdf = _txt_limpo(_d_ct_pdf.get('txt_servico')) or _txt_limpo(projeto_selecionado.get('servicos_adquiridos'))
                 _desc_o_pdf = _txt_limpo(_d_ct_pdf.get('txt_outros'))
                 if _v_o_pdf > 0 and not _desc_o_pdf:
@@ -1473,6 +1483,13 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     f"No PDF: Equipamentos {utils.to_br_currency_md(_equip_pdf)} + Serviços {utils.to_br_currency_md(_v_s_pdf)} "
                     f"+ Outros/Terceiros {utils.to_br_currency_md(_v_o_pdf)} = Investimento Total {utils.to_br_currency_md(venda_final)}"
                 )
+                _soma_pdf = round(_equip_pdf + _v_s_pdf + _v_o_pdf, 2)
+                if _srv_manual_pdf > 0 and abs(_soma_pdf - round(float(venda_final or 0), 2)) > 0.005:
+                    st.warning(
+                        f"⚠️ Equipamentos + Serviços + Outros = {utils.to_br_currency_md(_soma_pdf)}, mas o Investimento Total do PDF é "
+                        f"{utils.to_br_currency_md(venda_final)} (diferença de {utils.to_br_currency_md(abs(_soma_pdf - float(venda_final or 0)))}). "
+                        "Ajuste o Valor da Venda (ou o valor do serviço) para as partes fecharem com o total."
+                    )
 
                 if col_pdf2.button("GERAR PRÉVIA DO PDF", use_container_width=True, key=f"btn_pdf_{prefix_key}"):
                     df_pdf = df_itens_final.copy()
