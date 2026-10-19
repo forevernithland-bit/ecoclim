@@ -135,7 +135,7 @@ def _carregar_notificacoes_instalador():
     return notif_agenda, notif_concluidos, notif_midia_clientes, notif_materiais
 
 
-def servico_selecionado_do_painel(df_filtrado, sel, key_prefix):
+def servico_selecionado_do_painel(df_filtrado, sel, key_prefix, filtro_prefix=None):
     """Descobre QUAL serviço o painel de detalhe deve mostrar, ancorado no ID.
 
     A seleção do `st.dataframe` é POSICIONAL ("a linha 3"), mas a lista é
@@ -157,8 +157,8 @@ def servico_selecionado_do_painel(df_filtrado, sel, key_prefix):
     # Assinatura do filtro atual: se ela mudou desde o último desenho, a lista
     # se mexeu embaixo da seleção e a posição não vale como escolha do usuário.
     filtro_atual = (
-        str(st.session_state.get(f"busca_termo_{key_prefix}", "")),
-        str(st.session_state.get(f"busca_ord_{key_prefix}", "")),
+        str(st.session_state.get(f"busca_termo_{filtro_prefix or key_prefix}", "")),
+        str(st.session_state.get(f"busca_ord_{filtro_prefix or key_prefix}", "")),
     )
     # Na primeira passagem a chave ainda não existe — aí NÃO conta como
     # "mudou", senão o primeiro clique numa linha não abriria o painel.
@@ -167,8 +167,19 @@ def servico_selecionado_do_painel(df_filtrado, sel, key_prefix):
 
     linhas = list(sel.selection.rows) if getattr(sel, "selection", None) else []
 
-    if not filtro_mudou:
-        # Lista parada: o que está selecionado é escolha real de quem clicou.
+    # `painel_linhas_*` = últimas linhas marcadas que já foram "processadas". O
+    # destaque da linha é POSICIONAL: depois de mudar busca/ordenação ele continua
+    # na mesma posição (agora outro cliente). Sem esta guarda, no rerun seguinte —
+    # já com o filtro estável — a âncora era re-sincronizada com essa linha, e o
+    # painel pulava pra um cliente que ninguém clicou (achado de QA 2026-10-19).
+    # Só um clique de verdade (linhas diferentes das últimas vistas) mexe na âncora.
+    chave_linhas = f"painel_linhas_{key_prefix}"
+    linhas_ant = st.session_state.get(chave_linhas)
+    st.session_state[chave_linhas] = linhas
+    clique_real = (linhas_ant is None) or (linhas != linhas_ant)
+
+    if not filtro_mudou and clique_real:
+        # Lista parada e linha marcada mudou: é escolha real de quem clicou.
         if linhas and len(df_filtrado) > linhas[0]:
             st.session_state[chave_id] = int(df_filtrado.iloc[linhas[0]]['id'])
         elif not linhas:
@@ -1012,14 +1023,90 @@ def renderizar():
     }
     
     with aba1:
+        # Em Andamento agrupado em dois blocos (pedido do Breno, 2026-10-19):
+        # "Clientes de Aquecedor" e "Indicações de Fotovoltaico" — antes os dois
+        # tipos vinham misturados numa tabela só, com o ☀️ como única pista. A
+        # busca/ordenação continua uma só, em cima; cada bloco tem a própria
+        # tabela e os próprios totais, e o painel de detalhe abre embaixo, do
+        # cliente clicado por último (só um painel por vez).
+        _havia_atv = df_atv is not None and not df_atv.empty  # antes do filtro da busca
         df_atv = barra_busca_servicos(df_atv, "atv")
-        sel = st.dataframe(df_atv[colunas_visiveis], use_container_width=True, on_select="rerun", selection_mode="single-row", hide_index=True, column_config=config_colunas, key="g_atv")
-        total_bruto_atv = pd.to_numeric(df_atv['valor_venda_total'], errors='coerce').fillna(0).sum()
-        total_lucro_atv = pd.to_numeric(df_atv['lucro_estimado'], errors='coerce').fillna(0).sum()
-        st.markdown(f"<div style='text-align: right; font-size: 18px; font-weight: bold; margin-bottom: 20px;'><span style='color: #555; margin-right: 20px;'>Faturamento Bruto: {utils.to_br_currency(total_bruto_atv)}</span> <span style='color: #004488;'>Lucro Líquido Estimado: {utils.to_br_currency(total_lucro_atv)}</span></div>", unsafe_allow_html=True)
+        _col_fv = df_atv['_fv'].fillna(False).astype(bool) if (df_atv is not None and '_fv' in df_atv.columns) else None
+        df_atv_aq = df_atv[~_col_fv].reset_index(drop=True) if _col_fv is not None else df_atv
+        df_atv_fv = df_atv[_col_fv].reset_index(drop=True) if _col_fv is not None else df_atv.iloc[0:0]
 
-        _serv_atv = servico_selecionado_do_painel(df_atv, sel, "atv")
+        def _totais_grupo(_d):
+            _b = pd.to_numeric(_d['valor_venda_total'], errors='coerce').fillna(0).sum()
+            _l = pd.to_numeric(_d['lucro_estimado'], errors='coerce').fillna(0).sum()
+            return _b, _l
+
+        def _linha_totais(_b, _l, rotulo_b="Faturamento Bruto", rotulo_l="Lucro Líquido Estimado"):
+            st.markdown(f"<div style='text-align: right; font-size: 18px; font-weight: bold; margin-bottom: 20px;'><span style='color: #555; margin-right: 20px;'>{rotulo_b}: {utils.to_br_currency(_b)}</span> <span style='color: #004488;'>{rotulo_l}: {utils.to_br_currency(_l)}</span></div>", unsafe_allow_html=True)
+
+        # Chave da tabela com contador: pra "limpar" a seleção de um bloco quando
+        # o usuário clica no outro (a seleção do st.dataframe só zera trocando a key).
+        _n_aq = st.session_state.get('_atv_n_aq', 0)
+        _n_fv = st.session_state.get('_atv_n_fv', 0)
+
+        st.markdown(f"#### 🔥 Clientes de Aquecedor ({len(df_atv_aq)})")
+        if df_atv_aq.empty:
+            st.caption("Nenhum cliente de aquecedor em andamento" + (" com este filtro." if _havia_atv else "."))
+        # A tabela é renderizada SEMPRE (mesmo vazia): se sumisse, o estado de
+        # seleção dela morria e o painel aberto perdia a âncora quando a busca
+        # zerava o bloco e depois voltava (achado de QA 2026-10-19).
+        sel_aq = st.dataframe(df_atv_aq[colunas_visiveis], use_container_width=True, on_select="rerun", selection_mode="single-row", hide_index=True, column_config=config_colunas, key=f"g_atv_aq_{_n_aq}", **({"height": 70} if df_atv_aq.empty else {}))
+        if not df_atv_aq.empty:
+            _b_aq, _l_aq = _totais_grupo(df_atv_aq)
+            _linha_totais(_b_aq, _l_aq)
+
+        st.markdown(f"#### ☀️ Indicações de Fotovoltaico ({len(df_atv_fv)})")
+        if df_atv_fv.empty:
+            st.caption("Nenhuma indicação de fotovoltaico em andamento" + (" com este filtro." if _havia_atv else "."))
+        sel_fv = st.dataframe(df_atv_fv[colunas_visiveis], use_container_width=True, on_select="rerun", selection_mode="single-row", hide_index=True, column_config=config_colunas, key=f"g_atv_fv_{_n_fv}", **({"height": 70} if df_atv_fv.empty else {}))
+        if not df_atv_fv.empty:
+            _b_fv, _l_fv = _totais_grupo(df_atv_fv)
+            _linha_totais(_b_fv, _l_fv, "Valor Total", "Comissão Estimada")
+
+        if not df_atv_aq.empty and not df_atv_fv.empty:
+            _b_aq, _l_aq = _totais_grupo(df_atv_aq)
+            _b_fv, _l_fv = _totais_grupo(df_atv_fv)
+            st.markdown(f"<div style='text-align: right; font-size: 16px; color: #555; margin-bottom: 18px;'>Total geral em andamento — Faturamento: <b>{utils.to_br_currency(_b_aq + _b_fv)}</b> · Lucro: <b>{utils.to_br_currency(_l_aq + _l_fv)}</b></div>", unsafe_allow_html=True)
+
+        # Qual cliente abre no painel: o clicado por último, em qualquer dos blocos.
+        _serv_aq = servico_selecionado_do_painel(df_atv_aq, sel_aq, "atv_aq", "atv")
+        _serv_fv = servico_selecionado_do_painel(df_atv_fv, sel_fv, "atv_fv", "atv")
+        _ids_atual = (None if _serv_aq is None else int(_serv_aq['id']), None if _serv_fv is None else int(_serv_fv['id']))
+        _ids_ant = st.session_state.get('_atv_ids_ant', (None, None))
+        st.session_state['_atv_ids_ant'] = _ids_atual
+        if _ids_atual[0] is not None and _ids_atual[1] is not None:
+            if _ids_atual[1] != _ids_ant[1] and _ids_atual[0] == _ids_ant[0]:
+                _foco = 'fv'
+            elif _ids_atual[0] != _ids_ant[0] and _ids_atual[1] == _ids_ant[1]:
+                _foco = 'aq'
+            else:
+                # Dois cliques no mesmo rerun (ou os dois IDs mudaram juntos): vale o
+                # bloco que NÃO é o cliente que já estava no painel.
+                _painel_ant = st.session_state.get('_atv_painel_id')
+                if _painel_ant is not None and _ids_atual[0] == _painel_ant:
+                    _foco = 'fv'
+                elif _painel_ant is not None and _ids_atual[1] == _painel_ant:
+                    _foco = 'aq'
+                else:
+                    _foco = st.session_state.get('_atv_foco', 'aq')
+            # o bloco que perdeu o foco volta sem seleção (nova key + âncora zerada)
+            if _foco == 'fv':
+                st.session_state['_atv_n_aq'] = _n_aq + 1
+                st.session_state['painel_id_atv_aq'] = None
+            else:
+                st.session_state['_atv_n_fv'] = _n_fv + 1
+                st.session_state['painel_id_atv_fv'] = None
+            st.session_state['_atv_foco'] = _foco
+            st.session_state['_atv_ids_ant'] = (None, None)
+            st.rerun()
+        _serv_atv = _serv_aq if _serv_aq is not None else _serv_fv
+        st.session_state['_atv_painel_id'] = None if _serv_atv is None else int(_serv_atv['id'])
         if _serv_atv is not None:
+            st.session_state['_atv_foco'] = 'aq' if _serv_aq is not None else 'fv'
             if servicos_fotovoltaico.eh_fv(_serv_atv.get('dados_contrato')):
                 servicos_fotovoltaico.painel_cliente(supabase, _serv_atv, f"atv_{_serv_atv['id']}")
             else:
