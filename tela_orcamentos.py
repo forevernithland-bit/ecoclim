@@ -51,7 +51,7 @@ def limpar_tela_orcamento():
         'num_proposta_atual', 'orc_drive_link', 'orc_drive_nome',
         'rapido_rascunho_id', 'rapido_input_nome_cliente', 'rapido_df_orc', 'editor_rapido',
         'rapido_custo_servico', 'rapido_venda_servico', 'rapido_custo_outros', 'rapido_venda_outros',
-        'rapido_nf', 'rapido_taxa_cartao', 'rapido_comissao',
+        'rapido_nf', 'rapido_taxa_cartao', 'rapido_comissao', 'rapido_comissao_modo', 'rapido_comissao_valor',
         # Automações do Orçamento Personalizado (Partes 1, 2 e 3)
         'input_modelo_capa', 'sel_servico_base', 'auto_equip_assinatura',
         'servico_auto_aviso', 'calc_custos_dados',
@@ -166,6 +166,8 @@ def renderizar():
     if "rapido_nf" not in st.session_state: st.session_state.rapido_nf = "Não"
     if "rapido_taxa_cartao" not in st.session_state: st.session_state.rapido_taxa_cartao = "Nenhum / Dinheiro / PIX"
     if "rapido_comissao" not in st.session_state: st.session_state.rapido_comissao = 0.0
+    if "rapido_comissao_modo" not in st.session_state: st.session_state.rapido_comissao_modo = "%"
+    if "rapido_comissao_valor" not in st.session_state: st.session_state.rapido_comissao_valor = 0.0
 
     # =============================================================================
     # TÍTULO E BOTÕES LATERAIS DIREITOS

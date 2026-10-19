@@ -46,6 +46,8 @@ def renderizar(lista_nomes_produtos, limpar_func):
                     st.session_state.rapido_nf = d_ct_r.get('nf', "Não")
                     st.session_state.rapido_taxa_cartao = d_ct_r.get('taxa_cartao', "Nenhum / Dinheiro / PIX")
                     st.session_state.rapido_comissao = float(d_ct_r.get('comissao', 0.0))
+                    st.session_state.rapido_comissao_modo = d_ct_r.get('comissao_modo') if d_ct_r.get('comissao_modo') in ("%", "R$") else "%"
+                    st.session_state.rapido_comissao_valor = float(d_ct_r.get('comissao_valor', 0.0) or 0.0) if st.session_state.rapido_comissao_modo == "R$" else 0.0
 
                     itens_r = data_r.get('detalhamento_itens', [])
                     df_rec = []
@@ -244,9 +246,16 @@ def renderizar(lista_nomes_produtos, limpar_func):
         custo_cartao = venda_bruta * (taxa_c_pct / 100)
         col_t2.caption(f"Taxa Cartão ({taxa_c_pct}%): - {utils.to_br_currency(custo_cartao)}")
 
-        comissao_pct = col_t3.number_input("Comissão (%)", min_value=0.0, format="%.1f", key="rapido_comissao")
-        custo_comissao = venda_bruta * (comissao_pct / 100)
-        col_t3.caption(f"Valor Comissão: - {utils.to_br_currency(custo_comissao)}")
+        # Comissão em % OU em R$ (pedido do Breno, 2026-10-19 — igual ao Cálculo de Custos).
+        modo_comissao = col_t3.radio("Comissão em", ["%", "R$"], horizontal=True, key="rapido_comissao_modo")
+        if modo_comissao == "R$":
+            custo_comissao = col_t3.number_input("Comissão (R$)", min_value=0.0, format="%.2f", key="rapido_comissao_valor")
+            comissao_pct = (custo_comissao / venda_bruta * 100) if venda_bruta > 0 else 0.0
+            col_t3.caption(f"= {comissao_pct:.2f}% da venda · Valor Comissão: - {utils.to_br_currency(custo_comissao)}")
+        else:
+            comissao_pct = col_t3.number_input("Comissão (%)", min_value=0.0, format="%.1f", key="rapido_comissao")
+            custo_comissao = venda_bruta * (comissao_pct / 100)
+            col_t3.caption(f"Valor Comissão: - {utils.to_br_currency(custo_comissao)}")
 
     custo_equip = df_r_ed["Custo Total"].sum()
     custo_fixo = custo_equip + c_serv + c_outros
@@ -303,7 +312,9 @@ def renderizar(lista_nomes_produtos, limpar_func):
                         "venda_outros": v_outros,
                         "nf": emite_nf, 
                         "taxa_cartao": sel_cartao, 
-                        "comissao": comissao_pct
+                        "comissao": comissao_pct,
+                        "comissao_modo": modo_comissao,
+                        "comissao_valor": custo_comissao,
                     }
                 }
                 
