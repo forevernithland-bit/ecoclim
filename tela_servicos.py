@@ -1024,7 +1024,7 @@ def renderizar():
     
     with aba1:
         # Em Andamento agrupado em dois blocos (pedido do Breno, 2026-10-19):
-        # "Clientes de Aquecedor" e "Indicações de Fotovoltaico" — antes os dois
+        # "Clientes de Aquecedor" e "Fotovoltaico em Andamento" — antes os dois
         # tipos vinham misturados numa tabela só, com o ☀️ como única pista. A
         # busca/ordenação continua uma só, em cima; cada bloco tem a própria
         # tabela e os próprios totais, e o painel de detalhe abre embaixo, do
@@ -1059,9 +1059,9 @@ def renderizar():
             _b_aq, _l_aq = _totais_grupo(df_atv_aq)
             _linha_totais(_b_aq, _l_aq)
 
-        st.markdown(f"#### ☀️ Indicações de Fotovoltaico ({len(df_atv_fv)})")
+        st.markdown(f"#### ☀️ Fotovoltaico em Andamento ({len(df_atv_fv)})")
         if df_atv_fv.empty:
-            st.caption("Nenhuma indicação de fotovoltaico em andamento" + (" com este filtro." if _havia_atv else "."))
+            st.caption("Nenhum fotovoltaico em andamento" + (" com este filtro." if _havia_atv else "."))
         sel_fv = st.dataframe(df_atv_fv[colunas_visiveis], use_container_width=True, on_select="rerun", selection_mode="single-row", hide_index=True, column_config=config_colunas, key=f"g_atv_fv_{_n_fv}", **({"height": 70} if df_atv_fv.empty else {}))
         if not df_atv_fv.empty:
             _b_fv, _l_fv = _totais_grupo(df_atv_fv)

@@ -614,11 +614,17 @@ else:
         # valor direto na linha de cada lembrete (pagamentos E cobranças) e grava
         # tudo de uma vez no botão "Atualizar todos os valores". Para mexer em
         # vencimento/descrição/recorrência continua o ⚙️ de cada linha.
+        if st.session_state.get("_lem_toast"):
+            st.toast(st.session_state.pop("_lem_toast"), icon="✅")
+        if st.session_state.get("_lem_erro"):
+            st.error(st.session_state.pop("_lem_erro"))
         editar_vals = st.toggle("✏️ Editar valores rapidamente", key="lem_edit_vals",
-                                help="Mostra um campo de valor em cada lembrete e um botão para salvar todos de uma vez.")
+                                help="Mostra um campo de valor em cada lembrete e um botão para salvar todos de uma vez. Tecle Enter ou Tab depois de digitar o valor.")
         
+        for _k in [k for k in st.session_state.keys() if str(k).startswith("ev_pag_") or str(k).startswith("ev_emp_")]:
+            st.session_state[_k] = st.session_state[_k]
         try:
-            res_bol = st.session_state.supabase.table('boletos_fornecedores').select('*').eq('status', 'Pendente').order('vencimento').execute()
+            res_bol = st.session_state.supabase.table('boletos_fornecedores').select('*').eq('status', 'Pendente').order('vencimento').order('id').execute()
             
             lembretes_ativos = []
             novos_valores_pag = {}
@@ -649,8 +655,8 @@ else:
                         _valor_html = ""
                         with col_val:
                             novos_valores_pag[b['id']] = st.number_input(
-                                "Valor", min_value=0.0, value=float(b.get('valor') or 0), step=10.0, format="%.2f",
-                                key=f"ev_pag_{b['id']}", label_visibility="collapsed")
+                                "Valor", min_value=min(0.0, float(b.get('valor') or 0)), value=float(b.get('valor') or 0), step=10.0, format="%.2f",
+                                key=f"ev_pag_{b['id']}_{round(float(b.get('valor') or 0), 2)}", label_visibility="collapsed")
                     else:
                         col_info, col_btn_doc, col_btn_pagar, col_btn_cfg = st.columns([7.0, 1.2, 1.2, 0.8])
                         _valor_html = f'<span style="font-size: 14px; font-weight: 700; color: #004488; white-space: nowrap;">{utils.to_br_currency(b["valor"])}</span>'
@@ -663,8 +669,7 @@ else:
                                     <span style="font-size: 14px; font-weight: 600; color: #111; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{b['cliente']}</span>
                                 </div>
                                 <div style="display: flex; align-items: center; gap: 15px;">
-                                    <span style="font-size: 12px; color: #555; white-space: nowrap;">Venc: {venc_dt.strftime('%d/%m/%Y')} ({status_txt})</span>
-                                    {_valor_html}
+                                    <span style="font-size: 12px; color: #555; white-space: nowrap;">Venc: {venc_dt.strftime('%d/%m/%Y')} ({status_txt})</span>{_valor_html}
                                 </div>
                             </div>
                         """, unsafe_allow_html=True)
@@ -689,8 +694,17 @@ else:
                                 if id_drive and not pd.isna(id_drive) and str(id_drive).strip().lower() not in ["none", "nan", ""]:
                                     mover_arquivo_drive_app(id_drive, ["Boletos", "PAGOS"])
                                     
+                                _valor_pagar = b.get('valor')
+                                if (editar_vals and b['id'] in novos_valores_pag
+                                        and round(float(novos_valores_pag[b['id']]), 2) != round(float(b.get('valor') or 0), 2)):
+                                    # editou o valor na linha e foi direto em Pagar sem "Atualizar todos":
+                                    # vale o valor digitado (e é ele que o próximo mês recorrente copia)
+                                    _valor_pagar = round(float(novos_valores_pag[b['id']]), 2)
                                 if id_db and not pd.isna(id_db) and str(id_db).strip() != "":
-                                    st.session_state.supabase.table('boletos_fornecedores').update({'status': 'Pago'}).eq('id', id_db).execute()
+                                    _upd_pago = {'status': 'Pago'}
+                                    if _valor_pagar != b.get('valor'):
+                                        _upd_pago['valor'] = _valor_pagar
+                                    st.session_state.supabase.table('boletos_fornecedores').update(_upd_pago).eq('id', id_db).execute()
                                     try:
                                         if b.get('is_recorrente'):
                                             venc_antigo = datetime.datetime.strptime(b['vencimento'], "%Y-%m-%d").date()
@@ -699,7 +713,7 @@ else:
                                                 'cliente': b.get('cliente'), 
                                                 'categoria': b.get('categoria', 'Outros'), 
                                                 "vencimento": novo_venc.strftime('%Y-%m-%d'),
-                                                'valor': b.get('valor'), 
+                                                'valor': _valor_pagar, 
                                                 'status': 'Pendente', 
                                                 'is_recorrente': True
                                             }).execute()
@@ -712,20 +726,32 @@ else:
 
                 if editar_vals:
                     _alterados_pag = [(b, novos_valores_pag[b['id']]) for (b, _v, _d) in lembretes_ativos
-                                      if b['id'] in novos_valores_pag and abs(float(novos_valores_pag[b['id']]) - float(b.get('valor') or 0)) > 0.004]
+                                      if b['id'] in novos_valores_pag and round(float(novos_valores_pag[b['id']]), 2) != round(float(b.get('valor') or 0), 2)]
                     if st.button(f"💾 Atualizar todos os valores ({len(_alterados_pag)} alterado(s))", type="primary",
                                  disabled=not _alterados_pag, key="ev_salvar_pag", use_container_width=True):
+                        _ok_ev, _falhas_ev = 0, []
                         with st.spinner("Atualizando valores..."):
                             for _b, _novo in _alterados_pag:
-                                st.session_state.supabase.table('boletos_fornecedores').update(
-                                    {'valor': round(float(_novo), 2)}).eq('id', _b['id']).execute()
-                            utils.sincronizar_boletos_com_calendar()
+                                try:
+                                    st.session_state.supabase.table('boletos_fornecedores').update(
+                                        {'valor': round(float(_novo), 2)}).eq('id', _b['id']).execute()
+                                    _ok_ev += 1
+                                except Exception as _e_ev:
+                                    _falhas_ev.append(f"{_b.get('cliente')}: {str(_e_ev)[:80]}")
                             try:
+                                utils.sincronizar_boletos_com_calendar()
                                 st.cache_data.clear()
                             except Exception:
                                 pass
-                        st.success(f"✅ {len(_alterados_pag)} valor(es) atualizado(s).")
-                        st.rerun()
+                        if _falhas_ev:
+                            _msg_ev = "⚠️ Alguns valores NÃO foram atualizados: " + "; ".join(_falhas_ev)
+                            if _ok_ev:
+                                st.session_state["_lem_erro"] = _msg_ev  # o rerun abaixo apagaria o st.error; mostra no topo
+                            else:
+                                st.error(_msg_ev)
+                        if _ok_ev:
+                            st.session_state["_lem_toast"] = f"{_ok_ev} valor(es) atualizado(s)."
+                            st.rerun()
             else:
                 st.info("🎉 Excelente! Nenhuma despesa ou boleto vencendo nos próximos 5 dias.")
         except Exception as e:
@@ -771,8 +797,8 @@ else:
                         _valor_html_c = ""
                         with col_val_c:
                             novos_valores_emp[e['id']] = st.number_input(
-                                "Valor", min_value=0.0, value=float(e.get('valor_parcela') or 0), step=10.0, format="%.2f",
-                                key=f"ev_emp_{e['id']}", label_visibility="collapsed")
+                                "Valor", min_value=min(0.0, float(e.get('valor_parcela') or 0)), value=float(e.get('valor_parcela') or 0), step=10.0, format="%.2f",
+                                key=f"ev_emp_{e['id']}_{round(float(e.get('valor_parcela') or 0), 2)}", label_visibility="collapsed")
                     else:
                         col_info, col_btn_ver, col_btn_receb = st.columns([7.5, 1.2, 1.2])
                         _valor_html_c = f'<span style="font-size: 14px; font-weight: 700; color: #006600; white-space: nowrap;">{utils.to_br_currency(e["valor_parcela"])}</span>'
@@ -784,8 +810,7 @@ else:
                                     <span style="font-size: 14px; font-weight: 600; color: #111; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{e['pessoa']}{parcela_txt}</span>
                                 </div>
                                 <div style="display: flex; align-items: center; gap: 15px;">
-                                    <span style="font-size: 12px; color: #555; white-space: nowrap;">Venc: {venc_dt.strftime('%d/%m/%Y')} ({status_txt})</span>
-                                    {_valor_html_c}
+                                    <span style="font-size: 12px; color: #555; white-space: nowrap;">Venc: {venc_dt.strftime('%d/%m/%Y')} ({status_txt})</span>{_valor_html_c}
                                 </div>
                             </div>
                         """, unsafe_allow_html=True)
@@ -807,15 +832,27 @@ else:
 
                 if editar_vals:
                     _alterados_emp = [(e, novos_valores_emp[e['id']]) for (e, _v, _d) in cobrancas
-                                      if e['id'] in novos_valores_emp and abs(float(novos_valores_emp[e['id']]) - float(e.get('valor_parcela') or 0)) > 0.004]
+                                      if e['id'] in novos_valores_emp and round(float(novos_valores_emp[e['id']]), 2) != round(float(e.get('valor_parcela') or 0), 2)]
                     if st.button(f"💾 Atualizar valores das cobranças ({len(_alterados_emp)} alterado(s))", type="primary",
                                  disabled=not _alterados_emp, key="ev_salvar_emp", use_container_width=True,
                                  help="Altera só a parcela que está na lista, não as próximas."):
+                        _ok_em, _falhas_em = 0, []
                         for _e, _novo in _alterados_emp:
-                            st.session_state.supabase.table('emprestimos').update(
-                                {'valor_parcela': round(float(_novo), 2)}).eq('id', _e['id']).execute()
-                        st.success(f"✅ {len(_alterados_emp)} valor(es) atualizado(s).")
-                        st.rerun()
+                            try:
+                                st.session_state.supabase.table('emprestimos').update(
+                                    {'valor_parcela': round(float(_novo), 2)}).eq('id', _e['id']).execute()
+                                _ok_em += 1
+                            except Exception as _e_em:
+                                _falhas_em.append(f"{_e.get('pessoa')}: {str(_e_em)[:80]}")
+                        if _falhas_em:
+                            _msg_em = "⚠️ Alguns valores NÃO foram atualizados: " + "; ".join(_falhas_em)
+                            if _ok_em:
+                                st.session_state["_lem_erro"] = _msg_em
+                            else:
+                                st.error(_msg_em)
+                        if _ok_em:
+                            st.session_state["_lem_toast"] = f"{_ok_em} valor(es) das cobranças atualizado(s)."
+                            st.rerun()
         except Exception:
             pass  # tabela ainda não criada — a Home não pode deixar de abrir por isso
 

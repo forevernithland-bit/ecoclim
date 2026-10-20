@@ -34,7 +34,7 @@ def formulario(sb, b, kp):
     k = f"{kp}_{bid}"
     nome = st.text_input("Descrição", value=str(b.get("cliente") or "").strip(), key=f"{k}_nome")
     c1, c2 = st.columns(2)
-    valor = c1.number_input("Valor (R$)", min_value=0.0, value=float(b.get("valor") or 0), step=10.0, format="%.2f", key=f"{k}_val")
+    valor = c1.number_input("Valor (R$)", min_value=min(0.0, float(b.get("valor") or 0)), value=float(b.get("valor") or 0), step=10.0, format="%.2f", key=f"{k}_val")
     try:
         venc0 = datetime.datetime.strptime(str(b["vencimento"]), "%Y-%m-%d").date()
     except Exception:  # noqa: BLE001
