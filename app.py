@@ -609,11 +609,19 @@ else:
 
         st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
         st.markdown("<div class='eco-sectiontitle'>🔔 Lembretes de Pagamento</div>", unsafe_allow_html=True)
+
+        # Edição rápida de valores (pedido do Breno, 2026-10-19): liga, ajusta o
+        # valor direto na linha de cada lembrete (pagamentos E cobranças) e grava
+        # tudo de uma vez no botão "Atualizar todos os valores". Para mexer em
+        # vencimento/descrição/recorrência continua o ⚙️ de cada linha.
+        editar_vals = st.toggle("✏️ Editar valores rapidamente", key="lem_edit_vals",
+                                help="Mostra um campo de valor em cada lembrete e um botão para salvar todos de uma vez.")
         
         try:
             res_bol = st.session_state.supabase.table('boletos_fornecedores').select('*').eq('status', 'Pendente').order('vencimento').execute()
             
             lembretes_ativos = []
+            novos_valores_pag = {}
             if res_bol.data:
                 hoje_dt = hoje_br
                 for b in res_bol.data:
@@ -636,7 +644,16 @@ else:
                     if idx > 0:
                         st.markdown("<div style='margin-top: -16px;'></div>", unsafe_allow_html=True)
                         
-                    col_info, col_btn_doc, col_btn_pagar, col_btn_cfg = st.columns([7.0, 1.2, 1.2, 0.8])
+                    if editar_vals:
+                        col_info, col_val, col_btn_doc, col_btn_pagar, col_btn_cfg = st.columns([5.0, 1.8, 1.2, 1.2, 0.8])
+                        _valor_html = ""
+                        with col_val:
+                            novos_valores_pag[b['id']] = st.number_input(
+                                "Valor", min_value=0.0, value=float(b.get('valor') or 0), step=10.0, format="%.2f",
+                                key=f"ev_pag_{b['id']}", label_visibility="collapsed")
+                    else:
+                        col_info, col_btn_doc, col_btn_pagar, col_btn_cfg = st.columns([7.0, 1.2, 1.2, 0.8])
+                        _valor_html = f'<span style="font-size: 14px; font-weight: 700; color: #004488; white-space: nowrap;">{utils.to_br_currency(b["valor"])}</span>'
                     
                     with col_info:
                         st.markdown(f"""
@@ -647,7 +664,7 @@ else:
                                 </div>
                                 <div style="display: flex; align-items: center; gap: 15px;">
                                     <span style="font-size: 12px; color: #555; white-space: nowrap;">Venc: {venc_dt.strftime('%d/%m/%Y')} ({status_txt})</span>
-                                    <span style="font-size: 14px; font-weight: 700; color: #004488; white-space: nowrap;">{utils.to_br_currency(b['valor'])}</span>
+                                    {_valor_html}
                                 </div>
                             </div>
                         """, unsafe_allow_html=True)
@@ -692,6 +709,23 @@ else:
                             utils.sincronizar_boletos_com_calendar()
                             st.success("✅ Pago! Lembrete atualizado.")
                             st.rerun()
+
+                if editar_vals:
+                    _alterados_pag = [(b, novos_valores_pag[b['id']]) for (b, _v, _d) in lembretes_ativos
+                                      if b['id'] in novos_valores_pag and abs(float(novos_valores_pag[b['id']]) - float(b.get('valor') or 0)) > 0.004]
+                    if st.button(f"💾 Atualizar todos os valores ({len(_alterados_pag)} alterado(s))", type="primary",
+                                 disabled=not _alterados_pag, key="ev_salvar_pag", use_container_width=True):
+                        with st.spinner("Atualizando valores..."):
+                            for _b, _novo in _alterados_pag:
+                                st.session_state.supabase.table('boletos_fornecedores').update(
+                                    {'valor': round(float(_novo), 2)}).eq('id', _b['id']).execute()
+                            utils.sincronizar_boletos_com_calendar()
+                            try:
+                                st.cache_data.clear()
+                            except Exception:
+                                pass
+                        st.success(f"✅ {len(_alterados_pag)} valor(es) atualizado(s).")
+                        st.rerun()
             else:
                 st.info("🎉 Excelente! Nenhuma despesa ou boleto vencendo nos próximos 5 dias.")
         except Exception as e:
@@ -707,6 +741,7 @@ else:
                 'status', 'Pendente').order('vencimento').execute()
 
             cobrancas = []
+            novos_valores_emp = {}
             for e in (res_emp.data or []):
                 venc_dt = datetime.datetime.strptime(e['vencimento'], "%Y-%m-%d").date()
                 diff = (venc_dt - hoje_br).days
@@ -731,7 +766,16 @@ else:
                     total_p = int(e.get('total_parcelas') or 1)
                     parcela_txt = f" ({int(e.get('parcela_num') or 1)}/{total_p})" if total_p > 1 else ""
 
-                    col_info, col_btn_ver, col_btn_receb = st.columns([7.5, 1.2, 1.2])
+                    if editar_vals:
+                        col_info, col_val_c, col_btn_ver, col_btn_receb = st.columns([5.3, 1.8, 1.2, 1.2])
+                        _valor_html_c = ""
+                        with col_val_c:
+                            novos_valores_emp[e['id']] = st.number_input(
+                                "Valor", min_value=0.0, value=float(e.get('valor_parcela') or 0), step=10.0, format="%.2f",
+                                key=f"ev_emp_{e['id']}", label_visibility="collapsed")
+                    else:
+                        col_info, col_btn_ver, col_btn_receb = st.columns([7.5, 1.2, 1.2])
+                        _valor_html_c = f'<span style="font-size: 14px; font-weight: 700; color: #006600; white-space: nowrap;">{utils.to_br_currency(e["valor_parcela"])}</span>'
                     with col_info:
                         st.markdown(f"""
                             <div class="card-lembrete" style="background-color: {cor_card}; border: 1px solid #d1d5db; border-radius: 4px; padding: 0 15px; display: flex; align-items: center; justify-content: space-between; height: 38px; margin: 0px;">
@@ -741,7 +785,7 @@ else:
                                 </div>
                                 <div style="display: flex; align-items: center; gap: 15px;">
                                     <span style="font-size: 12px; color: #555; white-space: nowrap;">Venc: {venc_dt.strftime('%d/%m/%Y')} ({status_txt})</span>
-                                    <span style="font-size: 14px; font-weight: 700; color: #006600; white-space: nowrap;">{utils.to_br_currency(e['valor_parcela'])}</span>
+                                    {_valor_html_c}
                                 </div>
                             </div>
                         """, unsafe_allow_html=True)
@@ -760,6 +804,18 @@ else:
                             }).eq('id', e['id']).execute()
                             st.success(f"✅ Recebido de {e['pessoa']}!")
                             st.rerun()
+
+                if editar_vals:
+                    _alterados_emp = [(e, novos_valores_emp[e['id']]) for (e, _v, _d) in cobrancas
+                                      if e['id'] in novos_valores_emp and abs(float(novos_valores_emp[e['id']]) - float(e.get('valor_parcela') or 0)) > 0.004]
+                    if st.button(f"💾 Atualizar valores das cobranças ({len(_alterados_emp)} alterado(s))", type="primary",
+                                 disabled=not _alterados_emp, key="ev_salvar_emp", use_container_width=True,
+                                 help="Altera só a parcela que está na lista, não as próximas."):
+                        for _e, _novo in _alterados_emp:
+                            st.session_state.supabase.table('emprestimos').update(
+                                {'valor_parcela': round(float(_novo), 2)}).eq('id', _e['id']).execute()
+                        st.success(f"✅ {len(_alterados_emp)} valor(es) atualizado(s).")
+                        st.rerun()
         except Exception:
             pass  # tabela ainda não criada — a Home não pode deixar de abrir por isso
 
