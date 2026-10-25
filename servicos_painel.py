@@ -1367,6 +1367,10 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                                 else:
                                     st.error(f"Erro ao fazer o upload para o Google Drive. Detalhes: {link_id}")
 
+                # NF de produto do cliente no Gestão Click (só rascunho; emitir é outro clique)
+                import nf_servico
+                nf_servico.render(supabase, projeto_selecionado, prefix_key)
+
         with aba_midia:
             # ---------------------------------------------------------------
             # Pasta do cliente no Drive (criada automaticamente ao entrar Em

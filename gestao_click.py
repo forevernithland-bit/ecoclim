@@ -215,6 +215,12 @@ def criar_nota_fiscal_rascunho(loja_id, cliente_id, itens):
     return (resp.get("data") or {}).get("dados")
 
 
+def consultar_nota_fiscal(nf_id):
+    """Dados da NF (situacao_nf: 'Em aberto', 'Aprovada'...; numero_nf; valor_total_nf)."""
+    resp = _request("GET", f"/notas_fiscais_produtos/{nf_id}")
+    return resp.get("data") or {}
+
+
 def emitir_nota_fiscal(nf_id):
     resp = _request("POST", f"/notas_fiscais_produtos/emitir/{nf_id}")
     dados = resp.get("data") or {}

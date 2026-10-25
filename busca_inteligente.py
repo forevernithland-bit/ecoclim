@@ -8,6 +8,7 @@ exatamente como está escrito, do começo, com acento), aqui:
   * começo de palavra basta ("aquece", "acopl", "16 tub");
   * singular/plural ("tubo" = "tubos");
   * erro de digitação leve ("aquesedor" -> "aquecedor");
+  * "20t" / "20tb" = "20 tubos"; "mod" = módulo; "acop" = acoplado;
   * número só casa com o número inteiro ("15" não acha "150");
   * os melhores resultados vêm primeiro (frase exata e ordem original pesam mais);
   * se nenhum item tem TODAS as palavras, mostra os aproximados (que casam
@@ -22,7 +23,11 @@ import unicodedata
 
 # Abreviações comuns digitadas no dia a dia -> palavra do catálogo.
 SINONIMOS = {"cx": "caixa", "reg": "registro", "tb": "tubo", "cond": "conector", "jlh": "joelho",
-             "aquec": "aquecedor", "bba": "bomba", "pressuriz": "pressurizadora", "solen": "solenoide"}
+             "aquec": "aquecedor", "bba": "bomba", "pressuriz": "pressurizadora", "solen": "solenoide",
+             "mod": "modulo", "acop": "acoplado"}
+# Logo depois de um número, "t"/"tb"/"tbs" é sempre TUBOS: "20t" = "20 tubos"
+# (acha os módulos e os aquecedores acoplados de 20 tubos).
+_TUBOS_APOS_NUMERO = {"t", "tb", "tbs", "tub"}
 
 
 def normalizar(texto):
@@ -32,7 +37,13 @@ def normalizar(texto):
     # "2m" -> "2 m", "28x22" -> "28 x 22", "250w" -> "250 w"
     t = re.sub(r"(?<=\d)(?=[a-z])|(?<=[a-z])(?=\d)", " ", t)
     t = re.sub(r"[^a-z0-9]+", " ", t).strip()
-    return " ".join(SINONIMOS.get(p, p) for p in t.split())
+    saida = []
+    for p in t.split():
+        if p in _TUBOS_APOS_NUMERO and saida and saida[-1].isdigit():
+            saida.append("tubos")
+        else:
+            saida.append(SINONIMOS.get(p, p))
+    return " ".join(saida)
 
 
 def _singular(p):
@@ -142,7 +153,7 @@ def caixa_produto(itens, key, rotulo="🔎 Buscar produto (digite partes do nome
     """Mostra a caixa de busca + resultados clicáveis. Chame `retirar_escolha(key)`
     ANTES de desenhar a grade para saber se o usuário clicou em algum resultado."""
     import streamlit as st
-    termo = st.text_input(rotulo, key=f"{key}_q", placeholder="ex.: 15 tubos 316 · vacuo 20 · bomba pressurizadora")
+    termo = st.text_input(rotulo, key=f"{key}_q", placeholder="ex.: 20t · mod 20t · acop 15t 316 · bomba pressurizadora")
     if not termo.strip():
         return
     achados, aprox = buscar(termo, [str(i) for i in itens if str(i).strip()], limite=maximo)

@@ -173,7 +173,7 @@ def render_sidebar(sb):
     termo = st.text_input("🔎 Buscar no sistema", key="busca_global_q",
                           placeholder="cliente, telefone, produto, boleto…",
                           help="Procura em clientes, orçamentos, contas a pagar, empréstimos, produtos e materiais. "
-                               "Palavras em qualquer ordem, sem acento (ex.: 20 tubos · flavio 9212 · cx quebra).")
+                               "Palavras em qualquer ordem, sem acento (ex.: 20t · mod 20t · flavio 9212 · cx quebra).")
     if not termo or len(bi.normalizar(termo)) < 2:
         return
     r = buscar(sb, termo)
