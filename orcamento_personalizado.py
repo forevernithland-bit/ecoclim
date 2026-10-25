@@ -708,8 +708,9 @@ def renderizar(lista_nomes_produtos, limpar_func):
                     if id_r is None:
                         st.warning("Esse rascunho saiu da lista — escolha de novo, por favor.")
                         st.stop()
-                    st.session_state.supabase.table('servicos_andamento').delete().eq('id', id_r).execute()
-                    st.success("✅ Rascunho excluído permanentemente.")
+                    import backup_dados as _bk
+                    _bk.excluir_com_copia(st.session_state.supabase, 'servicos_andamento', id_r, f"Rascunho: {rasc_selecionado}")
+                    st.success("✅ Rascunho excluído (cópia guardada na Lixeira).")
                     deve_rerun = True
 
     # Automação por equipamentos (Partes 1 e 2): quando a seleção de equipamentos

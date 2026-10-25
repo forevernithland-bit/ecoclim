@@ -133,8 +133,9 @@ def renderizar():
                         st.rerun()
                     if col_ex.button("🗑️ Excluir", key=f"btn_del_lista_hid_{lm['id']}", use_container_width=True):
                         try:
-                            supabase.table('listas_materiais').delete().eq('id', lm['id']).execute()
-                            st.success("Lista excluída.")
+                            import backup_dados as _bk
+                            _bk.excluir_com_copia(supabase, 'listas_materiais', lm['id'], f"Lista de materiais — {lm.get('cliente_nome') or ''}")
+                            st.success("Lista excluída (cópia na Lixeira).")
                             st.rerun()
                         except Exception as e:
                             st.error(f"Erro ao excluir: {e}")
@@ -376,8 +377,9 @@ def renderizar():
                         st.rerun()
                     if col_ex_m.button("🗑️ Excluir", key=f"btn_del_modelo_{m['id']}", use_container_width=True):
                         try:
-                            supabase.table('materiais_modelos').delete().eq('id', m['id']).execute()
-                            st.success("Lista padrão excluída.")
+                            import backup_dados as _bk
+                            _bk.excluir_com_copia(supabase, 'materiais_modelos', m['id'], f"Lista padrão: {m.get('nome') or ''}")
+                            st.success("Lista padrão excluída (cópia na Lixeira).")
                             st.rerun()
                         except Exception as e:
                             st.error(f"Erro ao excluir: {e}")

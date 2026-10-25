@@ -329,8 +329,13 @@ def _popup_boletos_pendentes():
 # 4. CONEXÃO COM O BANCO DE DADOS
 # =============================================================================
 try:
+    import db_cache
     if "supabase" not in st.session_state:
-        st.session_state.supabase = utils.init_connection()
+        # Cliente com cache de leitura (ver db_cache.py): cliques muito mais
+        # rápidos, e qualquer gravação apaga o cache na hora.
+        st.session_state.supabase = db_cache.ClienteComCache(utils.init_connection())
+    elif not isinstance(st.session_state.supabase, db_cache.ClienteComCache):
+        st.session_state.supabase = db_cache.ClienteComCache(st.session_state.supabase)
 except Exception as e:
     st.error(f"Erro crítico na conexão com o banco de dados: {e}")
 
@@ -425,6 +430,15 @@ else:
     if st.session_state.menu_option not in lista_paginas:
         st.session_state.menu_option = lista_paginas[0]
 
+    # Backup diário automático (1x por dia, em segundo plano — ver backup_dados.py).
+    if perfil == "Admin" and not st.session_state.get("_backup_checado"):
+        st.session_state["_backup_checado"] = True
+        try:
+            import backup_dados
+            backup_dados.backup_diario_se_preciso(st.session_state.supabase)
+        except Exception:
+            pass
+
     with st.sidebar:
         # --- Ícone de Lembretes: bem no topo, discreto, só Admin. Abre um
         #     diálogo (não é item de menu, de propósito). ---
@@ -477,12 +491,25 @@ else:
         )
         st.markdown("<br>", unsafe_allow_html=True)
 
+        # Navegação por botão (Home, busca global...) muda menu_option, mas o
+        # rádio guardava o valor antigo e desfazia a troca. Sincroniza aqui.
+        _ult = st.session_state.get("_menu_ult")
+        if _ult is not None and st.session_state.menu_option != _ult:
+            st.session_state["menu_navegacao"] = st.session_state.menu_option
         index_atual = lista_paginas.index(st.session_state.menu_option) if st.session_state.menu_option in lista_paginas else 0
         menu = st.radio("Navegação", lista_paginas, index=index_atual, label_visibility="collapsed", key="menu_navegacao")
 
         if menu != st.session_state.menu_option:
             st.session_state.menu_option = menu
+            st.session_state["_menu_ult"] = menu
             st.rerun()
+        st.session_state["_menu_ult"] = st.session_state.menu_option
+
+        try:
+            import busca_global
+            busca_global.render_sidebar(st.session_state.supabase)
+        except Exception:
+            pass
 
         # Aviso de novidades do instalador (comentário/mídia na Agenda,
         # instalação concluída, foto/áudio no cliente) — some em qualquer
@@ -505,6 +532,15 @@ else:
                 st.rerun()
 
         estilo.render_seletor_tema_sidebar()
+        if st.button("🔄  Atualizar dados", use_container_width=True, key="btn_atualizar_dados",
+                     help="Relê tudo do banco agora (útil se alguém mudou algo pelo app do instalador ou em outro computador)."):
+            try:
+                st.session_state.supabase.limpar_cache()
+            except Exception:
+                pass
+            st.cache_data.clear()
+            st.toast("Dados atualizados ✓", icon="🔄")
+            st.rerun()
         
         st.write("---")
         if st.button("🚪 Sair do Sistema", type="primary", use_container_width=True):

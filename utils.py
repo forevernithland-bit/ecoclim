@@ -144,6 +144,7 @@ def get_supabase_client():
     except Exception:
         return init_connection()
 
+@st.cache_resource(show_spinner=False)
 def iniciar_conexao_consorbens():
     """Conexão de LEITURA com o Supabase do ERP CONSORBENS (projeto/banco
     diferente do Ecoclim) — usada para ler resultado_socios_mensal (linha
@@ -476,6 +477,99 @@ def load_year_data(nome_tabela, contas_padrao, ano):
     except:
         return pd.DataFrame({"MESES": contas_padrao, **{m: 0.0 for m in meses_pt}})
 
+class ErroSalvamentoSeguro(Exception):
+    pass
+
+
+def substituir_seguro(supabase, tabela, filtros, novos, variantes=None):
+    """Troca as linhas de `tabela` que casam com `filtros` pelas `novos` SEM
+    nenhum momento em que os dados ficam apagados.
+
+    Antes (padrão espalhado pelo sistema): apagava tudo e depois inseria — se
+    a inserção falhasse (internet caiu, coluna faltando, valor inválido), a
+    tabela ficava VAZIA e os dados se perdiam. Agora:
+      1. lê as linhas atuais (cópia de segurança em memória);
+      2. insere as novas;
+      3. só então apaga as antigas, pelos ids que existiam antes.
+    Se a inserção falhar, nada foi apagado. Se a tabela tiver uma regra de
+    "não pode repetir" que impeça antigas e novas juntas por um instante, cai
+    no modo apagar→inserir e, se a inserção falhar, DEVOLVE as linhas antigas
+    exatamente como estavam (mesmos ids) e avisa.
+
+    filtros: lista de (metodo, coluna, valor), ex. [("eq", "ano", 2026)] ou
+             [("neq", "item", "___")] — os mesmos usados no delete antigo.
+    novos: lista de dicts a gravar (pode ser vazia = só apagar).
+    variantes: outras versões do payload pra tentar se a 1ª falhar (ex.: sem
+               uma coluna que ainda não existe no banco).
+    Retorna a lista de linhas inseridas (como o insert do Supabase devolve).
+    """
+    def _filtrar(q):
+        for metodo, coluna, valor in filtros:
+            q = getattr(q, metodo)(coluna, valor)
+        return q
+
+    antigos = _filtrar(supabase.table(tabela).select("*")).execute().data or []
+    payloads = [novos] + list(variantes or [])
+    ids = [r.get("id") for r in antigos if r.get("id") is not None]
+
+    def _apagar_antigos():
+        for i in range(0, len(ids), 200):
+            supabase.table(tabela).delete().in_("id", ids[i:i + 200]).execute()
+
+    # Modo seguro: insere primeiro, apaga depois
+    if len(ids) == len(antigos):
+        erro_insert = None
+        for payload in payloads:
+            try:
+                res = supabase.table(tabela).insert(payload).execute() if payload else None
+            except Exception as e:  # noqa: BLE001
+                erro_insert = e
+                continue
+            try:
+                _apagar_antigos()
+            except Exception as e:  # noqa: BLE001
+                raise ErroSalvamentoSeguro(
+                    f"Os dados novos de '{tabela}' foram gravados, mas não consegui apagar as linhas antigas "
+                    f"(pode haver linhas repetidas). Recarregue a tela e salve de novo. Detalhe: {e}") from e
+            return (res.data or []) if res is not None else []
+        if not antigos:
+            raise erro_insert  # tabela estava vazia: não há o que proteger, só repassa o erro
+        _txt = str(erro_insert).lower()
+        if not any(x in _txt for x in ("duplicate", "unique", "23505", "already exists")):
+            # Falhou por outro motivo (internet, coluna, valor inválido): NADA foi
+            # apagado — só avisa. Apagar antes de conseguir gravar é que perderia dados.
+            raise ErroSalvamentoSeguro(
+                f"Não consegui gravar '{tabela}' — nada foi perdido, os dados anteriores continuam como estavam. "
+                f"Detalhe: {erro_insert}") from erro_insert
+
+    # Modo alternativo (ex.: chave única): apaga → insere; se falhar, devolve as antigas
+    if ids:
+        _apagar_antigos()
+    else:
+        _filtrar(supabase.table(tabela).delete()).execute()
+    ultimo_erro = None
+    for payload in payloads:
+        try:
+            res = supabase.table(tabela).insert(payload).execute() if payload else None
+            return (res.data or []) if res is not None else []
+        except Exception as e:  # noqa: BLE001
+            ultimo_erro = e
+    if antigos:
+        try:
+            try:
+                supabase.table(tabela).insert(antigos).execute()
+            except Exception:
+                # tabelas com id "GENERATED ALWAYS" não aceitam o id antigo: devolve com id novo
+                supabase.table(tabela).insert([{k: v for k, v in r.items() if k != "id"} for r in antigos]).execute()
+        except Exception as e2:  # noqa: BLE001
+            raise ErroSalvamentoSeguro(
+                f"ATENÇÃO: falhou ao gravar '{tabela}' e também ao devolver os dados antigos. "
+                f"Os dados estão no backup diário (Configurações → Backup). Detalhe: {ultimo_erro} / {e2}") from e2
+    raise ErroSalvamentoSeguro(
+        f"Não consegui gravar '{tabela}' — nada foi perdido, os dados anteriores continuam como estavam. "
+        f"Detalhe: {ultimo_erro}")
+
+
 def save_to_supabase(nome_tabela, df, ano):
     supabase = get_supabase_client()
     dados_finais = []
@@ -484,8 +578,7 @@ def save_to_supabase(nome_tabela, df, ano):
         for mes_coluna in meses_pt: registro[mes_coluna] = float(linha[mes_coluna]) if pd.notna(linha[mes_coluna]) else 0.0
         dados_finais.append(registro)
     try:
-        supabase.table(nome_tabela).delete().eq("ano", ano).execute()
-        supabase.table(nome_tabela).insert(dados_finais).execute()
+        substituir_seguro(supabase, nome_tabela, [("eq", "ano", ano)], dados_finais)
     except Exception as e: st.error(f"Erro ao salvar: {e}")
 
 COLUNAS_EXTRAS_GESTAO_CLICK = {"ncm": "NCM", "codigo_externo": "Código Externo (GC)", "codigo_barra": "Código de Barra"}
@@ -562,10 +655,9 @@ def save_catalog(nome_tabela, df):
                 registro["fornecedor"] = fornecedor_por_item[linha['Item']]
             lista_dados.append(registro)
     try:
-        supabase.table(nome_tabela).delete().neq("item", "___VAZIO___").execute()
-        if lista_dados:
-            resp = supabase.table(nome_tabela).insert(lista_dados).execute()
-            return resp.data
+        # Grava as linhas novas ANTES de apagar as antigas (ver substituir_seguro):
+        # se algo falhar no meio, o catálogo nunca fica vazio.
+        return substituir_seguro(supabase, nome_tabela, [("neq", "item", "___VAZIO___")], lista_dados)
     except Exception as e: st.error(f"Erro ao salvar catálogo: {e}")
     finally:
         # Catálogo mudou: derruba o cache de leitura pra próxima tela já ler o
@@ -1629,8 +1721,7 @@ def save_taxas(df):
     supabase = get_supabase_client()
     dados = [{"item": r['Item'], "taxa_percentual": float(r.get('Taxa (%)', 0.0))} for _, r in df.iterrows() if r.get('Item')]
     try:
-        supabase.table('catalogo_taxas').delete().neq("item", "___").execute()
-        if dados: supabase.table('catalogo_taxas').insert(dados).execute()
+        substituir_seguro(supabase, 'catalogo_taxas', [("neq", "item", "___")], dados)
     finally:
         load_taxas.clear()  # taxa mudou: próxima leitura vem do banco
 
@@ -2033,7 +2124,7 @@ def gerar_pdf_contrato(nome, doc, tipo_cliente, endereco, objeto, df_items, mat_
 
     story.append(Paragraph("<b>CONTRATO DE FORNECIMENTO E PRESTAÇÃO DE SERVIÇOS</b>", style_title))
     
-    story.append(Paragraph("Pelo presente instrumento particular, as parties abaixo qualificadas firmam o presente CONTRATO:", style_normal))
+    story.append(Paragraph("Pelo presente instrumento particular, as partes abaixo qualificadas firmam o presente CONTRATO:", style_normal))
     story.append(Paragraph("A <b>ECOCLIM</b> com sede na cidade de Santa Luzia, MG, Av. Brasília, 2731 - Duquesa I, no CNPJ 40.111.279/0001-03, endereço eletrônico: comercial@ecoclim.com.br, doravante designada <b>CONTRATADA</b> e de outro lado;", style_normal))
     
     doc_tipo = "inscrito sob o CPF" if tipo_cliente == "Pessoa Física" else "inscrita sob o CNPJ"

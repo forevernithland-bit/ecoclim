@@ -1,4 +1,5 @@
 import streamlit as st
+import json
 import pandas as pd
 import io
 import utils
@@ -29,7 +30,7 @@ def _margem_automatica_item(nome_item):
 def renderizar():
     st.markdown("## ⚙️ Configurações e Catálogos")
 
-    tabs = st.tabs(["🛒 Produtos", "🛠️ Serviços", "🤝 Outros / Terceiros", "📊 Taxas", "📦 Kits em Lote", "👷‍♂️ Instaladores"])
+    tabs = st.tabs(["🛒 Produtos", "🛠️ Serviços", "🤝 Outros / Terceiros", "📊 Taxas", "📦 Kits em Lote", "👷‍♂️ Instaladores", "🛡️ Backup e Lixeira"])
     
     # =========================================================================
     # FUNÇÕES DE IMPORTAÇÃO/EXPORTAÇÃO DE CATÁLOGOS
@@ -452,9 +453,7 @@ def renderizar():
                         "itens": itens_atuais
                     })
             try:
-                st.session_state.supabase.table('config_kits_lote').delete().neq("nome_kit", "____").execute()
-                if dados_salvar:
-                    st.session_state.supabase.table('config_kits_lote').insert(dados_salvar).execute()
+                utils.substituir_seguro(st.session_state.supabase, 'config_kits_lote', [("neq", "nome_kit", "____")], dados_salvar)
                 st.success("✅ Nomes e Serviços salvos! Agora configure os produtos abaixo.")
                 st.rerun()
             except Exception as e:
@@ -564,9 +563,7 @@ def renderizar():
                     })
 
             try:
-                st.session_state.supabase.table('config_instaladores').delete().neq("nome", "____").execute()
-                if dados_salvar:
-                    st.session_state.supabase.table('config_instaladores').insert(dados_salvar).execute()
+                utils.substituir_seguro(st.session_state.supabase, 'config_instaladores', [("neq", "nome", "____")], dados_salvar)
                 # A equipe mudou: derruba o cache pra lista nova já aparecer nas
                 # outras telas (ver carregar_lista_instaladores em tela_servicos).
                 import tela_servicos as _ts
@@ -575,3 +572,105 @@ def renderizar():
                 st.rerun()
             except Exception as e:
                 st.error(f"⚠️ Erro ao salvar. Certifique-se de ter criado a tabela 'config_instaladores' no Supabase. Erro: {e}")
+
+    # =========================================================================
+    # ABA: BACKUP E LIXEIRA (segurança dos dados — ver backup_dados.py)
+    # =========================================================================
+    with tabs[6]:
+        _aba_backup_lixeira()
+
+
+def _aba_backup_lixeira():
+    import datetime as _dt
+    import backup_dados as bd
+    sb = st.session_state.supabase
+
+    st.markdown("#### 🛡️ Backup automático")
+    st.caption("Todo dia, no primeiro acesso, o sistema copia **todas as tabelas** para um arquivo .zip na pasta "
+               "**Backups** do Google Drive do ERP (em segundo plano, sem deixar nada lento). Ficam guardados os 45 mais recentes.")
+    ult = bd.ler_ultimo(sb) or {}
+    c1, c2, c3 = st.columns(3)
+    quando = str(ult.get("quando") or "")
+    try:
+        quando_fmt = _dt.datetime.fromisoformat(quando).strftime("%d/%m/%Y %H:%M") if quando else "—"
+    except Exception:
+        quando_fmt = quando[:16] or "—"
+    c1.metric("Último backup", quando_fmt)
+    c2.metric("Registros copiados", f"{ult.get('linhas', 0):,}".replace(",", "."))
+    c3.metric("Tabelas", ult.get("tabelas", 0))
+    if ult.get("status") == "em andamento":
+        st.info("⏳ Um backup está sendo feito agora em segundo plano.")
+    if ult.get("drive_erro") or ult.get("status") == "erro":
+        st.warning(f"⚠️ O último backup não foi para o Drive: {ult.get('drive_erro') or ult.get('erro')}. "
+                   "Use **Baixar backup agora** abaixo para guardar uma cópia no computador.")
+    if ult.get("erros"):
+        st.caption("Tabelas que não puderam ser lidas: " + ", ".join(ult["erros"].keys()))
+
+    b1, b2 = st.columns(2)
+    if b1.button("☁️ Fazer backup agora (salvar no Drive)", use_container_width=True, key="bk_agora"):
+        with st.spinner("Copiando todas as tabelas…"):
+            res, _ = bd.fazer_backup(sb, enviar=True)
+        if res.get("drive"):
+            st.success(f"✅ Backup salvo no Drive: {res['arquivo']} ({res['linhas']} registros, {res['tamanho_kb']} KB).")
+        else:
+            st.error(f"Backup gerado, mas não consegui enviar ao Drive: {res.get('drive_erro')}")
+    if b2.button("⬇️ Preparar download do backup (.zip)", use_container_width=True, key="bk_baixar_prep"):
+        with st.spinner("Gerando o arquivo…"):
+            conteudo, resumo = bd.gerar_zip(sb)
+        st.session_state["_bk_zip"] = (bd.nome_arquivo(), conteudo, resumo.get("total_linhas", 0))
+    if st.session_state.get("_bk_zip"):
+        nome, conteudo, linhas = st.session_state["_bk_zip"]
+        st.download_button(f"💾 Baixar {nome} ({linhas} registros)", data=conteudo, file_name=nome,
+                           mime="application/zip", use_container_width=True, key="bk_download")
+
+    with st.expander("📂 Backups guardados no Drive", expanded=False):
+        arquivos = bd.listar_backups(limite=15)
+        if not arquivos:
+            st.caption("Nenhum backup encontrado no Drive ainda.")
+        for f in arquivos:
+            tam = int(f.get("size") or 0) / 1024
+            st.markdown(f"- [{f['name']}](https://drive.google.com/file/d/{f['id']}/view) · {tam:.0f} KB")
+        st.caption("Para restaurar um backup completo (caso extremo), fale com o suporte — os arquivos JSON de cada tabela estão dentro do .zip.")
+
+    st.divider()
+    st.markdown("#### 🗑️ Lixeira — itens excluídos")
+    st.caption("Tudo que é excluído (clientes/serviços, boletos, empréstimos, listas de materiais, tarefas da agenda…) "
+               "fica guardado aqui e pode ser **restaurado** com um clique.")
+    itens = bd.listar_lixeira(sb)
+    if not itens:
+        st.caption("A lixeira está vazia.")
+        return
+    filtro = st.text_input("🔎 Procurar na lixeira", key="lix_busca", placeholder="nome, tabela, valor…")
+    nomes_tabela = {"servicos_andamento": "Cliente / serviço", "boletos_fornecedores": "Boleto / conta",
+                    "emprestimos": "Empréstimo", "listas_materiais": "Lista de materiais", "agenda_visitas": "Tarefa da agenda",
+                    "materiais_modelos": "Lista padrão", "servico_midias": "Foto/mídia", "lembretes": "Lembrete"}
+    mostrados = 0
+    for it in itens:
+        reg = it.get("registro") or {}
+        rotulo = nomes_tabela.get(it.get("tabela"), it.get("tabela"))
+        desc = it.get("descricao") or reg.get("nome_cliente") or reg.get("cliente") or reg.get("pessoa") or reg.get("texto") or f"id {reg.get('id')}"
+        if filtro and not utils.bate_busca(filtro, desc, rotulo, json.dumps(reg, ensure_ascii=False, default=str)[:400]):
+            continue
+        mostrados += 1
+        if mostrados > 60:
+            st.caption("… mostrando os 60 mais recentes. Use a busca para achar outros.")
+            break
+        try:
+            q = _dt.datetime.fromisoformat(it.get("quando")).strftime("%d/%m/%Y %H:%M")
+        except Exception:
+            q = str(it.get("quando"))[:16]
+        k = it["_id_lixeira"]
+        c_a, c_b, c_c = st.columns([5, 1.2, 1.2])
+        c_a.markdown(f"**{desc}**  \n:gray[{rotulo} · excluído em {q}]")
+        if c_b.button("↩️ Restaurar", key=f"lix_rest_{k}", use_container_width=True):
+            try:
+                bd.restaurar(sb, it)
+                st.success(f"✅ {desc} restaurado.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Não consegui restaurar: {e}")
+        with c_c.popover("🗑️", use_container_width=True, help="Apagar de vez"):
+            st.caption("Apagar definitivamente esta cópia? Não dá para desfazer.")
+            if st.button("Apagar de vez", key=f"lix_del_{k}", type="primary"):
+                bd.apagar_da_lixeira(sb, it)
+                st.rerun()

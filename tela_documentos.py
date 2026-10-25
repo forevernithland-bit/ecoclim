@@ -607,7 +607,8 @@ def renderizar_aba(nome_principal, subpastas=None, is_imagens=False):
                                     utils.delete_drive_file(id_dr)
                                 id_bd = row_del.get("ID_DB")
                                 if id_bd and not pd.isna(id_bd) and str(id_bd).strip() != "":
-                                    st.session_state.supabase.table('boletos_fornecedores').delete().eq('id', id_bd).execute()
+                                    import backup_dados as _bk
+                                    _bk.excluir_com_copia(st.session_state.supabase, 'boletos_fornecedores', id_bd, f"Boleto: {row_del.get('Nome', '')}")
                         
                         utils.sincronizar_boletos_com_calendar()
                         st.success("Excluídos com sucesso!")

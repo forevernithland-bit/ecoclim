@@ -208,7 +208,8 @@ def _tabela(supabase, df, mostrar_recebidos):
             with c4.popover("🗑️", use_container_width=False):
                 st.caption("Apagar esta parcela?")
                 if st.button("Confirmar exclusão", key=f"del_{r['id']}"):
-                    supabase.table("emprestimos").delete().eq("id", r["id"]).execute()
+                    import backup_dados as _bk
+                    _bk.excluir_com_copia(supabase, "emprestimos", r["id"], f"Empréstimo {r.get('pessoa', '')} parcela {r.get('parcela_num', '')}")
                     st.rerun()
 
 

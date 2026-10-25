@@ -1252,7 +1252,8 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                             with c_bol2:
                                 if st.button("🗑️ Remover", key=f"del_bol_{b_id}_{prefix_key}"):
                                     try:
-                                        supabase.table('boletos_fornecedores').delete().eq('id', b_id).execute()
+                                        import backup_dados as _bk
+                                        _bk.excluir_com_copia(supabase, 'boletos_fornecedores', b_id, f"Boleto de {projeto_selecionado.get('nome_cliente') or ''}")
                                         if link: utils.delete_drive_file(link)
                                         st.rerun()
                                     except Exception as e:
@@ -1859,8 +1860,9 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                             st.rerun()
                         if col_ex.button("🗑️ Excluir lista", key=f"btn_del_mat_{lm['id']}_{prefix_key}", use_container_width=True):
                             try:
-                                supabase.table('listas_materiais').delete().eq('id', lm['id']).execute()
-                                st.success("Lista excluída.")
+                                import backup_dados as _bk
+                                _bk.excluir_com_copia(supabase, 'listas_materiais', lm['id'], f"Lista de materiais — {projeto_selecionado.get('nome_cliente') or ''}")
+                                st.success("Lista excluída (cópia na Lixeira).")
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"Erro ao excluir: {e}")
@@ -2182,11 +2184,13 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
         st.markdown("<br>", unsafe_allow_html=True)
         
         if novo_status == "Excluir":
-            st.error("⚠️ **ATENÇÃO:** Você selecionou a opção de Excluir. Isso apagará permanentemente este cliente e orçamento do sistema.")
+            st.error("⚠️ **ATENÇÃO:** Você selecionou a opção de Excluir. Este cliente/orçamento sai do sistema — "
+                     "mas uma cópia completa fica na **Lixeira** (Configurações → 🛡️ Backup e Lixeira) e pode ser restaurada.")
             if st.button("🗑️ CONFIRMAR EXCLUSÃO", type="primary", use_container_width=True, key=f"del_{prefix_key}"):
                 try:
-                    supabase.table('servicos_andamento').delete().eq('id', id_projeto).execute()
-                    st.success("✅ Orçamento excluído com sucesso!")
+                    import backup_dados as _bk
+                    _bk.excluir_com_copia(supabase, 'servicos_andamento', id_projeto, projeto_selecionado.get('nome_cliente') or '')
+                    st.success("✅ Excluído (cópia guardada na Lixeira).")
                     st.rerun()
                 except Exception as e:
                     st.error(f"Erro ao excluir: {e}")

@@ -164,7 +164,11 @@ def adiar(lem_id, lembrar_em_iso):
 
 
 def excluir(lem_id):
-    _sb().table("lembretes").delete().eq("id", lem_id).execute()
+    try:
+        import backup_dados as _bk
+        _bk.excluir_com_copia(_sb(), "lembretes", lem_id, "Lembrete")
+    except Exception:
+        _sb().table("lembretes").delete().eq("id", lem_id).execute()
 
 
 # --- Notas (bloco de texto único, tabela `notas_secretas`) ------------------

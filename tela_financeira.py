@@ -98,8 +98,8 @@ def salvar_dados_fin(nome_tabela, df, ano):
         # e não mais gravadas aqui).
         contas_no_df = [linha["MESES"] for _, linha in df.iterrows()]
         if contas_no_df:
-            supabase.table(nome_tabela).delete().eq("ano", ano).in_("meses", contas_no_df).execute()
-        if dados_finais:
+            utils.substituir_seguro(supabase, nome_tabela, [("eq", "ano", ano), ("in_", "meses", contas_no_df)], dados_finais)
+        elif dados_finais:
             supabase.table(nome_tabela).insert(dados_finais).execute()
     except Exception as e:
         st.error(f"Erro ao salvar tabela {nome_tabela}: {e}")
@@ -168,18 +168,13 @@ def salvar_aportes_itens(ano, df_itens):
                     "data": data_iso,
                 })
     try:
-        supabase.table('fin_aportes_itens').delete().eq("ano", ano).execute()
-        if registros:
-            try:
-                supabase.table('fin_aportes_itens').insert(registros).execute()
-            except Exception:
-                # Coluna "data" ainda não existe (sql_fin_aportes_data.sql não
-                # rodado nesse Supabase) — grava sem ela em vez de perder o
-                # lançamento inteiro; a data só passa a ficar disponível
-                # depois que a migração rodar.
-                supabase.table('fin_aportes_itens').insert(
-                    [{k: v for k, v in reg.items() if k != "data"} for reg in registros]
-                ).execute()
+        # Variante sem a coluna "data": se a migração sql_fin_aportes_data.sql
+        # não rodou nesse Supabase, grava sem ela em vez de perder o lançamento
+        # inteiro. substituir_seguro grava antes de apagar (nada some se falhar).
+        utils.substituir_seguro(
+            supabase, 'fin_aportes_itens', [("eq", "ano", ano)], registros,
+            variantes=[[{k: v for k, v in reg.items() if k != "data"} for reg in registros]],
+        )
     except Exception as e:
         st.error(f"Erro ao salvar aportes: {e}")
 
@@ -271,9 +266,7 @@ def salvar_recebimentos_itens(ano, df_itens):
                     "conta": conta, "valor": valor, "obs": str(r.get("Obs", "") or ""),
                 })
     try:
-        supabase.table('fin_recebimentos_itens').delete().eq("ano", ano).execute()
-        if registros:
-            supabase.table('fin_recebimentos_itens').insert(registros).execute()
+        utils.substituir_seguro(supabase, 'fin_recebimentos_itens', [("eq", "ano", ano)], registros)
     except Exception as e:
         st.error(f"Erro ao salvar recebimentos: {e}")
 
@@ -395,10 +388,11 @@ def limpar_e_garantir_linhas(df, lista_contas):
 def _eh_mes_futuro(ano, mes_idx):
     return (ano > utils.ano_atual) or (ano == utils.ano_atual and mes_idx > utils.mes_hoje_idx)
 
+@st.cache_data(ttl=180, show_spinner=False)
 def carregar_breno_mensal(ano):
     """Lê resultado_socios_mensal (publicado pelo ERP Consorbens toda vez que
     a tela Financeiro de lá é aberta) e devolve uma Series por mês com o
-    resultado do Breno. Sempre ao vivo (sem cache). Meses futuros e meses
+    resultado do Breno. Cache de 3 min (o botão "🔄 Atualizar dados" relê na hora). Meses futuros e meses
     ainda não publicados ficam em 0 — nunca quebra a tela se a conexão/
     migração não estiver pronta."""
     serie = pd.Series(0.0, index=utils.meses_pt)
@@ -607,11 +601,14 @@ def importar_base_completa_excel(file_buffer):
                 }
                 dados_finais.append(registro)
                 
+            # Um ano por vez, gravando antes de apagar (ver utils.substituir_seguro)
             for a in anos_presentes:
-                supabase.table(nome_tabela_banco).delete().eq("ano", a).execute()
-                
-            if dados_finais:
-                supabase.table(nome_tabela_banco).insert(dados_finais).execute()
+                utils.substituir_seguro(supabase, nome_tabela_banco, [("eq", "ano", a)],
+                                        [d for d in dados_finais if d.get("ano") == a])
+            _anos = set(anos_presentes)
+            _sem_ano = [d for d in dados_finais if d.get("ano") not in _anos]
+            if _sem_ano:
+                supabase.table(nome_tabela_banco).insert(_sem_ano).execute()
                 
         processar_aba(df_p_xls, 'fin_patrimonio')
         processar_aba(df_e_xls, 'fin_entradas')
@@ -731,7 +728,10 @@ def renderizar():
         cfg_edit[m] = st.column_config.TextColumn(m, width=100)
         cfg_text[m] = st.column_config.TextColumn(m, width=100)
 
-    tabs = st.tabs(["📊 Resumo", "📝 Lançamentos", "🏦 Ações", "📈 Gráficos"])
+    # key + on_change="rerun": cada aba sabe se está aberta (`.open`). Ações e
+    # Gráficos (as mais pesadas, só leitura) só são desenhadas quando abertas —
+    # antes eram montadas a cada clique em qualquer outra aba (~0,9 s a mais).
+    tabs = st.tabs(["📊 Resumo", "📝 Lançamentos", "🏦 Ações", "📈 Gráficos"], key="fin_abas", on_change="rerun")
 
     # =====================================================================
     # ABA LANÇAMENTOS — renderiza os editores primeiro (produz os dados)
@@ -1062,10 +1062,13 @@ def renderizar():
     # ABA GRÁFICOS
     # =====================================================================
     with tabs[2]:
-        import tela_acoes
-        tela_acoes.renderizar(st.session_state.supabase)
+        if tabs[2].open:
+            import tela_acoes
+            tela_acoes.renderizar(st.session_state.supabase)
 
     with tabs[3]:
+        if not tabs[3].open:
+            return  # aba de gráficos fechada: nada pesado a desenhar (é o último bloco da tela)
         # Meses futuros (sem nenhum dado digitado ainda) ficam zerados nas
         # séries brutas — plotar eles fazia o gráfico parecer que o
         # patrimônio "despencou pra zero" ou que deu um prejuízo enorme em

@@ -62,5 +62,6 @@ def formulario(sb, b, kp):
     st.divider()
     ok = st.checkbox("Confirmo remover este lembrete", key=f"{k}_okdel")
     if st.button("🗑️ Remover este lembrete", use_container_width=True, disabled=not ok, key=f"{k}_del"):
-        sb.table("boletos_fornecedores").delete().eq("id", bid).execute()
+        import backup_dados as _bk
+        _bk.excluir_com_copia(sb, "boletos_fornecedores", bid, f"Conta: {b.get('cliente', '')}")
         _depois()

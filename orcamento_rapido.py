@@ -78,8 +78,9 @@ def renderizar(lista_nomes_produtos, limpar_func):
                     deve_rerun = True
                     
                 if c_del.button("🗑️ Apagar", use_container_width=True):
-                    st.session_state.supabase.table('servicos_andamento').delete().eq('id', opcoes_rapidas[sel_r]).execute()
-                    st.success("Cálculo apagado!")
+                    import backup_dados as _bk
+                    _bk.excluir_com_copia(st.session_state.supabase, 'servicos_andamento', opcoes_rapidas[sel_r], f"Orçamento rápido: {sel_r}")
+                    st.success("Cálculo apagado (cópia na Lixeira).")
                     deve_rerun = True
 
     nome_rapido = st.text_input("Nome do Cliente (Identificação)", key="rapido_input_nome_cliente")
