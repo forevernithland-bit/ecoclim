@@ -228,6 +228,39 @@ def montar_css(chave_tema=None):
     .eco-kpi .lbl {{ color: var(--muted); font-size: .78rem; }}
     .eco-kpi .val {{ font-weight: 800; color: var(--ink); font-size: .92rem; }}
 
+    /* ================= CABEÇALHO DE TELA (estilo apresentação Maggi) ================= */
+    .eco-head {{ position: relative; overflow: hidden; border-radius: 20px; padding: 22px 26px 20px; margin: 0 0 18px;
+        color: #fff; isolation: isolate;
+        background: radial-gradient(900px 380px at 88% -30%, rgba(255,255,255,.18), transparent 60%),
+                    linear-gradient(135deg, var(--brand-dark) 0%, var(--brand) 62%, color-mix(in srgb, var(--brand) 70%, #22d3ee) 100%);
+        box-shadow: 0 18px 40px -22px var(--brand-glow), 0 2px 6px rgba(15,23,42,.06); animation: cbPop .45s var(--ease) both; }}
+    .eco-head .blob {{ position: absolute; border-radius: 50%; filter: blur(46px); pointer-events: none; z-index: -1; will-change: transform; }}
+    .eco-head .b1 {{ width: 260px; height: 260px; right: -60px; top: -110px; background: rgba(255,255,255,.28); animation: ecoDrift 14s ease-in-out infinite alternate; }}
+    .eco-head .b2 {{ width: 200px; height: 200px; left: 30%; bottom: -150px; background: rgba(255,214,102,.30); animation: ecoDrift 18s ease-in-out infinite alternate-reverse; }}
+    .eco-head .dots {{ position: absolute; inset: 0; z-index: -1; pointer-events: none;
+        background-image: radial-gradient(rgba(255,255,255,.16) 1px, transparent 1.4px); background-size: 22px 22px;
+        -webkit-mask-image: linear-gradient(90deg, transparent, #000 70%); mask-image: linear-gradient(90deg, transparent, #000 70%); }}
+    @keyframes ecoDrift {{ from {{ transform: translate3d(0,0,0) scale(1); }} to {{ transform: translate3d(-40px,22px,0) scale(1.1); }} }}
+    .eco-head .eyebrow {{ display: inline-flex; align-items: center; gap: 9px; font-size: .72rem; font-weight: 800; letter-spacing: .14em;
+        text-transform: uppercase; color: rgba(255,255,255,.88); }}
+    .eco-head .eyebrow::before {{ content: ""; width: 26px; height: 3px; border-radius: 3px; background: #ffd666; }}
+    .eco-head .t {{ font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 800; font-size: clamp(1.35rem, 2.2vw, 1.85rem);
+        letter-spacing: -.025em; line-height: 1.15; margin: 6px 0 4px; color: #fff; display: flex; align-items: center; gap: 10px; }}
+    .eco-head .t .ico {{ display: inline-grid; place-items: center; width: 42px; height: 42px; border-radius: 13px; font-size: 1.3rem;
+        background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.28); backdrop-filter: blur(6px); }}
+    .eco-head .s {{ color: rgba(255,255,255,.86); font-size: .93rem; max-width: 70ch; }}
+    .eco-head .chips {{ display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }}
+    .eco-head .chips span {{ font-size: .74rem; font-weight: 700; color: #fff; padding: 5px 11px; border-radius: 999px;
+        background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.24); }}
+
+    /* ---- Detalhes de acabamento ---- */
+    [data-testid="stMetricValue"], [data-testid="stDataFrame"], .eco-kpi .val {{ font-variant-numeric: tabular-nums; }}
+    :focus-visible {{ outline: 3px solid var(--brand) !important; outline-offset: 2px !important; border-radius: 8px; }}
+    .eco-busca-item {{ display: flex; justify-content: space-between; gap: 8px; font-size: .78rem; line-height: 1.25;
+        padding: 6px 9px; margin: 3px 0; border-radius: 9px; background: var(--brand-soft); border: 1px solid var(--brand-mid); }}
+    .eco-busca-item b {{ white-space: nowrap; color: var(--brand-dark); }}
+    [class*="st-key-busca_global_q"] input {{ font-size: .88rem !important; }}
+
     /* ================= RESPONSIVIDADE (mobile / tablet) ================= */
     @media screen and (max-width: 820px) {{
         .block-container {{ padding: 1rem 0.7rem 2rem !important; }}
@@ -238,6 +271,8 @@ def montar_css(chave_tema=None):
         .stButton > button {{ min-height: 48px !important; font-size: 1rem !important; width: 100% !important; }}
         [data-testid="stDataFrame"], [data-testid="stDataEditor"] {{ overflow-x: auto !important; }}
         [data-testid="stMetricValue"] {{ font-size: 1.3rem !important; }}
+        .eco-head {{ padding: 16px 16px 14px; border-radius: 16px; }}
+        .eco-head .t .ico {{ width: 34px; height: 34px; font-size: 1.05rem; }}
     }}
 </style>
 """
@@ -302,6 +337,23 @@ def css_fundo_login():
     }}
 </style>
 """
+
+
+def cabecalho(icone, titulo, subtitulo="", eyebrow="Ecoclim ERP", chips=None):
+    """Cabeçalho padrão das telas (faixa colorida na cor do tema, com bolhas
+    animadas leves só em CSS — transform/opacity, sem custo de processamento,
+    e desligadas para quem prefere menos movimento)."""
+    import html as _h
+    chips_html = ""
+    if chips:
+        chips_html = "<div class='chips'>" + "".join(f"<span>{_h.escape(str(c))}</span>" for c in chips) + "</div>"
+    sub = f"<div class='s'>{_h.escape(subtitulo)}</div>" if subtitulo else ""
+    st.markdown(
+        "<div class='eco-head'><span class='blob b1'></span><span class='blob b2'></span><span class='dots'></span>"
+        f"<div class='eyebrow'>{_h.escape(eyebrow)}</div>"
+        f"<div class='t'><span class='ico'>{icone}</span>{_h.escape(titulo)}</div>{sub}{chips_html}</div>",
+        unsafe_allow_html=True,
+    )
 
 
 # Compat: mantido caso algo ainda chame; a Home usa st.metric agora.

@@ -28,9 +28,10 @@ def _margem_automatica_item(nome_item):
 
 
 def renderizar():
-    st.markdown("## ⚙️ Configurações e Catálogos")
+    import estilo
+    estilo.cabecalho("⚙️", "Configurações e Catálogos", "Produtos, serviços, taxas, kits, instaladores — e o backup automático dos seus dados.", eyebrow="Administração")
 
-    tabs = st.tabs(["🛒 Produtos", "🛠️ Serviços", "🤝 Outros / Terceiros", "📊 Taxas", "📦 Kits em Lote", "👷‍♂️ Instaladores", "🛡️ Backup e Lixeira"])
+    tabs = st.tabs(["🛒 Produtos", "🛠️ Serviços", "🤝 Outros / Terceiros", "📊 Taxas", "📦 Kits em Lote", "👷‍♂️ Instaladores", "🛡️ Backup e Lixeira"], key="cfg_abas", on_change="rerun")
     
     # =========================================================================
     # FUNÇÕES DE IMPORTAÇÃO/EXPORTAÇÃO DE CATÁLOGOS
@@ -577,7 +578,8 @@ def renderizar():
     # ABA: BACKUP E LIXEIRA (segurança dos dados — ver backup_dados.py)
     # =========================================================================
     with tabs[6]:
-        _aba_backup_lixeira()
+        if tabs[6].open:  # só consulta o Drive/Lixeira quando a aba está aberta
+            _aba_backup_lixeira()
 
 
 def _aba_backup_lixeira():

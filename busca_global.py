@@ -66,6 +66,9 @@ def _ir_servico(reg):
         st.toast("Rascunhos ficam em Orçamentos → Orçamento Personalizado / Rápido.", icon="📝")
         return
     s.menu_option = "Serviços em Andamento"
+    # fecha qualquer outro painel que estivesse aberto (só o cliente buscado fica aberto)
+    for k in [k for k in list(s.keys()) if str(k).startswith("painel_id_")]:
+        s[k] = None
     if status in ("Concluído PIX", "Concluído CARTÃO"):
         dt = None
         try:

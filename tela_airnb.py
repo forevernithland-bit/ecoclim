@@ -34,7 +34,8 @@ def renderizar():
         </style>
     """, unsafe_allow_html=True)
 
-    st.markdown("### 🏡 Gestão AirBnb / Locações")
+    import estilo
+    estilo.cabecalho("🏡", "AirBnb e Locações", "Entradas e saídas das locações.", eyebrow="Imóveis")
     
     with st.sidebar:
         # Logo removida daqui, pois o app.py já cuida disso!

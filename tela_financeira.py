@@ -648,6 +648,9 @@ def renderizar():
         </style>
     """, unsafe_allow_html=True)
     
+    import estilo
+    estilo.cabecalho("💰", "Controle Financeiro", "Patrimônio, entradas, rendimentos, ações e gráficos do ano.", eyebrow="Finanças")
+
     if "salvar_fin_clicado" not in st.session_state:
         st.session_state.salvar_fin_clicado = False
         

@@ -205,6 +205,8 @@ def renderizar():
     cat_produtos = st.session_state.db_produtos
     lista_nomes_produtos = cat_produtos['Item'].dropna().tolist() if not cat_produtos.empty else []
     
+    import estilo
+    estilo.cabecalho("📝", "Orçamentos", "Personalizado, em lote, rápido e listas de materiais hidráulicos.", eyebrow="Comercial")
     aba_personalizado, aba_lote, aba_rapido, aba_materiais_hid = st.tabs(["📝 Orçamento Personalizado", "📦 Gerador em Lote (Tabelas)", "⚡ Orçamento Rápido", "🧰 MATERIAIS HID"])
 
     # Roteador chamando as abas separadas em arquivos

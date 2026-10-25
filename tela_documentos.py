@@ -772,7 +772,8 @@ def _render_historico_pagos():
 
 
 def renderizar():
-    st.markdown("<br>", unsafe_allow_html=True)
+    import estilo
+    estilo.cabecalho("📁", "Central de Documentos", "Orçamentos, contratos, boletos, empréstimos, imagens e notas fiscais.", eyebrow="Arquivo")
 
     # Seletor de categoria guiado por session_state (substitui st.tabs, que não
     # permite selecionar aba por código). Assim o botão "Boletos" da Página

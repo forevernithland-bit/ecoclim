@@ -20,10 +20,19 @@ import re
 import unicodedata
 
 
+# Abreviações comuns digitadas no dia a dia -> palavra do catálogo.
+SINONIMOS = {"cx": "caixa", "reg": "registro", "tb": "tubo", "cond": "conector", "jlh": "joelho",
+             "aquec": "aquecedor", "bba": "bomba", "pressuriz": "pressurizadora", "solen": "solenoide"}
+
+
 def normalizar(texto):
     t = unicodedata.normalize("NFD", str(texto or "").lower())
     t = "".join(c for c in t if unicodedata.category(c) != "Mn")
-    return re.sub(r"[^a-z0-9]+", " ", t).strip()
+    # número colado em letra vira palavra separada: "20tubos" -> "20 tubos",
+    # "2m" -> "2 m", "28x22" -> "28 x 22", "250w" -> "250 w"
+    t = re.sub(r"(?<=\d)(?=[a-z])|(?<=[a-z])(?=\d)", " ", t)
+    t = re.sub(r"[^a-z0-9]+", " ", t).strip()
+    return " ".join(SINONIMOS.get(p, p) for p in t.split())
 
 
 def _singular(p):
@@ -93,6 +102,7 @@ def buscar(termo, itens, limite=10):
     if not normalizar(termo):
         return [], False
     pont = []
+    itens = list(dict.fromkeys(itens))  # mesmo nome de fornecedores diferentes aparece uma vez só
     for it in itens:
         s, c, n = _pontuar(termo, it)
         if n and c:

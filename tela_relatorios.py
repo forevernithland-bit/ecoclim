@@ -14,7 +14,8 @@ def renderizar():
         </style>
     """, unsafe_allow_html=True)
 
-    st.markdown("## 📈 Relatórios Gerenciais")
+    import estilo
+    estilo.cabecalho("📈", "Relatórios Gerenciais", "Faturamento, lucro e margem mês a mês.", eyebrow="Indicadores")
     st.caption("Visão estratégica de faturamento, lucro e margem dos serviços executados.")
     
     hoje = datetime.date.today()

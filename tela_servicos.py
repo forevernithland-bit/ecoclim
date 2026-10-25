@@ -833,12 +833,9 @@ def renderizar():
         </style>
     """, unsafe_allow_html=True)
 
+    import estilo
+    estilo.cabecalho("📋", "Gestão de Serviços", "Clientes em andamento, fotovoltaico, orçamentos, finalizados e a agenda dos instaladores.", eyebrow="Operação")
     col_tit, col_btn = st.columns([1.5, 2.5])
-    with col_tit:
-        # Menor e sem quebra de linha (pedido do Breno, 2026-10-02): no `##`
-        # padrão o título quebrava em duas linhas.
-        st.markdown("<h2 style='font-size:1.65rem; white-space:nowrap; margin:0; padding-top:.35rem;'>📋 Gestão de Serviços</h2>",
-                    unsafe_allow_html=True)
         
     supabase = st.session_state.supabase
 
@@ -1157,9 +1154,9 @@ def renderizar():
 
             c_ano, c_mes, c_vazio = st.columns([1.5, 1.5, 7])
             with c_ano:
-                ano_sel = st.selectbox("Ano", anos_disponiveis, index=anos_disponiveis.index(ano_atual), key="filtro_ano_fin")
+                ano_sel = st.selectbox("Ano", anos_disponiveis, key="filtro_ano_fin", **({} if st.session_state.get("filtro_ano_fin") in anos_disponiveis else {"index": anos_disponiveis.index(ano_atual)}))
             with c_mes:
-                mes_sel = st.selectbox("Mês", utils.meses_pt, index=mes_atual_idx - 1, key="filtro_mes_fin")
+                mes_sel = st.selectbox("Mês", utils.meses_pt, key="filtro_mes_fin", **({} if "filtro_mes_fin" in st.session_state else {"index": mes_atual_idx - 1}))
                 mes_sel_idx = utils.meses_pt.index(mes_sel) + 1
 
             df_fin_mes = df_fin[(df_fin['Ano'] == ano_sel) & (df_fin['Mes_idx'] == mes_sel_idx)].reset_index(drop=True)

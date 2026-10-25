@@ -280,6 +280,13 @@ def _aba_compras(supabase, catalogo):
     if _itens_compra_key not in st.session_state:
         st.session_state[_itens_compra_key] = []
 
+    import busca_inteligente as _bim
+    _pick_compra = _bim.retirar_escolha("bcompra")
+    if _pick_compra and _pick_compra in opcoes_item:
+        _c = opcoes_item[_pick_compra]
+        st.session_state[_itens_compra_key].append({"item": _c['item'], "qtd": 1, "custo_unitario_novo": float(_c.get('custo') or 0)})
+        st.rerun()
+    _bim.caixa_produto(list(opcoes_item.keys()), "bcompra", rotulo="🔎 Buscar material (qualquer parte do nome, em qualquer ordem)")
     col_sel, col_add = st.columns([3, 1])
     item_sel = col_sel.selectbox("Adicionar item", ["-- escolher --"] + list(opcoes_item.keys()), key="sel_item_compra")
     if col_add.button("➕ Adicionar", key="btn_add_item_compra", disabled=(item_sel == "-- escolher --")):
@@ -543,7 +550,8 @@ def _aba_vendas(supabase):
 
 
 def renderizar():
-    st.markdown("## 📦 Estoque de Materiais")
+    import estilo
+    estilo.cabecalho("📦", "Estoque de Materiais", "Catálogo, preços, estoque, compras e vendas de materiais hidráulicos.", eyebrow="Materiais")
     st.caption("Preço, estoque e vendas de materiais hidráulicos — separado da lista simples que só é enviada pro cliente/depósito sem custo pra Ecoclim.")
 
     supabase = st.session_state.supabase

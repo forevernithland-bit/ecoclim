@@ -497,7 +497,8 @@ else:
         if _ult is not None and st.session_state.menu_option != _ult:
             st.session_state["menu_navegacao"] = st.session_state.menu_option
         index_atual = lista_paginas.index(st.session_state.menu_option) if st.session_state.menu_option in lista_paginas else 0
-        menu = st.radio("Navegação", lista_paginas, index=index_atual, label_visibility="collapsed", key="menu_navegacao")
+        _kw_idx = {} if "menu_navegacao" in st.session_state else {"index": index_atual}
+        menu = st.radio("Navegação", lista_paginas, label_visibility="collapsed", key="menu_navegacao", **_kw_idx)
 
         if menu != st.session_state.menu_option:
             st.session_state.menu_option = menu
@@ -567,14 +568,12 @@ else:
             _popup_boletos_pendentes()
 
         # ---------- Cabeçalho do painel (claro e clean) ----------
-        st.markdown(
-            f"<div class='eco-hero'>"
-            f"<span class='chip'>📅 {hoje_br.strftime('%d/%m/%Y')}</span>"
-            f"<div class='htitle'>Painel operacional</div>"
-            f"<div class='sub'>Mais conforto, mais economia, mais sustentabilidade.</div>"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
+        _dias = ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"]
+        _nome_user = str(st.session_state.get('usuario_logado') or '').split(' ')[0]
+        _h = utils.obter_data_atual_br().strftime('%d/%m/%Y')
+        estilo.cabecalho("☀️", f"Olá{', ' + _nome_user if _nome_user else ''}! Painel operacional",
+                         "Mais conforto, mais economia, mais sustentabilidade.",
+                         eyebrow=f"{_dias[hoje_br.weekday()]}, {_h}")
 
         # ---------- KPIs (somente leitura, sem alterar regras de negócio) ----------
         try:

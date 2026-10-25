@@ -510,6 +510,17 @@ def montar_itens_material(supabase, catalogo_mat, opcoes_catalogo, chave_itens, 
             st.rerun()
 
     st.markdown("###### 🔎 Ou busque item por item")
+    # Busca inteligente (qualquer parte do nome, em qualquer ordem, sem acento):
+    # um clique em ➕ já põe o material na lista.
+    import busca_inteligente as _bim
+    _k_bm = f"bmat_{chave_itens}"
+    _pick_mat = _bim.retirar_escolha(_k_bm)
+    if _pick_mat and _pick_mat in opcoes_catalogo:
+        _c = opcoes_catalogo[_pick_mat]
+        st.session_state[chave_itens].append({"item": _c['item'], "qtd": 1, "unidade": _c.get('unidade', 'un'), "categoria": _c.get('categoria')})
+        st.toast(f"➕ {_c['item']} adicionado à lista", icon="✅")
+    _bim.caixa_produto(list(opcoes_catalogo.keys()), _k_bm,
+                       rotulo="🔎 Buscar material (ex.: joelho 90 22 · bucha 28x22 · cx quebra)")
     col_cat, col_man = st.columns(2)
     with col_cat:
         sel_catalogo = st.multiselect(
