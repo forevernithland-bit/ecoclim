@@ -1,4 +1,5 @@
 import streamlit as st
+import busca_inteligente
 import pandas as pd
 import datetime
 import re
@@ -831,7 +832,8 @@ def renderizar(lista_nomes_produtos, limpar_func):
             st.session_state.df_orc_prev = st.session_state.df_orc.copy()
         
         configuracao_colunas = {
-            "Produto da Base": st.column_config.SelectboxColumn("Produto", options=[""] + lista_nomes_produtos + ["OUTRO"], width="medium"), 
+            "Produto da Base": st.column_config.SelectboxColumn("Produto", options=[""] + lista_nomes_produtos + ["OUTRO"], width="medium",
+                                                                format_func=busca_inteligente.rotulo_com_atalho),
             "Produto Manual": st.column_config.TextColumn("Nome Manual", width="medium"),
             "Descrição": st.column_config.TextColumn("Detalhes / Garantia"), 
             "Quantidade": st.column_config.NumberColumn("Qtd", min_value=0, step=1, width="small"),

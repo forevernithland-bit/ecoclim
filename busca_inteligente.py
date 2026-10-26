@@ -108,6 +108,20 @@ def _pontuar(termo, item):
     return pts, casados, len(tk)
 
 
+_RE_TUBOS = re.compile(r"\b(\d+)\s*tubos?\b", re.IGNORECASE)
+
+
+def rotulo_com_atalho(nome):
+    """Rótulo para o dropdown NATIVO da grade (SelectboxColumn format_func).
+    Esse dropdown só acha texto contíguo ("20t" não casa com "20 TUBOS") e não
+    dá pra trocar o filtro dele — ele procura no RÓTULO. Então o atalho vai
+    escrito no rótulo: "... 20 TUBOS 304 · 20t". O valor salvo na grade
+    continua sendo o nome original (format_func só muda o que aparece)."""
+    nome = "" if nome is None else str(nome)
+    m = _RE_TUBOS.search(nome)
+    return f"{nome} · {m.group(1)}t" if m else nome
+
+
 def buscar(termo, itens, limite=10):
     """Devolve (lista_de_itens_ordenada, aproximado: bool)."""
     if not normalizar(termo):

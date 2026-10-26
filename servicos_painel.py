@@ -1,4 +1,5 @@
 import streamlit as st
+import busca_inteligente
 import pandas as pd
 import datetime
 import utils
@@ -142,7 +143,8 @@ def selecionar_itens_produtos(df_produtos, session_key, itens_iniciais=None):
         st.session_state[session_key] = df_itens.copy()
 
     config_itens = {
-        "Item": st.column_config.SelectboxColumn("Produto", options=[""] + lista_prod + ["OUTRO"], width="large"),
+        "Item": st.column_config.SelectboxColumn("Produto", options=[""] + lista_prod + ["OUTRO"], width="large",
+                                               format_func=busca_inteligente.rotulo_com_atalho),
         "Descrição": st.column_config.TextColumn("Descrição", width="medium"),
         "Qtd": st.column_config.NumberColumn("Qtd", min_value=0, width="small"),
         "Custo Un.": st.column_config.NumberColumn("Custo Fábrica", format="R$ %.2f", width="small"),

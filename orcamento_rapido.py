@@ -1,4 +1,5 @@
 import streamlit as st
+import busca_inteligente
 import pandas as pd
 import datetime
 import utils
@@ -90,7 +91,8 @@ def renderizar(lista_nomes_produtos, limpar_func):
         st.session_state.rapido_df_orc = pd.DataFrame([{"Produto da Base": "", "Produto Manual": "", "Quantidade": 0, "Custo (R$)": 0.0, "Venda (R$)": 0.0, "Custo Total": 0.0, "Venda Total": 0.0} for _ in range(5)])
     
     cfg_grid = {
-        "Produto da Base": st.column_config.SelectboxColumn("Produto", options=[""] + lista_nomes_produtos + ["OUTRO"], width="large"),
+        "Produto da Base": st.column_config.SelectboxColumn("Produto", options=[""] + lista_nomes_produtos + ["OUTRO"], width="large",
+                                                            format_func=busca_inteligente.rotulo_com_atalho),
         "Produto Manual": st.column_config.TextColumn("Nome Manual", width="medium"),
         "Quantidade": st.column_config.NumberColumn("Qtd", min_value=0, width="small"),
         "Custo (R$)": st.column_config.NumberColumn("Custo Unt.", format="R$ %.2f", width="small"),

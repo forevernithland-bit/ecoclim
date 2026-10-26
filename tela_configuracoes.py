@@ -1,4 +1,5 @@
 import streamlit as st
+import busca_inteligente
 import json
 import pandas as pd
 import io
@@ -485,7 +486,8 @@ def renderizar():
                 if col not in df_itens.columns: df_itens[col] = "" if col == "Produto" else 0
 
             cfg_itens = {
-                "Produto": st.column_config.SelectboxColumn("Equipamento (Produto)", options=[""] + lista_prod, width="large"),
+                "Produto": st.column_config.SelectboxColumn("Equipamento (Produto)", options=[""] + lista_prod, width="large",
+                                                            format_func=busca_inteligente.rotulo_com_atalho),
                 "Quantidade": st.column_config.NumberColumn("Qtd", min_value=0, step=1)
             }
 
