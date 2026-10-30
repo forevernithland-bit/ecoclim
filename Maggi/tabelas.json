@@ -1,5 +1,5 @@
 {
-  "atualizado_em": "2026-10-14T14:38:36Z",
+  "atualizado_em": "2026-10-30T13:59:47Z",
   "fonte": "Tabelas de precos Maggi (PDF)",
   "grupos": {
     "2014": {
@@ -68,75 +68,75 @@
       ]
     },
     "2016": {
-      "ref": "Outubro 2026",
+      "ref": "Novembro 2026",
       "prazos": [
         {
-          "meses": 141,
-          "taxa": 21
+          "meses": 140,
+          "taxa": 18
         }
       ],
       "fundo": 2.0,
       "seguro": 0.055,
       "creditos": [
-        193563,
-        232276,
-        270988,
-        309701,
-        348413,
-        387126
+        206456,
+        247747,
+        289038,
+        330330,
+        371621,
+        412912
       ],
-      "assembleia": "2026-10-21",
-      "vencimento": "2026-10-15",
+      "assembleia": "2026-11-25",
+      "vencimento": "2026-11-19",
       "linhas": [
         {
-          "credito": 193563,
-          "parcela": 1819.43,
-          "reduzida": 975.19,
-          "apos": 2444.87,
-          "disponivel": 145946.5
+          "credito": 206456,
+          "parcela": 1905.92,
+          "reduzida": 1020.97,
+          "apos": 2569.63,
+          "disponivel": 156906.56
         },
         {
-          "credito": 232276,
-          "parcela": 2183.32,
-          "reduzida": 1170.23,
-          "apos": 2933.85,
-          "disponivel": 175136.1
+          "credito": 247747,
+          "parcela": 2287.1,
+          "reduzida": 1225.16,
+          "apos": 3083.56,
+          "disponivel": 188287.72
         },
         {
-          "credito": 270988,
-          "parcela": 2547.2,
-          "reduzida": 1365.26,
-          "apos": 3422.81,
-          "disponivel": 204324.95
+          "credito": 289038,
+          "parcela": 2668.28,
+          "reduzida": 1429.35,
+          "apos": 3597.48,
+          "disponivel": 219668.88
         },
         {
-          "credito": 309701,
-          "parcela": 2911.08,
-          "reduzida": 1560.3,
-          "apos": 3911.79,
-          "disponivel": 233514.55
+          "credito": 330330,
+          "parcela": 3049.47,
+          "reduzida": 1633.55,
+          "apos": 4111.42,
+          "disponivel": 251050.8
         },
         {
-          "credito": 348413,
-          "parcela": 3274.96,
-          "reduzida": 1755.33,
-          "apos": 4400.76,
-          "disponivel": 262703.4
+          "credito": 371621,
+          "parcela": 3430.66,
+          "reduzida": 1837.74,
+          "apos": 4625.34,
+          "disponivel": 282431.96
         },
         {
-          "credito": 387126,
-          "parcela": 3638.85,
-          "reduzida": 1950.37,
-          "apos": 4889.74,
-          "disponivel": 291893.0
+          "credito": 412912,
+          "parcela": 3811.84,
+          "reduzida": 2041.93,
+          "apos": 5139.27,
+          "disponivel": 313813.12
         }
       ],
       "reduzida": {
         "meses": 60,
         "fator": 0.5,
-        "pct_ideal": 0.7092,
-        "pct_reduzida": 0.3546,
-        "pct_apos": 0.9719
+        "pct_ideal": 0.7143,
+        "pct_reduzida": 0.3571,
+        "pct_apos": 0.9822
       }
     },
     "757": {
@@ -294,10 +294,10 @@
       ]
     },
     "2019": {
-      "ref": "Outubro 2026",
+      "ref": "Novembro 2026",
       "prazos": [
         {
-          "meses": 191,
+          "meses": 190,
           "taxa": 25
         }
       ],
@@ -312,65 +312,65 @@
         314189,
         336631
       ],
-      "assembleia": "2026-10-21",
-      "vencimento": "2026-10-15",
+      "assembleia": "2026-11-25",
+      "vencimento": "2026-11-19",
       "linhas": [
         {
           "credito": 168315,
-          "parcela": 1227.08,
-          "reduzida": 671.86,
-          "apos": 1481.36,
+          "parcela": 1232.8,
+          "reduzida": 674.83,
+          "apos": 1490.48,
           "disponivel": 125899.62
         },
         {
           "credito": 201978,
-          "parcela": 1472.49,
-          "reduzida": 806.23,
-          "apos": 1777.63,
+          "parcela": 1479.36,
+          "reduzida": 809.79,
+          "apos": 1788.57,
           "disponivel": 151079.54
         },
         {
           "credito": 224420,
-          "parcela": 1636.1,
-          "reduzida": 895.81,
-          "apos": 1975.14,
+          "parcela": 1643.74,
+          "reduzida": 899.77,
+          "apos": 1987.3,
           "disponivel": 167866.16
         },
         {
           "credito": 258084,
-          "parcela": 1881.53,
-          "reduzida": 1030.19,
-          "apos": 2271.42,
+          "parcela": 1890.31,
+          "reduzida": 1034.74,
+          "apos": 2285.41,
           "disponivel": 193046.83
         },
         {
           "credito": 280526,
-          "parcela": 2045.14,
-          "reduzida": 1119.77,
-          "apos": 2468.94,
+          "parcela": 2054.68,
+          "reduzida": 1124.72,
+          "apos": 2484.14,
           "disponivel": 209833.45
         },
         {
           "credito": 314189,
-          "parcela": 2290.55,
-          "reduzida": 1254.14,
-          "apos": 2765.21,
+          "parcela": 2301.24,
+          "reduzida": 1259.68,
+          "apos": 2782.23,
           "disponivel": 235013.37
         },
         {
           "credito": 336631,
-          "parcela": 2454.16,
-          "reduzida": 1343.72,
-          "apos": 2962.72,
+          "parcela": 2465.61,
+          "reduzida": 1349.66,
+          "apos": 2980.96,
           "disponivel": 251799.99
         }
       ],
       "reduzida": {
         "meses": 60,
         "fator": 0.5,
-        "pct_ideal": 0.5236,
-        "pct_reduzida": 0.2618,
-        "pct_apos": 0.6435
+        "pct_ideal": 0.5263,
+        "pct_reduzida": 0.2632,
+        "pct_apos": 0.6478
       }
     },
     "2015": {
@@ -433,10 +433,10 @@
       ]
     },
     "2018": {
-      "ref": "Outubro 2026",
+      "ref": "Novembro 2026",
       "prazos": [
         {
-          "meses": 158,
+          "meses": 157,
           "taxa": 21
         }
       ],
@@ -451,58 +451,58 @@
         416984,
         463316
       ],
-      "assembleia": "2026-10-21",
-      "vencimento": "2026-10-15",
+      "assembleia": "2026-11-25",
+      "vencimento": "2026-11-19",
       "linhas": [
         {
           "credito": 231658,
-          "parcela": 1944.16,
-          "reduzida": 1049.94,
-          "apos": 2491.6
+          "parcela": 1955.47,
+          "reduzida": 1055.6,
+          "apos": 2512.23
         },
         {
           "credito": 266406,
-          "parcela": 2235.78,
-          "reduzida": 1207.43,
-          "apos": 2865.34
+          "parcela": 2248.78,
+          "reduzida": 1213.93,
+          "apos": 2889.06
         },
         {
           "credito": 301155,
-          "parcela": 2527.41,
-          "reduzida": 1364.92,
-          "apos": 3239.08
+          "parcela": 2542.1,
+          "reduzida": 1372.27,
+          "apos": 3265.9
         },
         {
           "credito": 347487,
-          "parcela": 2916.24,
-          "reduzida": 1574.92,
-          "apos": 3737.4
+          "parcela": 2933.2,
+          "reduzida": 1583.39,
+          "apos": 3768.35
         },
         {
           "credito": 382235,
-          "parcela": 3207.86,
-          "reduzida": 1732.4,
-          "apos": 4111.14
+          "parcela": 3226.51,
+          "reduzida": 1741.73,
+          "apos": 4145.18
         },
         {
           "credito": 416984,
-          "parcela": 3499.49,
-          "reduzida": 1889.9,
-          "apos": 4484.88
+          "parcela": 3519.84,
+          "reduzida": 1900.07,
+          "apos": 4522.02
         },
         {
           "credito": 463316,
-          "parcela": 3888.32,
-          "reduzida": 2099.89,
-          "apos": 4983.2
+          "parcela": 3910.93,
+          "reduzida": 2111.19,
+          "apos": 5024.47
         }
       ],
       "reduzida": {
         "meses": 60,
         "fator": 0.5,
-        "pct_ideal": 0.6329,
-        "pct_reduzida": 0.3165,
-        "pct_apos": 0.8266
+        "pct_ideal": 0.6369,
+        "pct_reduzida": 0.3185,
+        "pct_apos": 0.8339
       }
     },
     "8000": {
@@ -629,10 +629,10 @@
       }
     },
     "2020": {
-      "ref": "Outubro 2026",
+      "ref": "Novembro 2026",
       "prazos": [
         {
-          "meses": 202,
+          "meses": 201,
           "taxa": 27
         }
       ],
@@ -648,72 +648,72 @@
         391093,
         422803
       ],
-      "assembleia": "2026-10-21",
-      "vencimento": "2026-10-15",
+      "assembleia": "2026-11-25",
+      "vencimento": "2026-11-19",
       "linhas": [
         {
           "credito": 211402,
-          "parcela": 1488.54,
-          "reduzida": 818.55,
-          "apos": 1771.58,
+          "parcela": 1495.03,
+          "reduzida": 822.07,
+          "apos": 1781.32,
           "disponivel": 157283.09
         },
         {
           "credito": 243112,
-          "parcela": 1711.82,
-          "reduzida": 941.33,
-          "apos": 2037.32,
+          "parcela": 1719.29,
+          "reduzida": 945.38,
+          "apos": 2048.52,
           "disponivel": 180875.33
         },
         {
           "credito": 274822,
-          "parcela": 1935.1,
-          "reduzida": 1064.11,
-          "apos": 2303.05,
+          "parcela": 1943.54,
+          "reduzida": 1068.68,
+          "apos": 2315.72,
           "disponivel": 204467.57
         },
         {
           "credito": 306532,
-          "parcela": 2158.38,
-          "reduzida": 1186.89,
-          "apos": 2568.79,
+          "parcela": 2167.79,
+          "reduzida": 1191.99,
+          "apos": 2582.91,
           "disponivel": 228059.81
         },
         {
           "credito": 327672,
-          "parcela": 2307.23,
-          "reduzida": 1268.75,
-          "apos": 2745.94,
+          "parcela": 2317.3,
+          "reduzida": 1274.2,
+          "apos": 2761.04,
           "disponivel": 243787.97
         },
         {
           "credito": 359383,
-          "parcela": 2530.52,
-          "reduzida": 1391.53,
-          "apos": 3011.69,
+          "parcela": 2541.56,
+          "reduzida": 1397.51,
+          "apos": 3028.25,
           "disponivel": 267380.95
         },
         {
           "credito": 391093,
-          "parcela": 2753.8,
-          "reduzida": 1514.31,
-          "apos": 3277.42,
+          "parcela": 2765.81,
+          "reduzida": 1520.82,
+          "apos": 3295.44,
           "disponivel": 290973.19
         },
         {
           "credito": 422803,
-          "parcela": 2977.07,
-          "reduzida": 1637.09,
-          "apos": 3543.16,
+          "parcela": 2990.06,
+          "reduzida": 1644.13,
+          "apos": 3562.64,
           "disponivel": 314565.43
         }
       ],
       "reduzida": {
         "meses": 60,
         "fator": 0.5,
-        "pct_ideal": 0.4951,
-        "pct_reduzida": 0.2475,
-        "pct_apos": 0.5997
+        "pct_ideal": 0.4975,
+        "pct_reduzida": 0.2488,
+        "pct_apos": 0.6033
       }
     },
     "2013": {
@@ -770,10 +770,10 @@
       ]
     },
     "2017": {
-      "ref": "Outubro 2026",
+      "ref": "Novembro 2026",
       "prazos": [
         {
-          "meses": 149,
+          "meses": 148,
           "taxa": 21
         }
       ],
@@ -788,42 +788,42 @@
         413952,
         451585
       ],
-      "assembleia": "2026-10-21",
-      "vencimento": "2026-10-15",
+      "assembleia": "2026-11-25",
+      "vencimento": "2026-11-19",
       "linhas": [
         {
           "credito": 225792,
-          "parcela": 2000.16,
+          "parcela": 2012.83,
           "disponivel": 170698.75
         },
         {
           "credito": 263424,
-          "parcela": 2333.52,
+          "parcela": 2348.3,
           "disponivel": 199148.54
         },
         {
           "credito": 301056,
-          "parcela": 2666.88,
+          "parcela": 2683.78,
           "disponivel": 227598.34
         },
         {
           "credito": 338688,
-          "parcela": 3000.24,
+          "parcela": 3019.25,
           "disponivel": 256048.13
         },
         {
           "credito": 376320,
-          "parcela": 3333.6,
+          "parcela": 3354.72,
           "disponivel": 284497.92
         },
         {
           "credito": 413952,
-          "parcela": 3666.96,
+          "parcela": 3690.19,
           "disponivel": 312947.71
         },
         {
           "credito": 451585,
-          "parcela": 4000.33,
+          "parcela": 4025.67,
           "disponivel": 341398.26
         }
       ]
@@ -902,10 +902,10 @@
       ]
     },
     "645": {
-      "ref": "",
+      "ref": "Novembro 2026",
       "prazos": [
         {
-          "meses": 150,
+          "meses": 149,
           "taxa": 20
         }
       ],
@@ -918,33 +918,33 @@
         190000,
         220000
       ],
-      "assembleia": "2026-10-20",
-      "vencimento": "2026-10-20",
+      "assembleia": "2026-11-24",
+      "vencimento": "2026-11-19",
       "linhas": [
         {
           "credito": 110000,
           "cod": "MG64501",
-          "parcela": 953.93
+          "parcela": 959.78
         },
         {
           "credito": 130000,
           "cod": "MG64502",
-          "parcela": 1127.37
+          "parcela": 1134.29
         },
         {
           "credito": 160000,
           "cod": "MG64503",
-          "parcela": 1387.53
+          "parcela": 1396.05
         },
         {
           "credito": 190000,
           "cod": "MG64504",
-          "parcela": 1647.69
+          "parcela": 1657.81
         },
         {
           "credito": 220000,
           "cod": "MG64505",
-          "parcela": 1907.86
+          "parcela": 1919.57
         }
       ]
     },
@@ -1022,10 +1022,10 @@
       ]
     },
     "634": {
-      "ref": "Outubro 2026",
+      "ref": "Novembro 2026",
       "prazos": [
         {
-          "meses": 90,
+          "meses": 89,
           "taxa": 25
         }
       ],
@@ -1049,103 +1049,103 @@
         322775,
         333904
       ],
-      "assembleia": "2026-10-19",
-      "vencimento": "2026-10-15",
+      "assembleia": "2026-11-24",
+      "vencimento": "2026-11-19",
       "linhas": [
         {
           "credito": 166952,
           "cod": "MG63401",
-          "parcela": 2442.48,
+          "parcela": 2468.78,
           "disponivel": 103844.14
         },
         {
           "credito": 178081,
           "cod": "MG63402",
-          "parcela": 2605.3,
+          "parcela": 2633.35,
           "disponivel": 110766.38
         },
         {
           "credito": 189212,
           "cod": "MG63403",
-          "parcela": 2768.15,
+          "parcela": 2797.95,
           "disponivel": 117689.86
         },
         {
           "credito": 200342,
           "cod": "MG63404",
-          "parcela": 2930.98,
+          "parcela": 2962.53,
           "disponivel": 124612.72
         },
         {
           "credito": 211472,
           "cod": "MG63405",
-          "parcela": 3093.81,
+          "parcela": 3127.11,
           "disponivel": 131535.58
         },
         {
           "credito": 222603,
           "cod": "MG63406",
-          "parcela": 3256.65,
+          "parcela": 3291.71,
           "disponivel": 138459.07
         },
         {
           "credito": 233733,
           "cod": "MG63407",
-          "parcela": 3419.48,
+          "parcela": 3456.29,
           "disponivel": 145381.93
         },
         {
           "credito": 244863,
           "cod": "MG63408",
-          "parcela": 3582.31,
+          "parcela": 3620.88,
           "disponivel": 152304.79
         },
         {
           "credito": 255993,
           "cod": "MG63409",
-          "parcela": 3745.14,
+          "parcela": 3785.46,
           "disponivel": 159227.65
         },
         {
           "credito": 267124,
           "cod": "MG63410",
-          "parcela": 3907.99,
+          "parcela": 3950.06,
           "disponivel": 166151.13
         },
         {
           "credito": 278254,
           "cod": "MG63411",
-          "parcela": 4070.82,
+          "parcela": 4114.64,
           "disponivel": 173073.99
         },
         {
           "credito": 289384,
           "cod": "MG63412",
-          "parcela": 4233.65,
+          "parcela": 4279.23,
           "disponivel": 179996.85
         },
         {
           "credito": 300514,
           "cod": "MG63413",
-          "parcela": 4396.48,
+          "parcela": 4443.81,
           "disponivel": 186919.71
         },
         {
           "credito": 311644,
           "cod": "MG63414",
-          "parcela": 4559.31,
+          "parcela": 4608.39,
           "disponivel": 193842.57
         },
         {
           "credito": 322775,
           "cod": "MG63415",
-          "parcela": 4722.15,
+          "parcela": 4772.99,
           "disponivel": 200766.05
         },
         {
           "credito": 333904,
           "cod": "MG63416",
-          "parcela": 4884.97,
+          "parcela": 4937.56,
           "disponivel": 207688.29
         }
       ]
