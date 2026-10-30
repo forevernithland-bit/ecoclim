@@ -983,7 +983,13 @@ def renderizar():
             dict_res_p[m] = [utils.to_br_currency(pat_liq[m]), utils.to_br_currency(pat_tot[m]), utils.to_br_currency(var_abs[m]), f"{var_pct[m]:.2f}%".replace('.', ',')]
 
     meta = carregar_meta_patrimonio()
-    rend_acum = float(rend_tot_full[meses_calc].sum())
+    # Ritmo para a meta: média dos aportes + média dos juros nos últimos 4 meses (incluindo o mês corrente)
+    _meses_ritmo = list(meses_calc[-4:])
+    _aportes_tot = ap_xp + ap_it + ap_itau
+    media_aporte_4 = float(_aportes_tot[_meses_ritmo].mean()) if _meses_ritmo else 0.0
+    media_rend_4 = float(rend_tot_full[_meses_ritmo].mean()) if _meses_ritmo else 0.0
+    ritmo_meta = media_aporte_4 + media_rend_4
+    rend_acum =float(rend_tot_full[meses_calc].sum())
     try:
         rend_acum_prev = total_juros_ano(ano_selecionado - 1, meses_calc)
     except Exception:
@@ -1013,8 +1019,11 @@ def renderizar():
                 falta = max(meta - pat_atual, 0.0)
                 if falta <= 0:
                     st.success("🎉 Meta atingida!")
-                elif media_rend_r > 0:
-                    st.caption(f"Faltam {utils.to_br_currency_md(falta)} — no ritmo atual de juros (~{utils.to_br_currency_md(media_rend_r)}/mês), cerca de **{falta/media_rend_r:.0f} meses** para a meta.")
+                elif ritmo_meta > 0:
+                    st.caption(
+                        f"Faltam {utils.to_br_currency_md(falta)} — no ritmo dos últimos {len(_meses_ritmo)} meses "
+                        f"(aportes ~{utils.to_br_currency_md(media_aporte_4)}/mês + juros ~{utils.to_br_currency_md(media_rend_4)}/mês "
+                        f"= ~{utils.to_br_currency_md(ritmo_meta)}/mês), cerca de **{int(np.ceil(falta/ritmo_meta))} meses** para a meta.")
                 else:
                     st.caption(f"Faltam {utils.to_br_currency_md(falta)} para a meta.")
             else:

@@ -2290,6 +2290,12 @@ def garantir_lembrete_boleto(supabase, servico_id, cliente_nome, vencimento_iso,
     esta função só mexe no Supabase.
     """
     try:
+        valor_estimado = float(valor_estimado or 0.0)
+        if valor_estimado != valor_estimado:  # NaN estourava o insert (JSON) e o lembrete nunca nascia
+            valor_estimado = 0.0
+    except Exception:
+        valor_estimado = 0.0
+    try:
         linhas = (supabase.table('boletos_fornecedores').select('id,link_drive_id,valor')
                   .eq('servico_id', servico_id).execute().data or [])
     except Exception:
@@ -2317,6 +2323,53 @@ def garantir_lembrete_boleto(supabase, servico_id, cliente_nome, vencimento_iso,
             "cliente": cliente_nome, "servico_id": servico_id, "vencimento": vencimento_iso,
             "valor": valor_estimado or 0.0, "link_drive_id": None, "status": "Pendente",
         }).execute()
+
+
+def reparar_lembretes_boleto(supabase, dias_atras=7):
+    """Cria o lembrete de pagamento de quem tem 'Vencimento Boleto (Cliente)'
+    preenchido mas NÃO tem nenhuma linha em boletos_fornecedores — caso do
+    Venceslau Carlos (2026-10-27): a data foi salva ANTES do lembrete automático
+    existir (2026-09-29) e esse lembrete só nascia ao clicar em Salvar, então
+    nunca mais foi criado. Sem valor também vale: o lembrete nasce com R$ 0,00 e
+    aparece marcado como "sem valor" (ver o aviso periódico na Página Inicial).
+    Datas já vencidas há mais de `dias_atras` dias ficam de fora (provavelmente
+    já pagos; reviver aquilo só geraria um "ATRASADO" eterno). Devolve os nomes
+    dos clientes que ganharam lembrete."""
+    criados = []
+    try:
+        hoje = obter_data_atual_br()
+        limite = (hoje - datetime.timedelta(days=dias_atras)).strftime('%Y-%m-%d')
+        servs = (supabase.table('servicos_andamento')
+                 .select('id,nome_cliente,vencimento_boleto,pago_avista_fornecedor,dados_contrato,detalhamento_itens,status_projeto')
+                 .in_('status_projeto', ['Em Andamento', 'Aguardando Pagamento', 'Aguardando Peças', 'Concluído PIX', 'Concluído CARTÃO'])
+                 .gte('vencimento_boleto', limite).execute().data or [])
+        if not servs:
+            return criados
+        com = {b.get('servico_id') for b in (supabase.table('boletos_fornecedores').select('servico_id').execute().data or [])}
+        for sv in servs:
+            if sv['id'] in com or sv.get('pago_avista_fornecedor'):
+                continue
+            dc = sv.get('dados_contrato') if isinstance(sv.get('dados_contrato'), dict) else {}
+            if dc.get('fv'):  # indicação fotovoltaica não tem boleto de fornecedor
+                continue
+            custo = 0.0
+            try:
+                for it in sv.get('detalhamento_itens') or []:
+                    v = float(it.get('Custo Total') or 0)
+                    custo += v if v == v else 0.0
+            except Exception:
+                custo = 0.0
+            garantir_lembrete_boleto(supabase, sv['id'], sv.get('nome_cliente') or 'Sem nome',
+                                     str(sv['vencimento_boleto'])[:10], round(custo, 2))
+            criados.append(sv.get('nome_cliente') or 'Sem nome')
+    except Exception:
+        pass
+    if criados:
+        try:
+            sincronizar_boletos_com_calendar()
+        except Exception:
+            pass
+    return criados
 
 
 # ==========================================
@@ -2429,6 +2482,8 @@ def _sincronizar_boletos_com_calendar_impl():
             
             description = f"Identificador interno do ERP Ecoclim: [Ecoclim ID: {id_db}]"
             valor_formatado = f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            if valor <= 0 and status != 'Pago' and b.get('servico_id'):
+                valor_formatado = "⚠️ SEM VALOR"
 
             if status == 'Pago':
                 start_date = venc_dt

@@ -204,6 +204,11 @@ def renderizar():
 
     cat_produtos = st.session_state.db_produtos
     lista_nomes_produtos = cat_produtos['Item'].dropna().tolist() if not cat_produtos.empty else []
+    try:
+        import catalogo_ajustes  # itens ocultos (sem estoque) não aparecem na escolha
+        lista_nomes_produtos = catalogo_ajustes.visiveis(st.session_state.supabase, lista_nomes_produtos)
+    except Exception:
+        pass
     
     import estilo
     estilo.cabecalho("📝", "Orçamentos", "Personalizado, em lote, rápido e listas de materiais hidráulicos.", eyebrow="Comercial")

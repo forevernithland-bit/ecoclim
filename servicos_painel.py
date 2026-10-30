@@ -107,6 +107,14 @@ def selecionar_itens_produtos(df_produtos, session_key, itens_iniciais=None):
     Cliente para Em Andamento" da Agenda, pra não duplicar essa lógica.
     Retorna (df_itens_final, custo_total, venda_total, lucro_total)."""
     lista_prod = df_produtos['Item'].dropna().tolist() if not df_produtos.empty and 'Item' in df_produtos.columns else []
+    try:
+        # esconde os itens ocultos (sem estoque), mas mantém na lista o que já está nesta grade
+        import catalogo_ajustes
+        lista_prod = catalogo_ajustes.visiveis(
+            st.session_state.supabase, lista_prod,
+            manter=[l.get('Item') for l in (itens_iniciais or []) if isinstance(l, dict)])
+    except Exception:
+        pass
 
     colunas_padrao = ['Item', 'Descrição', 'Qtd', 'Custo Un.', 'Venda Un.', 'Custo Total', 'Venda Total']
     itens_json = itens_iniciais or []

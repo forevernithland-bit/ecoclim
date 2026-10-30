@@ -164,6 +164,10 @@ def render(supabase, projeto, prefix_key):
         # ---- itens do serviço x catálogo -----------------------------------
         catalogo = supabase.table("catalogo_produtos").select("id,item,custo,venda,ncm,codigo_externo,codigo_barra").execute().data or []
         por_nome = {_norm(c["item"]): c for c in catalogo if c.get("item")}
+        import catalogo_ajustes  # orçamento antigo com nome antigo do reservatório
+        for _antigo, _novo in catalogo_ajustes.ALIAS_NOMES_ANTIGOS.items():
+            if _norm(_novo) in por_nome:
+                por_nome.setdefault(_antigo, por_nome[_norm(_novo)])
         itens, fora, sem_ncm = [], [], []
         for linha in reg.get("detalhamento_itens") or []:
             nome = str(linha.get("Item") or "").strip()

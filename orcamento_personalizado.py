@@ -669,7 +669,10 @@ def renderizar(lista_nomes_produtos, limpar_func):
                             v_un = float(it.get('Venda Un.', 0.0))
                             qtd = float(it.get('Qtd', 0))
                             
-                            c_un = 0.0
+                            try:
+                                c_un = float(it.get('Custo Un.', 0) or 0)  # custo salvo no orçamento (vale p/ item que saiu do catálogo)
+                            except Exception:
+                                c_un = 0.0
                             p_nome = it.get('Item', '')
                             p_manual = ""
                             

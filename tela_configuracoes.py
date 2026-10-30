@@ -34,6 +34,25 @@ def renderizar():
 
     tabs = st.tabs(["🛒 Produtos", "🛠️ Serviços", "🤝 Outros / Terceiros", "📊 Taxas", "📦 Kits em Lote", "👷‍♂️ Instaladores", "🛡️ Backup e Lixeira"], key="cfg_abas", on_change="rerun")
     
+    def _bloco_itens_ocultos():
+        """Esconde das listas de escolha (orçamento, serviços, kits, busca) os
+        equipamentos sem estoque — continuam no catálogo e nos clientes que já os têm."""
+        import catalogo_ajustes
+        _sb = st.session_state.supabase
+        with st.expander("👁️ Itens ocultos (sem estoque)", expanded=False):
+            st.caption("Itens marcados aqui deixam de aparecer ao montar orçamento, serviço ou kit. "
+                       "Nada é apagado: preço, NCM e clientes que já usam o item continuam como estão. "
+                       "Para voltar a vender, é só tirar da lista.")
+            todos = sorted(utils.load_catalog('catalogo_produtos')['Item'].dropna().astype(str).str.strip().tolist())
+            atuais = [n for n in catalogo_ajustes.ler_ocultos_nomes(_sb)]
+            padrao = [n for n in atuais if n in todos]
+            escolhidos = st.multiselect("Ocultar da lista", todos, default=padrao, key="cfg_ocultos_sel",
+                                        placeholder="Digite para buscar o item…")
+            if st.button("💾 Salvar itens ocultos", key="cfg_ocultos_salvar"):
+                catalogo_ajustes.gravar_ocultos(_sb, escolhidos)
+                st.success(f"{len(escolhidos)} item(ns) oculto(s).")
+                st.rerun()
+
     # =========================================================================
     # FUNÇÕES DE IMPORTAÇÃO/EXPORTAÇÃO DE CATÁLOGOS
     # =========================================================================
@@ -353,7 +372,9 @@ def renderizar():
             utils.load_catalog.clear()
             st.rerun()
 
-    with tabs[0]: exibir_aba_catalogo('catalogo_produtos', 'Produtos')
+    with tabs[0]:
+        exibir_aba_catalogo('catalogo_produtos', 'Produtos')
+        _bloco_itens_ocultos()
     with tabs[1]: exibir_aba_catalogo('catalogo_servicos', 'Serviços')
     with tabs[2]: exibir_aba_catalogo('catalogo_outros', 'Terceiros')
     
@@ -485,8 +506,10 @@ def renderizar():
             for col in ["Produto", "Quantidade"]:
                 if col not in df_itens.columns: df_itens[col] = "" if col == "Produto" else 0
 
+            import catalogo_ajustes  # sem os itens ocultos, mas mantendo o que o kit já tem
+            _lista_prod_kit = catalogo_ajustes.visiveis(st.session_state.supabase, lista_prod, manter=list(df_itens["Produto"].dropna()))
             cfg_itens = {
-                "Produto": st.column_config.SelectboxColumn("Equipamento (Produto)", options=[""] + lista_prod, width="large",
+                "Produto": st.column_config.SelectboxColumn("Equipamento (Produto)", options=[""] + _lista_prod_kit, width="large",
                                                             format_func=busca_inteligente.rotulo_com_atalho),
                 "Quantidade": st.column_config.NumberColumn("Qtd", min_value=0, step=1)
             }

@@ -246,6 +246,52 @@ def _painel_lembretes_erp():
 _MARCADOR_LEMBRETE_BOLETO = "🧾 [Auto] Verificar boletos sem vencimento"
 
 
+_MARCADOR_LEMBRETE_SEM_VALOR = "💲 [Auto] Verificar lembretes de pagamento sem valor"
+
+
+def _checar_aviso_sem_valor(supabase):
+    """Aviso semanal (mesmo mecanismo do popup de boletos sem vencimento, com o
+    próprio lembrete "motor"): lista os clientes cujo lembrete de pagamento
+    pendente está com valor zerado — o lembrete existe e avisa na data, mas o
+    valor a pagar ainda não foi informado."""
+    import lembretes_erp as L
+    agora = L._agora_utc()
+    try:
+        existentes = (supabase.table('lembretes').select('*')
+                      .eq('texto', _MARCADOR_LEMBRETE_SEM_VALOR).eq('feito', False).execute().data or [])
+    except Exception:
+        return
+    if not existentes:
+        try:
+            supabase.table('lembretes').insert({
+                "texto": _MARCADOR_LEMBRETE_SEM_VALOR, "categoria": "ecoclim", "origem": "erp",
+                "lembrar_em": L._iso(agora), "repetir": "semanal",
+            }).execute()
+        except Exception:
+            pass
+        return
+    lem = existentes[0]
+    dt_venc = L._parse(lem.get('lembrar_em'))
+    if not dt_venc or dt_venc > agora:
+        return
+    try:
+        pend = (supabase.table('boletos_fornecedores').select('cliente,vencimento,valor,servico_id')
+                .eq('status', 'Pendente').order('vencimento').execute().data or [])
+    except Exception:
+        pend = []
+    sem_valor = []
+    for b in pend:
+        try:
+            if b.get('servico_id') and float(b.get('valor') or 0) <= 0:
+                v = str(b.get('vencimento') or '')[:10]
+                sem_valor.append(f"{b.get('cliente') or 'Sem nome'} — vence {v[8:10]}/{v[5:7]}/{v[:4]}")
+        except Exception:
+            pass
+    L.marcar_feito(lem, True)
+    if sem_valor:
+        st.session_state['_popup_sem_valor'] = sem_valor
+
+
 def _checar_popup_boletos_pendentes(supabase):
     import lembretes_erp as L
     agora = L._agora_utc()
@@ -312,16 +358,24 @@ def _checar_popup_boletos_pendentes(supabase):
         st.session_state['_popup_boletos_pendentes_nomes'] = nomes
 
 
-@st.dialog("🧾 Boletos sem data de vencimento")
+@st.dialog("🧾 Boletos: o que falta preencher")
 def _popup_boletos_pendentes():
     nomes = st.session_state.get('_popup_boletos_pendentes_nomes', [])
-    st.write("Estes clientes estão **Em Andamento** e ainda não têm a data de "
-             "vencimento do boleto preenchida:")
-    for n in nomes:
-        st.markdown(f"- {n}")
-    st.caption("Abra o projeto → aba 🧾 Fiscal/Boletos e preencha assim que souber a data.")
+    sem_valor = st.session_state.get('_popup_sem_valor', [])
+    if nomes:
+        st.write("Estes clientes estão **Em Andamento** e ainda não têm a data de "
+                 "vencimento do boleto preenchida:")
+        for n in nomes:
+            st.markdown(f"- {n}")
+        st.caption("Abra o projeto → aba 🧾 Fiscal/Boletos e preencha assim que souber a data.")
+    if sem_valor:
+        st.write("O lembrete de pagamento existe, mas está **sem valor** (R$ 0,00):")
+        for n in sem_valor:
+            st.markdown(f"- {n}")
+        st.caption("Na Página Inicial, clique no ⚙️ do lembrete (ou ative ✏️ Editar valores rapidamente) e informe o valor.")
     if st.button("OK, entendi", type="primary", use_container_width=True):
         st.session_state.pop('_popup_boletos_pendentes_nomes', None)
+        st.session_state.pop('_popup_sem_valor', None)
         st.rerun()
 
 
@@ -563,8 +617,19 @@ else:
 
         hoje_br = utils.obter_data_atual_br()
 
+        # Uma vez por sessão: cria o lembrete de quem tem data de boleto mas ficou
+        # sem lembrete (ex.: data salva antes do lembrete automático existir).
+        if not st.session_state.get('_lembretes_boleto_reparados'):
+            st.session_state['_lembretes_boleto_reparados'] = True
+            try:
+                _rep = utils.reparar_lembretes_boleto(st.session_state.supabase)
+                if _rep:
+                    st.toast("🔔 Lembrete de pagamento criado para: " + ", ".join(_rep), icon="✅")
+            except Exception:
+                pass
         _checar_popup_boletos_pendentes(st.session_state.supabase)
-        if st.session_state.get('_popup_boletos_pendentes_nomes'):
+        _checar_aviso_sem_valor(st.session_state.supabase)
+        if st.session_state.get('_popup_boletos_pendentes_nomes') or st.session_state.get('_popup_sem_valor'):
             _popup_boletos_pendentes()
 
         # ---------- Cabeçalho do painel (claro e clean) ----------
@@ -694,7 +759,10 @@ else:
                                 key=f"ev_pag_{b['id']}_{round(float(b.get('valor') or 0), 2)}", label_visibility="collapsed")
                     else:
                         col_info, col_btn_doc, col_btn_pagar, col_btn_cfg = st.columns([7.0, 1.2, 1.2, 0.8])
-                        _valor_html = f'<span style="font-size: 14px; font-weight: 700; color: #004488; white-space: nowrap;">{utils.to_br_currency(b["valor"])}</span>'
+                        if float(b.get("valor") or 0) <= 0 and b.get("servico_id"):
+                            _valor_html = '<span style="font-size: 12px; font-weight: 700; color: #b45309; white-space: nowrap;" title="Edite o valor no ⚙️">⚠️ SEM VALOR</span>'
+                        else:
+                            _valor_html = f'<span style="font-size: 14px; font-weight: 700; color: #004488; white-space: nowrap;">{utils.to_br_currency(b["valor"])}</span>'
                     
                     with col_info:
                         st.markdown(f"""

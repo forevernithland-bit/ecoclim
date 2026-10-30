@@ -144,7 +144,8 @@ def buscar(sb, termo):
         pass
     try:
         prods = sb.table("catalogo_produtos").select("item,venda,custo").execute().data or []
-        nomes = [p["item"] for p in prods if p.get("item")]
+        import catalogo_ajustes
+        nomes = catalogo_ajustes.visiveis(sb, [p["item"] for p in prods if p.get("item")])
         top, _aprox = bi.buscar(termo, nomes, limite=MAX_POR_GRUPO)
         mapa = {p["item"]: p for p in prods}
         res["produtos"] = [mapa[n] for n in top if n in mapa] if not _aprox else []
