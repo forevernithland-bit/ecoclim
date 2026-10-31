@@ -2,8 +2,9 @@ name: Atualizar médias de lance
 
 on:
   schedule:
-    # Toda segunda-feira às 09:00 UTC (~06:00 horário de Brasília)
-    - cron: '0 9 * * 1'
+    # Todos os dias às 09:00 UTC (~06:00 de Brasília), para pegar cada assembleia
+    # logo depois que o resultado sai no site da Maggi
+    - cron: '0 9 * * *'
   workflow_dispatch: {}
 
 permissions:
