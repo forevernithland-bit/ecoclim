@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - 'Maggi/tabelas/**'
+      - 'maggi/tabelas/**'
   workflow_dispatch: {}
   schedule:
     - cron: '0 9 1 * *'
