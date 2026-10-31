@@ -36,6 +36,12 @@ GRUPOS = {
     "757":  {"fixo": [25, 35]},
 }
 
+# Grupo NOVO (que ainda nao esta na lista acima, mas ja tem tabela em tabelas.json):
+# o robo busca a media dele sozinho. Como ainda nao sabemos os lances fixos dele,
+# exclui os valores inteiros que sao fixos em todos os grupos conhecidos (20, 25, 30, 35).
+# Para ajustar um grupo, e so acrescenta-lo no dicionario GRUPOS acima.
+FIXOS_PADRAO = [20, 25, 30, 35]
+
 OBS_SEM_LIVRE = "Sem contemplacao por lance livre nos ultimos resultados disponiveis."
 
 HEADERS = {
@@ -103,6 +109,15 @@ def media_grupo(g, fixo, datas):
     return round(sum(vals) / len(vals), 2), len(vals), usadas, por_mes
 
 
+def grupos_da_tabela():
+    """Grupos que ja tem tabela de precos (tabelas.json, gerado a partir dos PDFs)."""
+    try:
+        with open("tabelas.json", encoding="utf-8") as f:
+            return [str(g) for g in json.load(f).get("grupos", {})]
+    except Exception:
+        return []
+
+
 def carregar_antigo():
     try:
         with open("medias.json", encoding="utf-8") as f:
@@ -118,9 +133,16 @@ def main():
         print("Sem datas do site (possivel bloqueio temporario). Mantendo medias.json anterior.")
         return
 
+    todos = dict(GRUPOS)
+    for g in grupos_da_tabela():
+        g = g.lstrip("0") or g
+        if g not in todos:
+            todos[g] = {"fixo": FIXOS_PADRAO}
+            print("Grupo NOVO detectado pela tabela:", g, "- buscando a media (lances fixos padrao", FIXOS_PADRAO, ")")
+
     grupos = {}
     algum_novo = False
-    for g, cfg in GRUPOS.items():
+    for g, cfg in todos.items():
         datas = site.get(pad4(g)) or site.get(g) or []
         media, n, usadas, por_mes = media_grupo(g, cfg["fixo"], datas)
         if media is not None:

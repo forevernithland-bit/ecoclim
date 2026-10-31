@@ -45,6 +45,15 @@ def detectar_grupo(fname):
     for g in sorted(GRUPOS, key=len, reverse=True):
         if re.search(r'(?<!\d)' + g + r'(?!\d)', base):
             return g
+    # Grupo NOVO (fora da lista acima): usa o numero de 3-4 digitos do nome do arquivo.
+    # Ignora numeros que sao ANO (2024 a 2035); se o nome tiver "grupo N", esse vale.
+    m = re.search(r'grupo\s*0*(\d{3,4})(?!\d)', base, re.I)
+    if m:
+        return m.group(1)
+    for n in re.findall(r'(?<!\d)(\d{3,4})(?!\d)', base):
+        if 2024 <= int(n) <= 2035:
+            continue
+        return n.lstrip("0") or n
     return None
 
 
