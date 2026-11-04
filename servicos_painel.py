@@ -1246,7 +1246,22 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                     c_venc.caption("Sem vencimento — marcado como pago à vista.")
                     novo_venc_boleto = None
                 else:
-                    novo_venc_boleto = c_venc.date_input("Vencimento Boleto (Cliente)", value=venc_boleto_inicial, format="DD/MM/YYYY", key=f"venc_bol_{prefix_key}")
+                    # ACHADO 2026-11-04 (Leo Alves): se o campo já tinha sido desenhado
+                    # VAZIO nesta sessão (antes do boleto do fornecedor ser importado), a
+                    # chave dele fica guardada como None e o Streamlit passa a ignorar o
+                    # `value=` — a data do boleto nunca aparecia, e o "SALVAR PROJETO"
+                    # gravava None por cima do vencimento. Então a data é posta direto na
+                    # chave ANTES de desenhar o campo. Só preenche campo vazio, e uma vez
+                    # por data (`venc_auto_`), pra quem apagou de propósito não ver voltar.
+                    _k_venc, _k_auto = f"venc_bol_{prefix_key}", f"venc_auto_{prefix_key}"
+                    _pendente = st.session_state.pop(f"venc_pend_{prefix_key}", None)
+                    if st.session_state.get(_k_venc) is None:
+                        if _pendente:
+                            st.session_state[_k_venc] = _pendente
+                        elif venc_boleto_inicial is not None and st.session_state.get(_k_auto) != venc_boleto_inicial:
+                            st.session_state[_k_venc] = venc_boleto_inicial
+                            st.session_state[_k_auto] = venc_boleto_inicial
+                    novo_venc_boleto = c_venc.date_input("Vencimento Boleto (Cliente)", value=None, format="DD/MM/YYYY", key=_k_venc)
 
                 with st.container(border=True):
                     st.markdown("##### 📥 Importar Boleto de Fornecedor (PDF)")
@@ -1305,10 +1320,14 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                             # injetar dado novo vindo de fora da grade.
                             if venc_ext and not pago_avista and novo_venc_boleto is None:
                                 try:
-                                    st.session_state[f"venc_bol_{prefix_key}"] = datetime.datetime.strptime(venc_ext, "%d/%m/%Y").date()
-                                    st.rerun()
+                                    # a chave do campo já foi desenhada acima: não dá pra mexer
+                                    # nela daqui (erro engolido pelo except); vai por "pendente"
+                                    # e o campo se preenche no redesenho.
+                                    st.session_state[f"venc_pend_{prefix_key}"] = datetime.datetime.strptime(venc_ext, "%d/%m/%Y").date()
                                 except Exception:
                                     pass
+                                else:
+                                    st.rerun()
 
                         dados_ext = st.session_state[f"dados_bol_{prefix_key}"]
                     

@@ -976,10 +976,24 @@ def renderizar():
     
     df['Data de término'] = df.apply(descobrir_data_termino, axis=1)
 
+    # Boleto de fornecedor já importado em PDF: se a coluna `vencimento_boleto` do serviço
+    # estiver vazia (foi apagada ao salvar o projeto — caso Leo Alves, 2026-11-04), a lista
+    # usa o vencimento mais próximo do boleto ainda não pago, em vez de mostrar em branco.
+    venc_boleto_importado = {}
+    try:
+        for _b in (supabase.table('boletos_fornecedores').select('servico_id,vencimento,status').execute().data or []):
+            _sid, _v = _b.get('servico_id'), _b.get('vencimento')
+            if _sid and _v and str(_b.get('status')) != 'Pago' and (_sid not in venc_boleto_importado or _v < venc_boleto_importado[_sid]):
+                venc_boleto_importado[_sid] = _v
+    except Exception:
+        pass
+
     def descobrir_venc_fornecedor(row):
         if bool(row.get('pago_avista_fornecedor', False)):
             return "✅ PAGO À VISTA"
         venc = row.get('vencimento_boleto')
+        if not (pd.notna(venc) and str(venc).strip().lower() not in ['none', 'nan', 'nat', '']):
+            venc = venc_boleto_importado.get(row.get('id'))
         if pd.notna(venc) and str(venc).strip().lower() not in ['none', 'nan', 'nat', '']:
             try: return pd.to_datetime(venc).strftime('%d/%m/%Y')
             except: return str(venc)
