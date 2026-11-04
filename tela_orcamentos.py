@@ -7,6 +7,7 @@ import math
 import orcamento_personalizado
 import orcamento_lote
 import orcamento_rapido
+import orcamento_importar
 import materiais_hid
 
 @st.dialog("💡 Calculadoras de Dimensionamento e Lembretes")
@@ -212,6 +213,8 @@ def renderizar():
     
     import estilo
     estilo.cabecalho("📝", "Orçamentos", "Personalizado, em lote, rápido e listas de materiais hidráulicos.", eyebrow="Comercial")
+    # Arrastar um PDF já enviado: acha se está salvo ou importa/manda pra Em Andamento.
+    orcamento_importar.renderizar(lista_nomes_produtos, cat_produtos, limpar_tela_orcamento)
     aba_personalizado, aba_lote, aba_rapido, aba_materiais_hid = st.tabs(["📝 Orçamento Personalizado", "📦 Gerador em Lote (Tabelas)", "⚡ Orçamento Rápido", "🧰 MATERIAIS HID"])
 
     # Roteador chamando as abas separadas em arquivos
