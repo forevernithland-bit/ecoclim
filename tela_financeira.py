@@ -64,6 +64,16 @@ def carregar_dados_fin(nome_tabela, lista_contas, ano):
         for col in colunas_ordenadas:
             if col not in df_banco.columns: df_banco[col] = 0.0 if col != "MESES" else ""
         
+        # Conta repetida no mesmo ano (2026-11-06: fin_patrimonio 2026 ficou com
+        # as 7 contas em dobro, ids 1816-1822 e 1823-1829, provável gravação
+        # dupla). Com duas linhas "INVESTIMENTO XP" o `.loc[conta]` devolve uma
+        # tabela em vez de número e a aba Resumo quebrava com TypeError no "%
+        # RETORNO MÊS". Fica só a linha mais nova (maior id); o próximo GRAVAR
+        # já apaga as repetidas, porque substituir_seguro remove todos os ids
+        # antigos daquele ano+conta.
+        if 'id' in df_banco.columns:
+            df_banco = df_banco.sort_values('id')
+        df_banco = df_banco.drop_duplicates(subset='MESES', keep='last')
         df_banco = df_banco[df_banco['MESES'].isin(lista_contas)]
         df_banco['MESES'] = pd.Categorical(df_banco['MESES'], categories=lista_contas, ordered=True)
         return df_banco.sort_values('MESES')[colunas_ordenadas].reset_index(drop=True)
@@ -378,6 +388,9 @@ def limpar_e_garantir_linhas(df, lista_contas):
             df = pd.concat([df, pd.DataFrame([{"MESES": c, **{m: 0.0 for m in utils.meses_pt}}])], ignore_index=True)
             
     df = df[df['MESES'].isin(lista_contas)]
+    # Uma linha por conta, sempre (ver carregar_dados_fin): conta repetida
+    # quebra os cálculos que fazem df.loc[conta].
+    df = df.drop_duplicates(subset='MESES', keep='last')
     df['MESES'] = pd.Categorical(df['MESES'], categories=lista_contas, ordered=True)
     return df.sort_values('MESES').reset_index(drop=True)
 
