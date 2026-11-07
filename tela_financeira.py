@@ -731,7 +731,15 @@ def renderizar():
         st.session_state.ano_dados_atual = ano_selecionado
         st.session_state.forcar_reload_fin = False
 
-    df_p_prev = carregar_dados_fin('fin_patrimonio', contas_p, ano_selecionado - 1).set_index('MESES')
+    # Sessão aberta antes da correção de 2026-11-06 ainda pode ter a conta
+    # repetida guardada na memória da tela: limpa aqui também (só quando há
+    # repetida, pra não redesenhar a grade à toa).
+    if st.session_state.db_df_p['MESES'].astype(str).duplicated().any():
+        st.session_state.db_df_p = limpar_e_garantir_linhas(st.session_state.db_df_p, contas_p)
+    if st.session_state.db_df_e['MESES'].astype(str).duplicated().any():
+        st.session_state.db_df_e = limpar_e_garantir_linhas(st.session_state.db_df_e, contas_e)
+
+    df_p_prev =carregar_dados_fin('fin_patrimonio', contas_p, ano_selecionado - 1).set_index('MESES')
     pat_liq_prev_dec = df_p_prev.loc[df_p_prev.index.isin(['CAPITAL DE GIRO (ML)', 'CAPITAL DE GIRO CONSOR (ITAU)', 'INVESTIMENTO INTER', 'INVESTIMENTO ITAU', 'INVESTIMENTO XP', 'FGTS']), 'DEZEMBRO'].sum()
     pat_tot_prev_dec = pat_liq_prev_dec + df_p_prev.loc[df_p_prev.index.isin(['IMÓVEIS', 'VEÍCULOS']), 'DEZEMBRO'].sum()
     xp_prev_dec = df_p_prev.loc['INVESTIMENTO XP', 'DEZEMBRO'] if 'INVESTIMENTO XP' in df_p_prev.index else 0
