@@ -34,6 +34,44 @@ def renderizar():
 
     tabs = st.tabs(["🛒 Produtos", "🛠️ Serviços", "🤝 Outros / Terceiros", "📊 Taxas", "📦 Kits em Lote", "👷‍♂️ Instaladores", "🛡️ Backup e Lixeira"], key="cfg_abas", on_change="rerun")
     
+    def _aplicar_regra_selic(mostrar):
+        """Recalcula o preço dos equipamentos pela regra da Selic (preco_selic.py)
+        e manda pro Gestão Click. Nunca derruba o salvamento que já aconteceu."""
+        try:
+            import preco_selic
+            sb = utils.get_supabase_client()
+            aj, info, erros = preco_selic.reajustar(
+                sb, sync=lambda l: gestao_click.garantir_produto(sb, l, tabela="catalogo_produtos"))
+            utils.load_catalog.clear()
+            if mostrar:
+                st.success(f"Selic {info['selic']:g}% → margem líquida-alvo {info['alvo_pct']:g}%. {len(aj)} preço(s) ajustado(s).")
+                if erros:
+                    st.warning("Não sincronizaram com o Gestão Click agora: " + "; ".join(erros))
+            return aj
+        except Exception as e:
+            if mostrar:
+                st.error(f"Não consegui recalcular agora: {e}")
+            return []
+
+    def _bloco_regra_selic():
+        try:
+            import preco_selic
+            cfg = preco_selic.ler_config(utils.get_supabase_client())
+        except Exception:
+            return
+        selic = cfg.get("selic")
+        if not selic:
+            return
+        alvo = float(selic) + float(cfg["spread"])
+        with st.container(border=True):
+            st.markdown(f"📈 **Preço dos equipamentos segue a Selic:** Selic **{float(selic):g}%**"
+                        + (f" + {float(cfg['spread']):g}" if float(cfg['spread']) else "") +
+                        f" → **{alvo:g}% de margem líquida** (já descontando NF, cartão em até 3x e instalação).")
+            st.caption("Recalculado sozinho ao abrir o ERP, ao gravar custos aqui e ao atualizar a tabela do fornecedor. "
+                       "Não mexe nos materiais hidráulicos. Preço digitado à mão acima da regra é respeitado.")
+            if st.button("🔄 Recalcular preços agora", key="btn_regra_selic"):
+                _aplicar_regra_selic(True)
+
     def _bloco_itens_ocultos():
         """Esconde das listas de escolha (orçamento, serviços, kits, busca) os
         equipamentos sem estoque — continuam no catálogo e nos clientes que já os têm."""
@@ -369,10 +407,14 @@ def renderizar():
             # itens — limpa o cache de leitura de novo pra tela mostrar já o
             # código do Gestão Click (o save_catalog lá em cima já tinha
             # limpado uma vez, mas isso foi ANTES do sync).
+            if nome_tabela in ('catalogo_produtos', 'catalogo_servicos'):
+                # Custo/instalação mudou: preço do equipamento acompanha a regra da Selic.
+                _aplicar_regra_selic(False)
             utils.load_catalog.clear()
             st.rerun()
 
     with tabs[0]:
+        _bloco_regra_selic()
         exibir_aba_catalogo('catalogo_produtos', 'Produtos')
         _bloco_itens_ocultos()
     with tabs[1]: exibir_aba_catalogo('catalogo_servicos', 'Serviços')

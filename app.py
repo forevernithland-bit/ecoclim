@@ -493,6 +493,21 @@ else:
         except Exception:
             pass
 
+    # Preço dos equipamentos amarrado à Selic (1x por sessão — ver preco_selic.py).
+    if perfil == "Admin" and not st.session_state.get("_selic_checada"):
+        st.session_state["_selic_checada"] = True
+        try:
+            import preco_selic
+            import gestao_click as _gc
+            _sb_selic = st.session_state.supabase
+            _aj, _info, _ = preco_selic.reajustar(
+                _sb_selic, sync=lambda l: _gc.garantir_produto(_sb_selic, l, tabela="catalogo_produtos"))
+            if _aj:
+                utils.load_catalog.clear()
+                st.toast(f"Preços dos equipamentos recalculados (Selic {_info['selic']:g}%): {len(_aj)} item(ns).", icon="📈")
+        except Exception:
+            pass
+
     with st.sidebar:
         # --- Ícone de Lembretes: bem no topo, discreto, só Admin. Abre um
         #     diálogo (não é item de menu, de propósito). ---
