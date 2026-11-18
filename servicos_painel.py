@@ -743,8 +743,21 @@ def exibir_painel_detalhado(projeto_selecionado, supabase, df_taxas_config, df_p
                             if "NOTA FISCAL" in str(t_row.get('Item', '')).upper() or "NF" in str(t_row.get('Item', '')).upper():
                                 taxa_nf_pct = safe_float(t_row.get('Taxa (%)'))
                                 break
-                    valor_nf = venda_final * (taxa_nf_pct / 100)
-                    f_col2.caption(f"Imposto ({taxa_nf_pct}%): - {utils.to_br_currency(valor_nf)}")
+                    # Nota só sobre PARTE da venda (pedido do Breno, 2026-11-18:
+                    # Marcilio pagou metade no PIX sem nota e metade no cartão
+                    # com nota). Sem coluna nova: a base salva sai de
+                    # custo_impostos ÷ taxa. Se a base salva era a venda inteira
+                    # (caso comum), acompanha o "Valor da Venda" atual.
+                    _imp_salvo = safe_float(projeto_selecionado.get('custo_impostos'))
+                    _venda_salva = safe_float(projeto_selecionado.get('valor_venda_total'))
+                    _base_salva = round(_imp_salvo / (taxa_nf_pct / 100), 2) if taxa_nf_pct > 0 and _imp_salvo > 0 else 0.0
+                    if _base_salva <= 0 or abs(_base_salva - _venda_salva) < 0.05 or _base_salva > venda_final:
+                        _base_salva = venda_final
+                    base_nf = f_col2.number_input("Valor da nota (R$)", value=float(_base_salva), min_value=0.0, format="%.2f", step=None,
+                                                  key=f"nfbase_{prefix_key}",
+                                                  help="Quanto da venda vai na nota. Ex.: metade no PIX sem nota e metade no cartão com nota: coloque só a parte do cartão.")
+                    valor_nf = base_nf * (taxa_nf_pct / 100)
+                    f_col2.caption(f"Imposto ({taxa_nf_pct:g}% sobre {utils.to_br_currency(base_nf)}): - {utils.to_br_currency(valor_nf)}")
                 else:
                     f_col2.caption("&nbsp;", unsafe_allow_html=True)
 
